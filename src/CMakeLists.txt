@@ -36,6 +36,8 @@ add_library(
   STATIC
   camera/api/include/lumora/camera/CameraTypes.hpp
   camera/api/include/lumora/camera/CameraConfigurationValidator.hpp
+  camera/api/include/lumora/camera/ICameraDevice.hpp
+  camera/api/include/lumora/camera/ICameraProvider.hpp
   camera/api/src/CameraConfigurationValidator.cpp
 )
 add_library(lumora::camera_api ALIAS lumora_camera_api)

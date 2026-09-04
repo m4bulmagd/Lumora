@@ -76,6 +76,7 @@ add_test(
 add_executable(
   lumora_camera_api_tests
   unit/camera/CameraConfigurationValidatorTests.cpp
+  unit/camera/CameraContractTests.cpp
 )
 
 target_link_libraries(
@@ -85,7 +86,8 @@ target_link_libraries(
     GTest::gtest_main
 )
 lumora_enable_warnings(lumora_camera_api_tests)
-add_test(NAME CameraConfiguration COMMAND lumora_camera_api_tests)
+add_test(NAME CameraConfiguration COMMAND lumora_camera_api_tests --gtest_filter=CameraConfigurationValidator.*)
+add_test(NAME CameraContract COMMAND lumora_camera_api_tests --gtest_filter=CameraContract.*)
 
 add_executable(
   lumora_diagnostics_tests
