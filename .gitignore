@@ -1,1 +1,19 @@
 .worktrees/
+.tools/
+
+# CMake and local preset overrides
+out/
+vcpkg_installed/
+CMakeUserPresets.json
+
+# Runtime data must never be committed
+logs/
+config/
+captures/
+hardware-profiles/
+
+# Test-generated artifacts
+Testing/
+test-results/
+*.log
+*.tmp

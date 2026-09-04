@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "lumora",
+  "version-semver": "0.1.0",
+  "builtin-baseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4",
+  "dependencies": [
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "features": ["widgets"]
+    },
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": ["jpeg", "png"]
+    },
+    "gtest",
+    {
+      "name": "spdlog",
+      "default-features": false,
+      "features": ["fmt"]
+    }
+  ],
+  "overrides": [
+    { "name": "qtbase", "version": "6.11.1", "port-version": 1 },
+    { "name": "opencv4", "version": "4.12.0", "port-version": 9 },
+    { "name": "gtest", "version-semver": "1.18.0" },
+    { "name": "spdlog", "version-semver": "1.17.0", "port-version": 1 }
+  ]
+}

@@ -1,0 +1,8 @@
+Lumora
+Copyright 2026 Lumora contributors
+
+This product includes third-party software. Each dependency retains its own
+copyright and license terms. Distribution bundles must include the notices
+required by Qt, OpenCV, GoogleTest, spdlog, and their transitive dependencies.
+
+Lumora evaluation builds are not medical devices and are not for clinical use.

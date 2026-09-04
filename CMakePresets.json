@@ -1,0 +1,155 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "linux-gcc-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "LUMORA_BUILD_TESTS": "ON",
+        "LUMORA_BUILD_BENCHMARKS": "OFF",
+        "LUMORA_ENABLE_BASLER": "OFF",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed",
+        "VCPKG_MANIFEST_FEATURES": ""
+      }
+    },
+    {
+      "name": "linux-gcc-debug-sim",
+      "displayName": "Linux GCC Debug (simulator)",
+      "inherits": "linux-gcc-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-gcc-release-sim",
+      "displayName": "Linux GCC Release (simulator)",
+      "inherits": "linux-gcc-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "windows-msvc-base",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "LUMORA_BUILD_TESTS": "ON",
+        "LUMORA_BUILD_BENCHMARKS": "OFF",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed"
+      }
+    },
+    {
+      "name": "windows-msvc-debug-sim",
+      "displayName": "Windows MSVC Debug (simulator)",
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "LUMORA_ENABLE_BASLER": "OFF"
+      }
+    },
+    {
+      "name": "windows-msvc-release-sim",
+      "displayName": "Windows MSVC Release (simulator)",
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "LUMORA_ENABLE_BASLER": "OFF"
+      }
+    },
+    {
+      "name": "windows-msvc-debug-basler",
+      "displayName": "Windows MSVC Debug (Basler)",
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "LUMORA_ENABLE_BASLER": "ON"
+      }
+    },
+    {
+      "name": "windows-msvc-release-basler",
+      "displayName": "Windows MSVC Release (Basler)",
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "LUMORA_ENABLE_BASLER": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "linux-gcc-debug-sim",
+      "configurePreset": "linux-gcc-debug-sim"
+    },
+    {
+      "name": "linux-gcc-release-sim",
+      "configurePreset": "linux-gcc-release-sim"
+    },
+    {
+      "name": "windows-msvc-debug-sim",
+      "configurePreset": "windows-msvc-debug-sim",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-release-sim",
+      "configurePreset": "windows-msvc-release-sim",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-msvc-debug-basler",
+      "configurePreset": "windows-msvc-debug-basler",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-release-basler",
+      "configurePreset": "windows-msvc-release-basler",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-gcc-debug-sim",
+      "configurePreset": "linux-gcc-debug-sim",
+      "output": { "outputOnFailure": true },
+      "environment": { "QT_QPA_PLATFORM": "offscreen" }
+    },
+    {
+      "name": "linux-gcc-release-sim",
+      "configurePreset": "linux-gcc-release-sim",
+      "output": { "outputOnFailure": true },
+      "environment": { "QT_QPA_PLATFORM": "offscreen" }
+    },
+    {
+      "name": "windows-msvc-debug-sim",
+      "configurePreset": "windows-msvc-debug-sim",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true },
+      "environment": { "QT_QPA_PLATFORM": "offscreen" }
+    },
+    {
+      "name": "windows-msvc-release-sim",
+      "configurePreset": "windows-msvc-release-sim",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true },
+      "environment": { "QT_QPA_PLATFORM": "offscreen" }
+    },
+    {
+      "name": "windows-msvc-debug-basler",
+      "configurePreset": "windows-msvc-debug-basler",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-msvc-release-basler",
+      "configurePreset": "windows-msvc-release-basler",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
