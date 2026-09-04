@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
 #include <future>
 #include <stop_token>
@@ -144,6 +145,58 @@ TEST(ManualClock, ExtremeFiniteRealElapsedBoundRemainsCancellable) {
 
     EXPECT_EQ(outcome, ClockWaitOutcome::Cancelled);
     EXPECT_LT(std::chrono::steady_clock::now() - before, 100ms);
+}
+
+TEST(ManualClock, PreCancellationWinsForNonPositiveMaximumWaits) {
+    const std::array maximumWaits{0ms, -1ms};
+
+    for (const auto maximumWait : maximumWaits) {
+        ManualClock clock;
+        std::stop_source stopSource;
+        stopSource.request_stop();
+
+        const auto outcome = clock.waitUntil(
+            std::chrono::steady_clock::time_point{100ms},
+            stopSource.get_token(),
+            maximumWait);
+
+        EXPECT_EQ(outcome, ClockWaitOutcome::Cancelled);
+    }
+}
+
+TEST(SystemClock, PreCancellationWinsForNonPositiveMaximumWaits) {
+    const SystemClock clock;
+    std::stop_source stopSource;
+    stopSource.request_stop();
+
+    for (const auto maximumWait : std::array{0ms, -1ms}) {
+        const auto outcome = clock.waitUntil(
+            std::chrono::steady_clock::now() + 1s,
+            stopSource.get_token(),
+            maximumWait);
+
+        EXPECT_EQ(outcome, ClockWaitOutcome::Cancelled);
+    }
+}
+
+TEST(Clock, SatisfiedDeadlinePrecedesPreCancellation) {
+    ManualClock manualClock;
+    const SystemClock systemClock;
+    std::stop_source stopSource;
+    stopSource.request_stop();
+
+    EXPECT_EQ(
+        manualClock.waitUntil(
+            std::chrono::steady_clock::time_point::min(),
+            stopSource.get_token(),
+            -1ms),
+        ClockWaitOutcome::DeadlineReached);
+    EXPECT_EQ(
+        systemClock.waitUntil(
+            std::chrono::steady_clock::time_point::min(),
+            stopSource.get_token(),
+            -1ms),
+        ClockWaitOutcome::DeadlineReached);
 }
 
 }  // namespace

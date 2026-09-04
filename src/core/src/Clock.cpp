@@ -34,6 +34,9 @@ ClockWaitOutcome SystemClock::waitUntil(
     if (now >= deadline) {
         return ClockWaitOutcome::DeadlineReached;
     }
+    if (stopToken.stop_requested()) {
+        return ClockWaitOutcome::Cancelled;
+    }
 
     std::condition_variable_any deadlineReached;
     std::mutex mutex;
@@ -81,6 +84,9 @@ ClockWaitOutcome ManualClock::waitUntil(
     const auto reached = [this, deadline] { return steadyTime_ >= deadline; };
     if (reached()) {
         return ClockWaitOutcome::DeadlineReached;
+    }
+    if (stopToken.stop_requested()) {
+        return ClockWaitOutcome::Cancelled;
     }
 
     if (maximumRealWait == std::chrono::milliseconds::max()) {
