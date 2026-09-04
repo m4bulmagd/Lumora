@@ -18,7 +18,7 @@ This matrix starts the evidence chain for the approved evaluation architecture. 
 | `Logging` | Writable rotating log; startup/shutdown; version and release class; typed path failure | `lumora_diagnostics_tests` |
 | `ConfigurationStore` | Defaults, schema validation, round-trip, corrupt-file preservation, atomic-save failures, Unicode paths | `lumora_configuration_tests` |
 | Configure-time target contract | Required M1 targets exist; Basler target cannot appear when disabled | `lumora_verify_milestone_one_targets()` |
-| Linux release simulator CI | Pinned dependencies, pylon-off Release configure/build/test | `Linux Simulator / Linux GCC Release Simulator` |
-| Windows release simulator CI | Native MSVC Release configure/build/test without pylon | `Windows Simulator / Windows MSVC Release Simulator` |
+| Linux simulator CI | Pinned dependencies, pylon-off Debug and Release configure/build/test | `Linux Simulator / Linux GCC Debug and Release Simulator` |
+| Windows simulator CI | Native MSVC Debug and Release configure/build/test without pylon | `Windows Simulator / Windows MSVC Debug and Release Simulator` |
 
 No row in this file represents clinical validation, regulatory evidence, or authorization for diagnostic use.

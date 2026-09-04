@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   simulator-release:
-    name: Windows MSVC Release Simulator
+    name: Windows MSVC Debug and Release Simulator
     runs-on: windows-2022
     timeout-minutes: 90
 
@@ -28,12 +28,22 @@ jobs:
           vcpkgJsonGlob: '**/vcpkg.json'
           doNotCache: false
 
+      - name: Configure Debug simulator without pylon
+        shell: pwsh
+        run: cmake --preset windows-msvc-debug-sim --fresh "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build Debug targets
+        run: cmake --build --preset windows-msvc-debug-sim --parallel
+
+      - name: Test Debug without hardware
+        run: ctest --preset windows-msvc-debug-sim --output-on-failure -LE hardware
+
       - name: Configure Release simulator without pylon
         shell: pwsh
         run: cmake --preset windows-msvc-release-sim --fresh "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 
-      - name: Build all targets
+      - name: Build Release targets
         run: cmake --build --preset windows-msvc-release-sim --parallel
 
-      - name: Test without hardware
+      - name: Test Release without hardware
         run: ctest --preset windows-msvc-release-sim --output-on-failure -LE hardware

@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   simulator-release:
-    name: Linux GCC Release Simulator
+    name: Linux GCC Debug and Release Simulator
     runs-on: ubuntu-24.04
     timeout-minutes: 90
 
@@ -28,11 +28,20 @@ jobs:
           vcpkgJsonGlob: '**/vcpkg.json'
           doNotCache: false
 
+      - name: Configure Debug simulator without pylon
+        run: cmake --preset linux-gcc-debug-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build Debug targets
+        run: cmake --build --preset linux-gcc-debug-sim --parallel
+
+      - name: Test Debug without hardware
+        run: ctest --preset linux-gcc-debug-sim --output-on-failure -LE hardware
+
       - name: Configure Release simulator without pylon
         run: cmake --preset linux-gcc-release-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 
-      - name: Build all targets
+      - name: Build Release targets
         run: cmake --build --preset linux-gcc-release-sim --parallel
 
-      - name: Test without hardware
+      - name: Test Release without hardware
         run: ctest --preset linux-gcc-release-sim --output-on-failure -LE hardware

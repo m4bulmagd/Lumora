@@ -327,7 +327,7 @@ Include supported architectures, GCC and Visual Studio prerequisites, vcpkg boot
 
 - [ ] **Step 2: Add Linux and Windows CI workflows**
 
-The workflows must configure the respective `linux-gcc-release-sim` and `windows-msvc-release-sim` presets, build all targets, and run CTest with `-LE hardware`. Dependency acquisition uses the pinned manifest and binary cache. Both jobs are required checks.
+Each required operating-system workflow must configure both of its simulator presets (`linux-gcc-debug-sim` and `linux-gcc-release-sim`, or `windows-msvc-debug-sim` and `windows-msvc-release-sim`), build all targets, and run CTest with `-LE hardware`. Dependency acquisition uses the pinned manifest and binary cache. Both operating-system jobs are required checks.
 
 - [ ] **Step 3: Seed traceability**
 
