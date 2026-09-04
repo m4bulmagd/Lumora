@@ -213,11 +213,20 @@ TEST(DisplayFrame, ValidatesStorageAndDisplayMapping) {
         DisplayStorage::Gray8,
         DisplayMapping{100U, 99U, 255U, 1U},
         Orientation{false, false, Rotation::Degrees0});
+    const auto unknownStorage = DisplayFrame::create(
+        1U,
+        layout(4U, 3U, StorageType::UInt8),
+        bufferOfSize(12U),
+        static_cast<DisplayStorage>(99),
+        DisplayMapping{0U, 65'535U, 255U, 1U},
+        Orientation{false, false, Rotation::Degrees0});
 
     ASSERT_FALSE(storageMismatch.hasValue());
     EXPECT_EQ(storageMismatch.error().code, "display_storage_mismatch");
     ASSERT_FALSE(invalidMapping.hasValue());
     EXPECT_EQ(invalidMapping.error().code, "invalid_display_mapping");
+    ASSERT_FALSE(unknownStorage.hasValue());
+    EXPECT_EQ(unknownStorage.error().code, "unsupported_display_storage");
 }
 
 TEST(FrameBundle, RejectsMismatchedFrameIds) {
@@ -263,6 +272,9 @@ TEST(FrameBundle, ValidatesRotatedDimensionsAndSharedOrientation) {
     ASSERT_FALSE(wrongEnhancedOrientation.hasValue());
     EXPECT_EQ(wrongEnhancedOrientation.error().code, "presentation_orientation_mismatch");
     ASSERT_TRUE(valid.hasValue());
+    EXPECT_EQ(valid.value()->sourceFrameId(), 51U);
+    EXPECT_EQ(valid.value()->enhanced->sourceFrameId, 51U);
+    EXPECT_EQ(valid.value()->enhancedDisplay->sourceFrameId, 51U);
 }
 
 TEST(FrameBundle, ConstructionCannotMutateRawPixels) {

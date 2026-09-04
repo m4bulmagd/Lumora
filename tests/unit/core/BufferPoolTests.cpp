@@ -93,6 +93,7 @@ TEST(SharedBuffer, SealingPublishesConstBytesUntilFinalCopyIsReleased) {
     lease->bytes()[3] = std::byte{0x44};
 
     SharedBuffer sealed = std::move(*lease).seal();
+    EXPECT_TRUE(lease->bytes().empty());
     lease.reset();
     EXPECT_EQ(sealed.bytes()[0], std::byte{0x11});
     EXPECT_EQ(sealed.bytes()[3], std::byte{0x44});
@@ -108,6 +109,24 @@ TEST(SharedBuffer, SealingPublishesConstBytesUntilFinalCopyIsReleased) {
 
     EXPECT_EQ(pool->stats().inUse, 0U);
     EXPECT_TRUE(pool->tryAcquire().has_value());
+}
+
+TEST(BufferPool, EveryBlockIsSuitablyAlignedForTypedImageSamples) {
+    auto result = BufferPool::create(3U, 3U);
+    ASSERT_TRUE(result.hasValue());
+    auto pool = std::move(result).value();
+
+    auto first = pool->tryAcquire();
+    auto second = pool->tryAcquire();
+    auto third = pool->tryAcquire();
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+    ASSERT_TRUE(third.has_value());
+
+    for (const auto address : {
+             first->bytes().data(), second->bytes().data(), third->bytes().data()}) {
+        EXPECT_EQ(reinterpret_cast<std::uintptr_t>(address) % alignof(std::max_align_t), 0U);
+    }
 }
 
 TEST(BufferPool, SealedBufferSafelyOutlivesPublicPoolHandle) {

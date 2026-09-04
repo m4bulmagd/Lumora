@@ -31,6 +31,9 @@ public:
     WritableBufferLease& operator=(WritableBufferLease&& other) noexcept;
     ~WritableBufferLease();
 
+    // The returned view is borrowed and is valid only until this lease is
+    // moved, sealed, or destroyed. Retaining it beyond that boundary violates
+    // the lease contract.
     [[nodiscard]] std::span<std::byte> bytes() noexcept;
     [[nodiscard]] SharedBuffer seal() && noexcept;
 

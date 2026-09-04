@@ -76,7 +76,7 @@ private:
 };
 
 struct ProcessedFrame final {
-    const std::uint64_t frameId;
+    const std::uint64_t sourceFrameId;
     const ImageLayout layout;
     const SharedBuffer pixels;
     const PipelineVersion pipelineVersion;
@@ -99,7 +99,7 @@ private:
 };
 
 struct DisplayFrame final {
-    const std::uint64_t frameId;
+    const std::uint64_t sourceFrameId;
     const ImageLayout layout;
     const SharedBuffer pixels;
     const DisplayStorage storage;
@@ -127,20 +127,22 @@ private:
 struct FrameBundle final {
     const std::shared_ptr<const RawFrame> raw;
     const std::shared_ptr<const DisplayFrame> originalDisplay;
-    const std::shared_ptr<const ProcessedFrame> processed;
+    const std::shared_ptr<const ProcessedFrame> enhanced;
     const std::shared_ptr<const DisplayFrame> enhancedDisplay;
 
     [[nodiscard]] static Result<std::shared_ptr<const FrameBundle>> create(
         std::shared_ptr<const RawFrame> raw,
         std::shared_ptr<const DisplayFrame> originalDisplay,
-        std::shared_ptr<const ProcessedFrame> processed,
+        std::shared_ptr<const ProcessedFrame> enhanced,
         std::shared_ptr<const DisplayFrame> enhancedDisplay);
+
+    [[nodiscard]] std::uint64_t sourceFrameId() const noexcept;
 
 private:
     FrameBundle(
         std::shared_ptr<const RawFrame> raw,
         std::shared_ptr<const DisplayFrame> originalDisplay,
-        std::shared_ptr<const ProcessedFrame> processed,
+        std::shared_ptr<const ProcessedFrame> enhanced,
         std::shared_ptr<const DisplayFrame> enhancedDisplay);
 };
 

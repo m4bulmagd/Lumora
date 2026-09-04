@@ -2,10 +2,10 @@
 
 #include <lumora/core/CheckedMath.hpp>
 #include <lumora/core/Error.hpp>
-#include <lumora/core/FrameMetadata.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -22,24 +22,39 @@ namespace {
     };
 }
 
-[[nodiscard]] constexpr std::size_t bytesPerPixel(StorageType storage) noexcept {
+struct StorageTraits final {
+    std::size_t bytesPerPixel;
+    std::uint8_t bits;
+};
+
+[[nodiscard]] constexpr std::optional<StorageTraits> storageTraits(
+    StorageType storage) noexcept {
     switch (storage) {
     case StorageType::UInt8:
-        return 1U;
+        return StorageTraits{1U, 8U};
     case StorageType::UInt16:
-        return 2U;
+        return StorageTraits{2U, 16U};
     }
-    return 0U;
+    return std::nullopt;
 }
 
-[[nodiscard]] constexpr std::uint8_t storageBits(StorageType storage) noexcept {
-    switch (storage) {
-    case StorageType::UInt8:
-        return 8U;
-    case StorageType::UInt16:
-        return 16U;
+[[nodiscard]] constexpr bool isSupportedPacking(SourcePacking packing) noexcept {
+    switch (packing) {
+    case SourcePacking::Unpacked:
+    case SourcePacking::Packed:
+        return true;
     }
-    return 0U;
+    return false;
+}
+
+[[nodiscard]] constexpr bool isSupportedAlignment(
+    BitAlignment alignment) noexcept {
+    switch (alignment) {
+    case BitAlignment::LeastSignificant:
+    case BitAlignment::MostSignificant:
+        return true;
+    }
+    return false;
 }
 
 }  // namespace
@@ -51,13 +66,30 @@ Result<void> validateSourcePixelFormat(const SourcePixelFormat& format) {
             "The source pixel format must have a stable canonical name."));
     }
 
+    const auto traits = storageTraits(format.applicationStorage);
+    if (!traits.has_value()) {
+        return Result<void>::failure(invalidFrameError(
+            "unsupported_storage_type",
+            "The source pixel format declares an unknown application storage type."));
+    }
+    if (!isSupportedPacking(format.packing)) {
+        return Result<void>::failure(invalidFrameError(
+            "unsupported_source_packing",
+            "The source pixel format declares an unknown packing mode."));
+    }
+    if (!isSupportedAlignment(format.alignment)) {
+        return Result<void>::failure(invalidFrameError(
+            "unsupported_bit_alignment",
+            "The source pixel format declares an unknown bit alignment."));
+    }
+
     constexpr std::uint8_t maximumSupportedBits = 16U;
     if (format.validBits == 0U || format.validBits > maximumSupportedBits) {
         return Result<void>::failure(invalidFrameError(
             "invalid_valid_bits",
             "The source pixel format valid-bit count must be between 1 and 16."));
     }
-    if (format.validBits > storageBits(format.applicationStorage)) {
+    if (format.validBits > traits->bits) {
         return Result<void>::failure(invalidFrameError(
             "valid_bits_exceed_storage",
             "The valid-bit count exceeds the application storage width."));
@@ -90,7 +122,15 @@ Result<ImageLayout> ImageLayout::create(
             "Image width and height must both be greater than zero."));
     }
 
-    const auto rowBytes = checkedMultiply(static_cast<std::size_t>(width), bytesPerPixel(storage));
+    const auto traits = storageTraits(storage);
+    if (!traits.has_value()) {
+        return Result<ImageLayout>::failure(invalidFrameError(
+            "unsupported_storage_type",
+            "The image layout declares an unknown application storage type."));
+    }
+
+    const auto rowBytes = checkedMultiply(
+        static_cast<std::size_t>(width), traits->bytesPerPixel);
     if (!rowBytes.hasValue()) {
         return Result<ImageLayout>::failure(invalidFrameError(
             "layout_size_overflow",
@@ -166,30 +206,6 @@ std::size_t ImageLayout::payloadBytes() const noexcept {
 
 StorageType ImageLayout::storage() const noexcept {
     return storage_;
-}
-
-Result<AcquisitionSettingsSnapshot> AcquisitionSettingsSnapshot::create(
-    CameraIdentity camera,
-    SourcePixelFormat sourceFormat,
-    RegionOfInterest roi,
-    double requestedFps,
-    double actualFps,
-    std::optional<double> exposureMicroseconds,
-    std::optional<double> gainDb) {
-    const auto formatValidation = validateSourcePixelFormat(sourceFormat);
-    if (!formatValidation.hasValue()) {
-        return Result<AcquisitionSettingsSnapshot>::failure(formatValidation.error());
-    }
-
-    return Result<AcquisitionSettingsSnapshot>::success(AcquisitionSettingsSnapshot{
-        std::move(camera),
-        std::move(sourceFormat),
-        roi,
-        requestedFps,
-        actualFps,
-        exposureMicroseconds,
-        gainDb,
-    });
 }
 
 }  // namespace lumora::core

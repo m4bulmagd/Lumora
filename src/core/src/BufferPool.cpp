@@ -39,10 +39,13 @@ public:
     BufferPoolState(
         std::size_t capacity,
         std::size_t bytesPerBuffer,
+        std::size_t blockStride,
         std::size_t totalBytes)
         : capacity_(capacity),
           bytesPerBuffer_(bytesPerBuffer),
-          storage_(totalBytes),
+          blockStride_(blockStride),
+          storage_(static_cast<std::byte*>(::operator new(
+              totalBytes, std::align_val_t{alignof(std::max_align_t)}))),
           sealedReferences_(std::make_unique<std::atomic_size_t[]>(capacity)) {
         freeBlocks_.reserve(capacity_);
         for (std::size_t index = 0U; index < capacity_; ++index) {
@@ -68,13 +71,13 @@ public:
     [[nodiscard]] std::span<std::byte> writableBytes(
         std::size_t blockIndex) noexcept {
         return std::span<std::byte>(
-            storage_.data() + (blockIndex * bytesPerBuffer_), bytesPerBuffer_);
+            storage_.get() + (blockIndex * blockStride_), bytesPerBuffer_);
     }
 
     [[nodiscard]] std::span<const std::byte> immutableBytes(
         std::size_t blockIndex) const noexcept {
         return std::span<const std::byte>(
-            storage_.data() + (blockIndex * bytesPerBuffer_), bytesPerBuffer_);
+            storage_.get() + (blockIndex * blockStride_), bytesPerBuffer_);
     }
 
     void beginSealedOwnership(std::size_t blockIndex) noexcept {
@@ -128,7 +131,14 @@ private:
 
     const std::size_t capacity_;
     const std::size_t bytesPerBuffer_;
-    std::vector<std::byte> storage_;
+    const std::size_t blockStride_;
+    struct AlignedDelete final {
+        void operator()(std::byte* pointer) const noexcept {
+            ::operator delete(
+                pointer, std::align_val_t{alignof(std::max_align_t)});
+        }
+    };
+    std::unique_ptr<std::byte, AlignedDelete> storage_;
     std::unique_ptr<std::atomic_size_t[]> sealedReferences_;
     mutable std::mutex mutex_;
     std::vector<std::size_t> freeBlocks_;
@@ -276,7 +286,17 @@ Result<std::shared_ptr<BufferPool>> BufferPool::create(
             "A buffer-pool block must contain at least one byte."));
     }
 
-    const auto totalBytes = checkedMultiply(capacity, bytesPerBuffer);
+    constexpr auto blockAlignment = alignof(std::max_align_t);
+    const auto remainder = bytesPerBuffer % blockAlignment;
+    const auto padding = remainder == 0U ? 0U : blockAlignment - remainder;
+    const auto blockStride = checkedAdd(bytesPerBuffer, padding);
+    if (!blockStride.hasValue()) {
+        return Result<std::shared_ptr<BufferPool>>::failure(poolError(
+            "buffer_pool_size_overflow",
+            "Aligning the requested block size overflows size_t."));
+    }
+
+    const auto totalBytes = checkedMultiply(capacity, blockStride.value());
     if (!totalBytes.hasValue()) {
         return Result<std::shared_ptr<BufferPool>>::failure(poolError(
             "buffer_pool_size_overflow",
@@ -285,7 +305,7 @@ Result<std::shared_ptr<BufferPool>> BufferPool::create(
 
     try {
         auto state = std::make_shared<detail::BufferPoolState>(
-            capacity, bytesPerBuffer, totalBytes.value());
+            capacity, bytesPerBuffer, blockStride.value(), totalBytes.value());
         return Result<std::shared_ptr<BufferPool>>::success(
             std::shared_ptr<BufferPool>(new BufferPool(std::move(state))));
     } catch (const std::bad_alloc&) {

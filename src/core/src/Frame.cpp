@@ -8,7 +8,9 @@
 #include <cstdint>
 #include <memory>
 #include <new>
+#include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace lumora::core {
@@ -32,6 +34,19 @@ namespace {
         "Allocating immutable frame ownership failed.",
         true,
     };
+}
+
+template<typename FrameType, typename Allocator>
+[[nodiscard]] Result<std::shared_ptr<const FrameType>> allocateImmutable(
+    Allocator&& allocator) {
+    static_assert(std::is_pointer_v<decltype(allocator())>);
+    try {
+        return Result<std::shared_ptr<const FrameType>>::success(
+            std::shared_ptr<const FrameType>(allocator()));
+    } catch (const std::bad_alloc&) {
+        return Result<std::shared_ptr<const FrameType>>::failure(
+            frameAllocationError());
+    }
 }
 
 [[nodiscard]] Result<void> validateBuffer(
@@ -64,24 +79,20 @@ namespace {
     return rotation == Rotation::Degrees90 || rotation == Rotation::Degrees270;
 }
 
-[[nodiscard]] StorageType storageType(DisplayStorage storage) noexcept {
-    switch (storage) {
-    case DisplayStorage::Gray8:
-        return StorageType::UInt8;
-    case DisplayStorage::Gray16:
-        return StorageType::UInt16;
-    }
-    return StorageType::UInt8;
-}
+struct DisplayTraits final {
+    StorageType storage;
+    std::uint16_t maximumOutput;
+};
 
-[[nodiscard]] std::uint16_t maximumOutput(DisplayStorage storage) noexcept {
+[[nodiscard]] std::optional<DisplayTraits> displayTraits(
+    DisplayStorage storage) noexcept {
     switch (storage) {
     case DisplayStorage::Gray8:
-        return 255U;
+        return DisplayTraits{StorageType::UInt8, 255U};
     case DisplayStorage::Gray16:
-        return 65'535U;
+        return DisplayTraits{StorageType::UInt16, 65'535U};
     }
-    return 0U;
+    return std::nullopt;
 }
 
 [[nodiscard]] Result<void> validatePresentationDimensions(
@@ -147,17 +158,13 @@ Result<std::shared_ptr<const RawFrame>> RawFrame::create(
             "The validated frame dimensions differ from the applied camera ROI."));
     }
 
-    try {
-        return Result<std::shared_ptr<const RawFrame>>::success(
-            std::shared_ptr<const RawFrame>(new RawFrame(
-                frameId,
-                std::move(layout),
-                std::move(pixels),
-                std::move(metadata))));
-    } catch (const std::bad_alloc&) {
-        return Result<std::shared_ptr<const RawFrame>>::failure(
-            frameAllocationError());
-    }
+    return allocateImmutable<RawFrame>([&] {
+        return new RawFrame(
+            frameId,
+            std::move(layout),
+            std::move(pixels),
+            std::move(metadata));
+    });
 }
 
 ProcessedFrame::ProcessedFrame(
@@ -166,7 +173,7 @@ ProcessedFrame::ProcessedFrame(
     SharedBuffer pixelsValue,
     PipelineVersion pipelineVersionValue,
     ProcessingTimings timingsValue)
-    : frameId(frameIdValue),
+    : sourceFrameId(frameIdValue),
       layout(std::move(layoutValue)),
       pixels(std::move(pixelsValue)),
       pipelineVersion(pipelineVersionValue),
@@ -216,18 +223,14 @@ Result<std::shared_ptr<const ProcessedFrame>> ProcessedFrame::create(
         }
     }
 
-    try {
-        return Result<std::shared_ptr<const ProcessedFrame>>::success(
-            std::shared_ptr<const ProcessedFrame>(new ProcessedFrame(
-                frameId,
-                std::move(layout),
-                std::move(pixels),
-                pipelineVersion,
-                std::move(timings))));
-    } catch (const std::bad_alloc&) {
-        return Result<std::shared_ptr<const ProcessedFrame>>::failure(
-            frameAllocationError());
-    }
+    return allocateImmutable<ProcessedFrame>([&] {
+        return new ProcessedFrame(
+            frameId,
+            std::move(layout),
+            std::move(pixels),
+            pipelineVersion,
+            std::move(timings));
+    });
 }
 
 DisplayFrame::DisplayFrame(
@@ -237,7 +240,7 @@ DisplayFrame::DisplayFrame(
     DisplayStorage storageValue,
     DisplayMapping mappingValue,
     Orientation presentationOrientationValue)
-    : frameId(frameIdValue),
+    : sourceFrameId(frameIdValue),
       layout(std::move(layoutValue)),
       pixels(std::move(pixelsValue)),
       storage(storageValue),
@@ -256,7 +259,14 @@ Result<std::shared_ptr<const DisplayFrame>> DisplayFrame::create(
         return Result<std::shared_ptr<const DisplayFrame>>::failure(
             bufferValidation.error());
     }
-    if (layout.storage() != storageType(storage)) {
+    const auto traits = displayTraits(storage);
+    if (!traits.has_value()) {
+        return Result<std::shared_ptr<const DisplayFrame>>::failure(
+            invalidFrameError(
+                "unsupported_display_storage",
+                "The display frame declares an unknown storage type."));
+    }
+    if (layout.storage() != traits->storage) {
         return Result<std::shared_ptr<const DisplayFrame>>::failure(
             invalidFrameError(
                 "display_storage_mismatch",
@@ -264,7 +274,7 @@ Result<std::shared_ptr<const DisplayFrame>> DisplayFrame::create(
     }
     if (mapping.inputMinimum >= mapping.inputMaximum ||
         mapping.outputMaximum == 0U ||
-        mapping.outputMaximum > maximumOutput(storage)) {
+        mapping.outputMaximum > traits->maximumOutput) {
         return Result<std::shared_ptr<const DisplayFrame>>::failure(
             invalidFrameError(
                 "invalid_display_mapping",
@@ -277,35 +287,31 @@ Result<std::shared_ptr<const DisplayFrame>> DisplayFrame::create(
                 "Presentation rotation must be 0, 90, 180, or 270 degrees."));
     }
 
-    try {
-        return Result<std::shared_ptr<const DisplayFrame>>::success(
-            std::shared_ptr<const DisplayFrame>(new DisplayFrame(
-                frameId,
-                std::move(layout),
-                std::move(pixels),
-                storage,
-                mapping,
-                presentationOrientation)));
-    } catch (const std::bad_alloc&) {
-        return Result<std::shared_ptr<const DisplayFrame>>::failure(
-            frameAllocationError());
-    }
+    return allocateImmutable<DisplayFrame>([&] {
+        return new DisplayFrame(
+            frameId,
+            std::move(layout),
+            std::move(pixels),
+            storage,
+            mapping,
+            presentationOrientation);
+    });
 }
 
 FrameBundle::FrameBundle(
     std::shared_ptr<const RawFrame> rawValue,
     std::shared_ptr<const DisplayFrame> originalDisplayValue,
-    std::shared_ptr<const ProcessedFrame> processedValue,
+    std::shared_ptr<const ProcessedFrame> enhancedValue,
     std::shared_ptr<const DisplayFrame> enhancedDisplayValue)
     : raw(std::move(rawValue)),
       originalDisplay(std::move(originalDisplayValue)),
-      processed(std::move(processedValue)),
+      enhanced(std::move(enhancedValue)),
       enhancedDisplay(std::move(enhancedDisplayValue)) {}
 
 Result<std::shared_ptr<const FrameBundle>> FrameBundle::create(
     std::shared_ptr<const RawFrame> raw,
     std::shared_ptr<const DisplayFrame> originalDisplay,
-    std::shared_ptr<const ProcessedFrame> processed,
+    std::shared_ptr<const ProcessedFrame> enhanced,
     std::shared_ptr<const DisplayFrame> enhancedDisplay) {
     if (!raw || !originalDisplay) {
         return Result<std::shared_ptr<const FrameBundle>>::failure(
@@ -313,15 +319,15 @@ Result<std::shared_ptr<const FrameBundle>> FrameBundle::create(
                 "bundle_required_frame_missing",
                 "A bundle requires raw and original-display frames."));
     }
-    if (static_cast<bool>(processed) != static_cast<bool>(enhancedDisplay)) {
+    if (static_cast<bool>(enhanced) != static_cast<bool>(enhancedDisplay)) {
         return Result<std::shared_ptr<const FrameBundle>>::failure(
             invalidFrameError(
                 "incomplete_enhanced_pair",
                 "Processed and enhanced-display frames must be supplied together."));
     }
-    if (originalDisplay->frameId != raw->frameId ||
-        (processed && processed->frameId != raw->frameId) ||
-        (enhancedDisplay && enhancedDisplay->frameId != raw->frameId)) {
+    if (originalDisplay->sourceFrameId != raw->frameId ||
+        (enhanced && enhanced->sourceFrameId != raw->frameId) ||
+        (enhancedDisplay && enhancedDisplay->sourceFrameId != raw->frameId)) {
         return Result<std::shared_ptr<const FrameBundle>>::failure(
             invalidFrameError(
                 "frame_id_mismatch",
@@ -334,9 +340,9 @@ Result<std::shared_ptr<const FrameBundle>> FrameBundle::create(
         return Result<std::shared_ptr<const FrameBundle>>::failure(
             originalDimensions.error());
     }
-    if (processed &&
-        (processed->layout.width() != raw->layout.width() ||
-         processed->layout.height() != raw->layout.height())) {
+    if (enhanced &&
+        (enhanced->layout.width() != raw->layout.width() ||
+         enhanced->layout.height() != raw->layout.height())) {
         return Result<std::shared_ptr<const FrameBundle>>::failure(
             invalidFrameError(
                 "processed_dimensions_mismatch",
@@ -358,7 +364,7 @@ Result<std::shared_ptr<const FrameBundle>> FrameBundle::create(
         }
         if (enhancedDisplay->mapping != originalDisplay->mapping ||
             enhancedDisplay->mapping.configurationRevision !=
-                processed->pipelineVersion.configurationRevision) {
+                enhanced->pipelineVersion.configurationRevision) {
             return Result<std::shared_ptr<const FrameBundle>>::failure(
                 invalidFrameError(
                     "display_mapping_mismatch",
@@ -366,17 +372,17 @@ Result<std::shared_ptr<const FrameBundle>> FrameBundle::create(
         }
     }
 
-    try {
-        return Result<std::shared_ptr<const FrameBundle>>::success(
-            std::shared_ptr<const FrameBundle>(new FrameBundle(
-                std::move(raw),
-                std::move(originalDisplay),
-                std::move(processed),
-                std::move(enhancedDisplay))));
-    } catch (const std::bad_alloc&) {
-        return Result<std::shared_ptr<const FrameBundle>>::failure(
-            frameAllocationError());
-    }
+    return allocateImmutable<FrameBundle>([&] {
+        return new FrameBundle(
+            std::move(raw),
+            std::move(originalDisplay),
+            std::move(enhanced),
+            std::move(enhancedDisplay));
+    });
+}
+
+std::uint64_t FrameBundle::sourceFrameId() const noexcept {
+    return raw->frameId;
 }
 
 }  // namespace lumora::core

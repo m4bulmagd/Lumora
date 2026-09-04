@@ -23,8 +23,9 @@ add_library(
   core/include/lumora/core/SharedBuffer.hpp
   core/src/BufferPool.cpp
   core/src/Clock.cpp
-  core/src/Error.cpp
+  core/src/CheckedMath.cpp
   core/src/Frame.cpp
+  core/src/FrameMetadata.cpp
   core/src/ImageLayout.cpp
 )
 add_library(lumora::core ALIAS lumora_core)

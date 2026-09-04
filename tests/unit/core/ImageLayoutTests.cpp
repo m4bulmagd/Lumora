@@ -65,6 +65,14 @@ TEST(ImageLayout, RejectsStrideSmallerThanRow) {
     EXPECT_EQ(layout.error().code, "stride_too_small");
 }
 
+TEST(ImageLayout, RejectsUnknownStorageType) {
+    const auto layout = ImageLayout::create(
+        1U, 1U, 1U, static_cast<StorageType>(99), 1U);
+
+    ASSERT_FALSE(layout.hasValue());
+    EXPECT_EQ(layout.error().code, "unsupported_storage_type");
+}
+
 TEST(ImageLayout, RejectsRequiredPayloadOverflow) {
     const auto layout = ImageLayout::create(
         1U,

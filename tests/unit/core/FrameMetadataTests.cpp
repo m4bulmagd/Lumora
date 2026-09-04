@@ -67,6 +67,21 @@ TEST(SourcePixelFormat, RejectsMaximumOutsideDeclaredBitRange) {
     EXPECT_EQ(excessiveMaximum.error().code, "sample_maximum_exceeds_valid_bits");
 }
 
+TEST(SourcePixelFormat, RejectsUnknownPackingAndAlignment) {
+    auto unknownPacking = mono12();
+    unknownPacking.packing = static_cast<SourcePacking>(99);
+    auto unknownAlignment = mono12();
+    unknownAlignment.alignment = static_cast<BitAlignment>(99);
+
+    const auto packingResult = validateSourcePixelFormat(unknownPacking);
+    const auto alignmentResult = validateSourcePixelFormat(unknownAlignment);
+
+    ASSERT_FALSE(packingResult.hasValue());
+    EXPECT_EQ(packingResult.error().code, "unsupported_source_packing");
+    ASSERT_FALSE(alignmentResult.hasValue());
+    EXPECT_EQ(alignmentResult.error().code, "unsupported_bit_alignment");
+}
+
 TEST(FrameMetadata, SnapshotPreservesCompleteAppliedContext) {
     const CameraIdentity identity{
         "Basler",
