@@ -18,6 +18,8 @@ add_test(NAME MainWindowSmoke COMMAND lumora_ui_tests)
 add_executable(
   lumora_core_tests
   unit/core/ResultSmokeTests.cpp
+  unit/core/ResultTests.cpp
+  unit/core/CheckedMathTests.cpp
 )
 
 target_link_libraries(
@@ -27,7 +29,14 @@ target_link_libraries(
     GTest::gtest_main
 )
 lumora_enable_warnings(lumora_core_tests)
-add_test(NAME ResultSmoke COMMAND lumora_core_tests)
+add_test(
+  NAME Core.Result
+  COMMAND lumora_core_tests --gtest_filter=Result*:ResultSmoke*
+)
+add_test(
+  NAME Core.CheckedMath
+  COMMAND lumora_core_tests --gtest_filter=CheckedMath*
+)
 
 add_executable(
   lumora_diagnostics_tests
