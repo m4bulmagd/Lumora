@@ -35,6 +35,10 @@ namespace {
 #endif
 }
 
+[[nodiscard]] std::string pathForDiagnostic(const std::filesystem::path& path) {
+    return toQString(path).toStdString();
+}
+
 [[nodiscard]] core::Error configurationError(
     std::string code,
     std::string operatorSummary,
@@ -62,7 +66,8 @@ namespace {
         }
         fileName += extension;
         auto candidate = parent / toPath(fileName);
-        if (!std::filesystem::exists(candidate)) {
+        std::error_code existenceError;
+        if (!std::filesystem::exists(candidate, existenceError) || existenceError) {
             return candidate;
         }
     }
@@ -94,7 +99,7 @@ core::Result<ApplicationConfiguration> ConfigurationStore::load() const {
         return core::Result<ApplicationConfiguration>::failure(configurationError(
             "configuration_read_failed",
             "The configuration file could not be read.",
-            "Failed to open '" + configurationPath_.string() + "': "
+            "Failed to open '" + pathForDiagnostic(configurationPath_) + "': "
                 + file.errorString().toStdString()));
     }
     const auto contents = file.readAll();
@@ -112,13 +117,14 @@ core::Result<ApplicationConfiguration> ConfigurationStore::load() const {
         fallback.loadWarning = configurationError(
             "configuration_invalid_preserved",
             "Invalid configuration was preserved and defaults were loaded.",
-            decoded.error().diagnosticDetail + " Preserved as '" + preservedPath.string() + "'.");
+            decoded.error().diagnosticDetail + " Preserved as '"
+                + pathForDiagnostic(preservedPath) + "'.");
     } else {
         fallback.loadWarning = configurationError(
             "configuration_invalid_preservation_failed",
             "Invalid configuration could not be preserved; defaults were loaded.",
             decoded.error().diagnosticDetail + " Failed to rename '"
-                + configurationPath_.string() + "'.");
+                + pathForDiagnostic(configurationPath_) + "'.");
     }
     return core::Result<ApplicationConfiguration>::success(std::move(fallback));
 }
@@ -131,13 +137,14 @@ core::Result<void> ConfigurationStore::save(
     }
 
     const auto parent = configurationPath_.parent_path();
-    const auto qParent = toQString(parent.empty() ? std::filesystem::current_path() : parent);
+    const auto qParent = parent.empty() ? QDir::currentPath() : toQString(parent);
     const QFileInfo parentInfo(qParent);
     if ((parentInfo.exists() && !parentInfo.isDir()) || !QDir().mkpath(qParent)) {
         return core::Result<void>::failure(configurationError(
             "configuration_directory_unavailable",
             "The configuration directory is unavailable.",
-            "Failed to create or access configuration directory '" + parent.string() + "'."));
+            "Failed to create or access configuration directory '"
+                + pathForDiagnostic(parent) + "'."));
     }
 
     const auto qPath = toQString(configurationPath_);
@@ -145,7 +152,8 @@ core::Result<void> ConfigurationStore::save(
         return core::Result<void>::failure(configurationError(
             "configuration_replace_failed",
             "The configuration file could not be replaced.",
-            "The configuration target is a directory: '" + configurationPath_.string() + "'."));
+            "The configuration target is a directory: '"
+                + pathForDiagnostic(configurationPath_) + "'."));
     }
 
     QSaveFile file(qPath);
@@ -154,7 +162,8 @@ core::Result<void> ConfigurationStore::save(
         return core::Result<void>::failure(configurationError(
             "configuration_write_failed",
             "The configuration file could not be written.",
-            "Failed to open a sibling temporary file for '" + configurationPath_.string()
+            "Failed to open a sibling temporary file for '"
+                + pathForDiagnostic(configurationPath_)
                 + "': " + file.errorString().toStdString()));
     }
     if (file.write(encoded.value()) != encoded.value().size()) {
@@ -169,7 +178,7 @@ core::Result<void> ConfigurationStore::save(
         return core::Result<void>::failure(configurationError(
             "configuration_replace_failed",
             "The configuration file could not be replaced.",
-            "Atomic replacement failed for '" + configurationPath_.string() + "': "
+            "Atomic replacement failed for '" + pathForDiagnostic(configurationPath_) + "': "
                 + file.errorString().toStdString()));
     }
     return core::Result<void>::success();

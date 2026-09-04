@@ -5,6 +5,7 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QDir>
 #include <QStandardPaths>
 #include <QString>
 
@@ -26,7 +27,7 @@ namespace {
     const auto applicationData =
         QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     if (applicationData.isEmpty()) {
-        return std::filesystem::current_path() / "Logs";
+        return nativePath(QDir::currentPath()) / "Logs";
     }
     return nativePath(applicationData) / "Logs";
 }

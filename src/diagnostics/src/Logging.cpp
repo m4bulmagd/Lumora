@@ -41,10 +41,15 @@ core::Result<void> Logging::start(const std::filesystem::path& directory) {
 
     std::error_code directoryError;
     std::filesystem::create_directories(directory, directoryError);
-    if (directoryError || !std::filesystem::is_directory(directory)) {
-        const auto detail = directoryError
-            ? directoryError.message()
-            : std::string("The requested log path is not a directory.");
+    std::error_code statusError;
+    const auto isDirectory = std::filesystem::is_directory(directory, statusError);
+    if (directoryError || statusError || !isDirectory) {
+        std::string detail = "The requested log path is not a directory.";
+        if (directoryError) {
+            detail = directoryError.message();
+        } else if (statusError) {
+            detail = statusError.message();
+        }
         return core::Result<void>::failure(
             loggingError("log_directory_unavailable", detail));
     }
