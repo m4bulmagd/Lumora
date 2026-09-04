@@ -11,8 +11,12 @@ add_library(
   STATIC
   core/include/lumora/core/CheckedMath.hpp
   core/include/lumora/core/Error.hpp
+  core/include/lumora/core/FrameMetadata.hpp
+  core/include/lumora/core/ImageLayout.hpp
+  core/include/lumora/core/PixelFormat.hpp
   core/include/lumora/core/Result.hpp
   core/src/Error.cpp
+  core/src/ImageLayout.cpp
 )
 add_library(lumora::core ALIAS lumora_core)
 

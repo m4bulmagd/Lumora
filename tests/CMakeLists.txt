@@ -20,6 +20,8 @@ add_executable(
   unit/core/ResultSmokeTests.cpp
   unit/core/ResultTests.cpp
   unit/core/CheckedMathTests.cpp
+  unit/core/ImageLayoutTests.cpp
+  unit/core/FrameMetadataTests.cpp
 )
 
 target_link_libraries(
@@ -36,6 +38,14 @@ add_test(
 add_test(
   NAME Core.CheckedMath
   COMMAND lumora_core_tests --gtest_filter=CheckedMath*
+)
+add_test(
+  NAME Core.ImageLayout
+  COMMAND lumora_core_tests --gtest_filter=ImageLayout*
+)
+add_test(
+  NAME Core.FrameMetadata
+  COMMAND lumora_core_tests --gtest_filter=FrameMetadata*:SourcePixelFormat*
 )
 
 add_executable(
