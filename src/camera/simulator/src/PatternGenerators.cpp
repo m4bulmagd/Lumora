@@ -1,5 +1,6 @@
 #include <lumora/camera/sim/IPatternGenerator.hpp>
 
+#include <lumora/core/CheckedMath.hpp>
 #include <lumora/core/Error.hpp>
 
 #include <algorithm>
@@ -7,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <stop_token>
 #include <string>
 #include <utility>
 
@@ -19,6 +21,16 @@ namespace {
         .code = "invalid_frame",
         .operatorSummary = "The simulator could not generate a valid frame.",
         .diagnosticDetail = std::move(detail),
+        .recoverable = true,
+    };
+}
+
+[[nodiscard]] core::Error cancelled() {
+    return {
+        .category = core::ErrorCategory::Cancelled,
+        .code = "cancelled",
+        .operatorSummary = "Simulated frame generation was cancelled.",
+        .diagnosticDetail = "The stop token was requested before generation completed.",
         .recoverable = true,
     };
 }
@@ -62,18 +74,43 @@ public:
         std::uint32_t height,
         std::size_t strideBytes,
         const core::SourcePixelFormat& format,
-        std::uint64_t frameId) const noexcept override {
+        std::uint64_t frameId,
+        std::stop_token stopToken) const noexcept override {
         const auto sampleBytes = bytesPerSample(format.applicationStorage);
-        if (sampleBytes == 0U || width == 0U || height == 0U ||
-            strideBytes < static_cast<std::size_t>(width) * sampleBytes ||
-            destination.size() < strideBytes * static_cast<std::size_t>(height)) {
+        if (sampleBytes == 0U || width == 0U || height == 0U) {
+            return core::Result<void>::failure(invalidFrame(
+                "The destination buffer is smaller than the generated image layout."));
+        }
+        const auto rowBytes = core::checkedMultiply(
+            static_cast<std::size_t>(width), sampleBytes);
+        const auto requiredBytes = core::checkedMultiply(
+            strideBytes, static_cast<std::size_t>(height));
+        if (!rowBytes.hasValue() || !requiredBytes.hasValue()) {
+            return core::Result<void>::failure(invalidFrame(
+                "Computing the generated frame size overflowed size_t."));
+        }
+        if (strideBytes < rowBytes.value() ||
+            destination.size() < requiredBytes.value()) {
             return core::Result<void>::failure(invalidFrame(
                 "The destination buffer is smaller than the generated image layout."));
         }
 
-        std::fill(destination.begin(), destination.end(), std::byte{0U});
+        constexpr std::size_t cancellationChunk = 4096U;
+        for (std::size_t offset = 0U; offset < destination.size();
+             offset += std::min(cancellationChunk, destination.size() - offset)) {
+            if (stopToken.stop_requested()) {
+                return core::Result<void>::failure(cancelled());
+            }
+            const auto chunk = std::min(
+                cancellationChunk, destination.size() - offset);
+            std::fill_n(
+                destination.data() + offset, chunk, std::byte{0U});
+        }
         for (std::uint32_t y = 0U; y < height; ++y) {
             for (std::uint32_t x = 0U; x < width; ++x) {
+                if (x % 1024U == 0U && stopToken.stop_requested()) {
+                    return core::Result<void>::failure(cancelled());
+                }
                 const auto sample = valueAt(x, y, width, height, format.sampleMaximum, frameId);
                 const auto offset = static_cast<std::size_t>(y) * strideBytes +
                                     static_cast<std::size_t>(x) * sampleBytes;

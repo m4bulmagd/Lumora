@@ -1,4 +1,5 @@
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
+#include <lumora/camera/sim/IPatternGenerator.hpp>
 
 #include <lumora/core/BufferPool.hpp>
 #include <lumora/core/Clock.hpp>
@@ -8,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -15,9 +17,11 @@
 #include <cstring>
 #include <functional>
 #include <future>
+#include <limits>
 #include <memory>
 #include <stop_token>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -25,6 +29,35 @@ namespace lumora::camera::sim {
 namespace {
 
 using namespace std::chrono_literals;
+
+class CancellingDeadlineClock final : public core::IClock {
+public:
+    explicit CancellingDeadlineClock(std::stop_source& stopSource) noexcept
+        : stopSource_(&stopSource) {}
+
+    std::chrono::steady_clock::time_point steadyNow() const noexcept override {
+        return now_;
+    }
+
+    std::chrono::system_clock::time_point utcNow() const noexcept override {
+        return {};
+    }
+
+    core::ClockWaitOutcome waitUntil(
+        std::chrono::steady_clock::time_point deadline,
+        std::stop_token stopToken,
+        std::chrono::milliseconds maximumRealWait) const override {
+        static_cast<void>(stopToken);
+        static_cast<void>(maximumRealWait);
+        now_ = deadline;
+        stopSource_->request_stop();
+        return core::ClockWaitOutcome::DeadlineReached;
+    }
+
+private:
+    std::stop_source* stopSource_;
+    mutable std::chrono::steady_clock::time_point now_{};
+};
 
 core::SourcePixelFormat mono8() {
     return {
@@ -250,6 +283,56 @@ TEST(SimulatedCamera, InvalidConfigurationUsesSharedValidatorError) {
     EXPECT_EQ(result.error().code, "roi_width_increment");
 }
 
+TEST(SimulatedCamera, RejectsFrameRatesWithoutRepresentableClockPeriods) {
+    const std::vector frameRates{
+        std::numeric_limits<double>::denorm_min(),
+        std::numeric_limits<double>::max(),
+    };
+
+    for (const auto frameRate : frameRates) {
+        core::ManualClock clock;
+        auto cameraOptions = options();
+        cameraOptions.defaultFps = frameRate;
+        cameraOptions.capabilities.frameRate = {
+            .minimum = frameRate,
+            .maximum = frameRate,
+            .increment = frameRate,
+            .writableWhileStreaming = true,
+        };
+        SimulatedCameraProvider provider(std::move(cameraOptions), clock);
+
+        const auto result = provider.create(CameraId{"sim-001"});
+
+        ASSERT_FALSE(result.hasValue());
+        EXPECT_EQ(
+            result.error().category,
+            core::ErrorCategory::CameraConfiguration);
+        EXPECT_EQ(result.error().code, "frame_period_unrepresentable");
+    }
+}
+
+TEST(SimulatedCamera, DeadlineArithmeticSaturatesNearClockMaximum) {
+    const auto initialTime =
+        std::chrono::steady_clock::time_point::max() - 50ms;
+    core::ManualClock clock(initialTime);
+    auto device = createDevice(clock, options(
+        SimulationPattern::Ramp, SimulationPacingMode::Manual));
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->applyConfiguration(configuration(mono8(),
+        {.x = 0U, .y = 0U, .width = 8U, .height = 8U}, 10.0)).hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    auto first = device->retrieve(100ms, *destination);
+    ASSERT_TRUE(first.hasValue());
+    first.value().reset();
+
+    const auto second = device->retrieve(10ms, *destination);
+
+    ASSERT_FALSE(second.hasValue());
+    EXPECT_EQ(second.error().category, core::ErrorCategory::Acquisition);
+    EXPECT_EQ(second.error().code, "acquisition_timeout");
+}
+
 TEST(SimulatedCamera, PublishesMono8AndAppliedRoiMetadata) {
     core::ManualClock clock;
     auto device = createDevice(clock);
@@ -308,6 +391,61 @@ TEST(SimulatedCamera, UndersizedPoolReturnsInvalidFrameAndReleasesLease) {
     EXPECT_EQ(result.error().category, core::ErrorCategory::InvalidFrame);
     EXPECT_EQ(result.error().code, "invalid_frame");
     EXPECT_EQ(destination->stats().inUse, 0U);
+}
+
+TEST(SimulatedCamera, LargePatternFillHasBoundedCancellationChecks) {
+    constexpr std::uint32_t dimension = 4096U;
+    std::vector<std::byte> destination(
+        static_cast<std::size_t>(dimension) * dimension,
+        std::byte{0xA5U});
+    auto generator = makePatternGenerator(SimulationPattern::ImpulseNoise, 42U);
+    std::stop_source stopSource;
+    std::promise<void> fillStarted;
+    auto started = fillStarted.get_future();
+    auto pending = std::async(std::launch::async, [&] {
+        fillStarted.set_value();
+        return generator->fill(
+            destination,
+            dimension,
+            dimension,
+            dimension,
+            mono8(),
+            1U,
+            stopSource.get_token());
+    });
+
+    started.wait();
+    std::this_thread::sleep_for(2ms);
+    const auto cancelledAt = std::chrono::steady_clock::now();
+    stopSource.request_stop();
+    const auto result = pending.get();
+    const auto cancellationLatency =
+        std::chrono::steady_clock::now() - cancelledAt;
+
+    ASSERT_FALSE(result.hasValue());
+    EXPECT_EQ(result.error().category, core::ErrorCategory::Cancelled);
+    EXPECT_EQ(result.error().code, "cancelled");
+    EXPECT_LT(cancellationLatency, 200ms);
+}
+
+TEST(SimulatedCamera, PatternGeneratorRejectsRequiredSizeOverflow) {
+    std::array<std::byte, 1U> destination{};
+    auto generator = makePatternGenerator(SimulationPattern::Ramp, 42U);
+
+    const auto result = generator->fill(
+        destination,
+        1U,
+        2U,
+        std::numeric_limits<std::size_t>::max(),
+        mono8(),
+        1U);
+
+    ASSERT_FALSE(result.hasValue());
+    EXPECT_EQ(result.error().category, core::ErrorCategory::InvalidFrame);
+    EXPECT_EQ(result.error().code, "invalid_frame");
+    EXPECT_EQ(
+        result.error().diagnosticDetail,
+        "Computing the generated frame size overflowed size_t.");
 }
 
 TEST(SimulatedCamera, EveryGeneratedPatternIsDeterministic) {
@@ -444,6 +582,41 @@ TEST(SimulatedCamera, TimedRetrievalReturnsTimeoutAtItsClockDeadline) {
     EXPECT_EQ(result.error().code, "acquisition_timeout");
 }
 
+TEST(SimulatedCamera, ManualPacingTimeoutDoesNotRequireClockAdvance) {
+    core::ManualClock clock;
+    auto destination = pool();
+    std::stop_source cleanupStop;
+    std::promise<void> firstPublished;
+    auto firstReady = firstPublished.get_future();
+    auto pending = std::async(std::launch::async, [&] {
+        auto device = createDevice(clock, options(
+            SimulationPattern::Ramp, SimulationPacingMode::Manual));
+        if (!device->open().hasValue() ||
+            !device->applyConfiguration(configuration(mono8(),
+                {.x = 0U, .y = 0U, .width = 8U, .height = 8U}, 10.0)).hasValue() ||
+            !device->startStream().hasValue() ||
+            !device->retrieve(100ms, *destination).hasValue()) {
+            firstPublished.set_value();
+            return core::Result<std::shared_ptr<const core::RawFrame>>::failure({
+                core::ErrorCategory::Internal, "test_setup_failed", "", "", false});
+        }
+        firstPublished.set_value();
+        return device->retrieve(30ms, *destination, cleanupStop.get_token());
+    });
+
+    firstReady.wait();
+    const auto completion = pending.wait_for(100ms);
+    if (completion != std::future_status::ready) {
+        cleanupStop.request_stop();
+    }
+    const auto result = pending.get();
+
+    EXPECT_EQ(completion, std::future_status::ready);
+    ASSERT_FALSE(result.hasValue());
+    EXPECT_EQ(result.error().category, core::ErrorCategory::Acquisition);
+    EXPECT_EQ(result.error().code, "acquisition_timeout");
+}
+
 TEST(SimulatedCamera, TimedRetrievalHonorsCancellation) {
     core::ManualClock clock;
     auto destination = pool();
@@ -471,6 +644,92 @@ TEST(SimulatedCamera, TimedRetrievalHonorsCancellation) {
     ASSERT_FALSE(result.hasValue());
     EXPECT_EQ(result.error().category, core::ErrorCategory::Cancelled);
     EXPECT_EQ(result.error().code, "cancelled");
+}
+
+TEST(SimulatedCamera, CancellationAfterPacingDoesNotPublishAFrame) {
+    std::stop_source stopSource;
+    CancellingDeadlineClock clock(stopSource);
+    auto device = createDevice(clock, options(
+        SimulationPattern::Ramp, SimulationPacingMode::Manual));
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    auto first = device->retrieve(100ms, *destination);
+    ASSERT_TRUE(first.hasValue());
+    first.value().reset();
+
+    const auto cancelled =
+        device->retrieve(100ms, *destination, stopSource.get_token());
+
+    ASSERT_FALSE(cancelled.hasValue());
+    EXPECT_EQ(cancelled.error().category, core::ErrorCategory::Cancelled);
+    EXPECT_EQ(cancelled.error().code, "cancelled");
+    EXPECT_EQ(destination->stats().inUse, 0U);
+
+    const auto recovered = device->retrieve(100ms, *destination);
+    ASSERT_TRUE(recovered.hasValue());
+    EXPECT_EQ(recovered.value()->frameId, 2U);
+}
+
+TEST(SimulatedCamera, CancellationDuringFillReleasesLeaseAndPreservesFrameId) {
+    constexpr std::uint32_t dimension = 4096U;
+    core::ManualClock clock;
+    auto largeOptions = options(SimulationPattern::ImpulseNoise);
+    largeOptions.capabilities.roi.maximum.width = dimension;
+    largeOptions.capabilities.roi.maximum.height = dimension;
+    auto destination = pool(
+        static_cast<std::size_t>(dimension) * dimension);
+    std::stop_source stopSource;
+    std::promise<void> retrievalStarting;
+    auto started = retrievalStarting.get_future();
+    auto pending = std::async(std::launch::async, [&] {
+        auto device = createDevice(clock, std::move(largeOptions));
+        if (!device->open().hasValue() || !device->startStream().hasValue()) {
+            retrievalStarting.set_value();
+            return std::pair{
+                core::Result<std::shared_ptr<const core::RawFrame>>::failure({
+                    core::ErrorCategory::Internal,
+                    "test_setup_failed",
+                    "",
+                    "",
+                    false}),
+                core::Result<std::shared_ptr<const core::RawFrame>>::failure({
+                    core::ErrorCategory::Internal,
+                    "test_setup_failed",
+                    "",
+                    "",
+                    false})};
+        }
+        retrievalStarting.set_value();
+        auto cancelled =
+            device->retrieve(1s, *destination, stopSource.get_token());
+        if (cancelled.hasValue()) {
+            cancelled.value().reset();
+        }
+        auto recovered = device->retrieve(1s, *destination);
+        return std::pair{std::move(cancelled), std::move(recovered)};
+    });
+
+    started.wait();
+    bool observedLease = false;
+    for (int attempt = 0; attempt < 200; ++attempt) {
+        if (destination->stats().inUse == 1U) {
+            observedLease = true;
+            break;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    stopSource.request_stop();
+    auto [cancelled, recovered] = pending.get();
+
+    EXPECT_TRUE(observedLease);
+    ASSERT_FALSE(cancelled.hasValue());
+    EXPECT_EQ(cancelled.error().category, core::ErrorCategory::Cancelled);
+    EXPECT_EQ(cancelled.error().code, "cancelled");
+    ASSERT_TRUE(recovered.hasValue());
+    EXPECT_EQ(recovered.value()->frameId, 1U);
+    recovered.value().reset();
+    EXPECT_EQ(destination->stats().inUse, 0U);
 }
 
 TEST(SimulatedCamera, MissedDeadlineReschedulesAndReportsOnePacingSlip) {
@@ -520,6 +779,63 @@ TEST(SimulatedCamera, MissedDeadlineReschedulesAndReportsOnePacingSlip) {
     clock.advance(1ms);
     ASSERT_EQ(pending.wait_for(100ms), std::future_status::ready);
     EXPECT_TRUE(pending.get().hasValue());
+    EXPECT_EQ(slips.load(), 1U);
+}
+
+TEST(SimulatedCamera, OvershootWhileWaitingReschedulesFromCurrentTime) {
+    struct OvershootResult final {
+        std::uint32_t slipsAfterOvershotFrame;
+        core::Result<std::shared_ptr<const core::RawFrame>> followingFrame;
+    };
+
+    core::ManualClock clock;
+    std::atomic_uint32_t slips{0U};
+    auto destination = pool();
+    std::promise<void> firstPublished;
+    auto firstReady = firstPublished.get_future();
+    auto pending = std::async(std::launch::async, [&] {
+        auto device = createDevice(clock, options(
+            SimulationPattern::Ramp,
+            SimulationPacingMode::Manual,
+            [&] { ++slips; }));
+        if (!device->open().hasValue() ||
+            !device->applyConfiguration(configuration(mono8(),
+                {.x = 0U, .y = 0U, .width = 8U, .height = 8U}, 10.0)).hasValue() ||
+            !device->startStream().hasValue() ||
+            !device->retrieve(100ms, *destination).hasValue()) {
+            firstPublished.set_value();
+            return OvershootResult{
+                slips.load(),
+                core::Result<std::shared_ptr<const core::RawFrame>>::failure({
+                    core::ErrorCategory::Internal,
+                    "test_setup_failed",
+                    "",
+                    "",
+                    false})};
+        }
+        firstPublished.set_value();
+        auto overshot = device->retrieve(500ms, *destination);
+        const auto slipsAfterOvershotFrame = slips.load();
+        if (!overshot.hasValue()) {
+            return OvershootResult{slipsAfterOvershotFrame, std::move(overshot)};
+        }
+        overshot.value().reset();
+        return OvershootResult{
+            slipsAfterOvershotFrame,
+            device->retrieve(30ms, *destination)};
+    });
+
+    firstReady.wait();
+    EXPECT_EQ(pending.wait_for(10ms), std::future_status::timeout);
+    clock.advance(350ms);
+    const auto result = pending.get();
+
+    EXPECT_EQ(result.slipsAfterOvershotFrame, 1U);
+    ASSERT_FALSE(result.followingFrame.hasValue());
+    EXPECT_EQ(
+        result.followingFrame.error().category,
+        core::ErrorCategory::Acquisition);
+    EXPECT_EQ(result.followingFrame.error().code, "acquisition_timeout");
     EXPECT_EQ(slips.load(), 1U);
 }
 

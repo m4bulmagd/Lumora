@@ -10,6 +10,7 @@
 namespace {
 
 using namespace std::chrono_literals;
+using lumora::core::ClockWaitOutcome;
 using lumora::core::ManualClock;
 using lumora::core::SystemClock;
 
@@ -114,6 +115,20 @@ TEST(ManualClock, WaitUntilReturnsFalseWhenCancelled) {
     stopSource.request_stop();
     ASSERT_EQ(reached.wait_for(100ms), std::future_status::ready);
     EXPECT_FALSE(reached.get());
+}
+
+TEST(ManualClock, WaitUntilHasAnIndependentRealElapsedBound) {
+    ManualClock clock;
+    const auto before = std::chrono::steady_clock::now();
+
+    const auto outcome = clock.waitUntil(
+        std::chrono::steady_clock::time_point{100ms}, {}, 20ms);
+    const auto elapsed = std::chrono::steady_clock::now() - before;
+
+    EXPECT_EQ(outcome, ClockWaitOutcome::MaximumWaitElapsed);
+    EXPECT_GE(elapsed, 10ms);
+    EXPECT_LT(elapsed, 200ms);
+    EXPECT_EQ(clock.steadyNow(), std::chrono::steady_clock::time_point{});
 }
 
 }  // namespace

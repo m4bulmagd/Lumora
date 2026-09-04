@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <stop_token>
 
 namespace lumora::camera::sim {
 
@@ -21,7 +22,8 @@ public:
         std::uint32_t height,
         std::size_t strideBytes,
         const core::SourcePixelFormat& format,
-        std::uint64_t frameId) const noexcept = 0;
+        std::uint64_t frameId,
+        std::stop_token stopToken = {}) const noexcept = 0;
 };
 
 [[nodiscard]] std::unique_ptr<IPatternGenerator> makePatternGenerator(

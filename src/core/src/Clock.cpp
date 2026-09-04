@@ -1,11 +1,22 @@
 #include <lumora/core/Clock.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <stop_token>
 
 namespace lumora::core {
+
+bool IClock::waitUntil(
+    std::chrono::steady_clock::time_point deadline,
+    std::stop_token stopToken) const {
+    return waitUntil(
+               deadline,
+               stopToken,
+               std::chrono::milliseconds::max()) ==
+           ClockWaitOutcome::DeadlineReached;
+}
 
 std::chrono::steady_clock::time_point SystemClock::steadyNow() const noexcept {
     return std::chrono::steady_clock::now();
@@ -15,14 +26,36 @@ std::chrono::system_clock::time_point SystemClock::utcNow() const noexcept {
     return std::chrono::system_clock::now();
 }
 
-bool SystemClock::waitUntil(
+ClockWaitOutcome SystemClock::waitUntil(
     std::chrono::steady_clock::time_point deadline,
-    std::stop_token stopToken) const {
+    std::stop_token stopToken,
+    std::chrono::milliseconds maximumRealWait) const {
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) {
+        return ClockWaitOutcome::DeadlineReached;
+    }
+
     std::condition_variable_any deadlineReached;
     std::mutex mutex;
     std::unique_lock lock(mutex);
-    deadlineReached.wait_until(lock, stopToken, deadline, [] { return false; });
-    return std::chrono::steady_clock::now() >= deadline;
+    if (maximumRealWait == std::chrono::milliseconds::max() ||
+        std::chrono::duration<long double>(deadline - now) <=
+            std::chrono::duration<long double>(maximumRealWait)) {
+        deadlineReached.wait_until(lock, stopToken, deadline, [] { return false; });
+    } else {
+        deadlineReached.wait_for(
+            lock,
+            stopToken,
+            std::max(maximumRealWait, std::chrono::milliseconds::zero()),
+            [] { return false; });
+    }
+
+    if (std::chrono::steady_clock::now() >= deadline) {
+        return ClockWaitOutcome::DeadlineReached;
+    }
+    return stopToken.stop_requested()
+               ? ClockWaitOutcome::Cancelled
+               : ClockWaitOutcome::MaximumWaitElapsed;
 }
 
 ManualClock::ManualClock(
@@ -40,12 +73,32 @@ std::chrono::system_clock::time_point ManualClock::utcNow() const noexcept {
     return utcTime_;
 }
 
-bool ManualClock::waitUntil(
+ClockWaitOutcome ManualClock::waitUntil(
     std::chrono::steady_clock::time_point deadline,
-    std::stop_token stopToken) const {
+    std::stop_token stopToken,
+    std::chrono::milliseconds maximumRealWait) const {
     std::unique_lock lock(mutex_);
-    return advanced_.wait(
-        lock, stopToken, [this, deadline] { return steadyTime_ >= deadline; });
+    const auto reached = [this, deadline] { return steadyTime_ >= deadline; };
+    if (reached()) {
+        return ClockWaitOutcome::DeadlineReached;
+    }
+
+    bool deadlineWasReached = false;
+    if (maximumRealWait == std::chrono::milliseconds::max()) {
+        deadlineWasReached = advanced_.wait(lock, stopToken, reached);
+    } else {
+        deadlineWasReached = advanced_.wait_for(
+            lock,
+            stopToken,
+            std::max(maximumRealWait, std::chrono::milliseconds::zero()),
+            reached);
+    }
+    if (deadlineWasReached) {
+        return ClockWaitOutcome::DeadlineReached;
+    }
+    return stopToken.stop_requested()
+               ? ClockWaitOutcome::Cancelled
+               : ClockWaitOutcome::MaximumWaitElapsed;
 }
 
 void ManualClock::advance(std::chrono::nanoseconds elapsed) noexcept {

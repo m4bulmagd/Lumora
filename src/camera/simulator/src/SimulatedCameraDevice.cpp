@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <new>
 #include <optional>
@@ -101,6 +102,18 @@ using FrameResult = core::Result<std::shared_ptr<const core::RawFrame>>;
     };
 }
 
+[[nodiscard]] core::Error unrepresentableFramePeriodError(double fps) {
+    return {
+        .category = core::ErrorCategory::CameraConfiguration,
+        .code = "frame_period_unrepresentable",
+        .operatorSummary = "The requested frame rate cannot be scheduled.",
+        .diagnosticDetail =
+            "FPS " + std::to_string(fps) +
+            " is outside the injected steady clock's duration range.",
+        .recoverable = true,
+    };
+}
+
 template<typename Mode>
 [[nodiscard]] bool contains(const std::vector<Mode>& modes, Mode wanted) {
     return std::find(modes.begin(), modes.end(), wanted) != modes.end();
@@ -180,10 +193,43 @@ template<typename Mode>
     return 0U;
 }
 
-[[nodiscard]] std::chrono::steady_clock::duration framePeriod(double fps) {
-    const auto period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-        std::chrono::duration<double>(1.0 / fps));
-    return std::max(period, std::chrono::steady_clock::duration{1});
+[[nodiscard]] core::Result<std::chrono::steady_clock::duration>
+validatedFramePeriod(double fps) {
+    using Duration = std::chrono::steady_clock::duration;
+    using Period = Duration::period;
+    using Representation = Duration::rep;
+
+    const auto ticksPerSecond =
+        static_cast<long double>(Period::den) /
+        static_cast<long double>(Period::num);
+    const auto ticks = ticksPerSecond / static_cast<long double>(fps);
+    const auto maximumTicks = static_cast<long double>(
+        std::numeric_limits<Representation>::max());
+    if (!std::isfinite(ticks) || ticks < 1.0L || ticks > maximumTicks) {
+        return core::Result<Duration>::failure(
+            unrepresentableFramePeriodError(fps));
+    }
+    return core::Result<Duration>::success(
+        Duration{static_cast<Representation>(ticks)});
+}
+
+[[nodiscard]] std::chrono::steady_clock::time_point saturatingDeadline(
+    std::chrono::steady_clock::time_point base,
+    std::chrono::steady_clock::duration delay) noexcept {
+    using Duration = std::chrono::steady_clock::duration;
+    using Representation = Duration::rep;
+
+    if (delay <= Duration::zero()) {
+        return base;
+    }
+    const auto baseTicks = base.time_since_epoch().count();
+    const auto delayTicks = delay.count();
+    constexpr auto maximumTicks = std::numeric_limits<Representation>::max();
+    if (baseTicks > maximumTicks - delayTicks) {
+        return std::chrono::steady_clock::time_point::max();
+    }
+    return std::chrono::steady_clock::time_point{
+        Duration{static_cast<Representation>(baseTicks + delayTicks)}};
 }
 
 class SimulatedCameraDevice final : public ICameraDevice {
@@ -192,11 +238,13 @@ public:
         SimulatedCameraOptions options,
         core::IClock& clock,
         std::unique_ptr<IPatternGenerator> generator,
-        AppliedCameraConfiguration initialConfiguration)
+        AppliedCameraConfiguration initialConfiguration,
+        std::chrono::steady_clock::duration framePeriod)
         : options_(std::move(options)),
           clock_(&clock),
           generator_(std::move(generator)),
-          applied_(std::move(initialConfiguration)) {}
+          applied_(std::move(initialConfiguration)),
+          framePeriod_(framePeriod) {}
 
     core::Result<void> open() override {
         if (state_ == State::Closed) {
@@ -224,9 +272,18 @@ public:
                 validated.error());
         }
 
-        applied_ = appliedConfiguration(configuration, options_);
+        auto candidate = appliedConfiguration(configuration, options_);
+        const auto candidatePeriod =
+            validatedFramePeriod(*candidate.actual.requestedFps);
+        if (!candidatePeriod.hasValue()) {
+            return core::Result<AppliedCameraConfiguration>::failure(
+                candidatePeriod.error());
+        }
+        applied_ = std::move(candidate);
+        framePeriod_ = candidatePeriod.value();
         if (state_ == State::Streaming && hasPublishedFrame_) {
-            nextFrameDeadline_ = clock_->steadyNow() + period();
+            nextFrameDeadline_ =
+                saturatingDeadline(clock_->steadyNow(), period());
         }
         return core::Result<AppliedCameraConfiguration>::success(applied_);
     }
@@ -257,6 +314,9 @@ public:
         if (!pacing.hasValue()) {
             return FrameResult::failure(pacing.error());
         }
+        if (stopToken.stop_requested()) {
+            return FrameResult::failure(cancelledError());
+        }
 
         const auto& actual = applied_.actual;
         const auto sampleBytes = bytesPerSample(
@@ -286,9 +346,13 @@ public:
             actual.roi.height,
             strideBytes,
             actual.pixelFormat,
-            nextFrameId_);
+            nextFrameId_,
+            stopToken);
         if (!generated.hasValue()) {
             return FrameResult::failure(generated.error());
+        }
+        if (stopToken.stop_requested()) {
+            return FrameResult::failure(cancelledError());
         }
 
         auto sealed = std::move(*lease).seal();
@@ -305,6 +369,9 @@ public:
         if (!settings.hasValue()) {
             return FrameResult::failure(
                 invalidFrameError(settings.error().diagnosticDetail));
+        }
+        if (stopToken.stop_requested()) {
+            return FrameResult::failure(cancelledError());
         }
 
         const auto hostReceipt = clock_->steadyNow();
@@ -323,9 +390,13 @@ public:
             return FrameResult::failure(
                 invalidFrameError(frame.error().diagnosticDetail));
         }
-
+        const auto publicationTime = clock_->steadyNow();
+        markFrameLateIfBehind(publicationTime);
+        if (stopToken.stop_requested()) {
+            return FrameResult::failure(cancelledError());
+        }
         ++nextFrameId_;
-        publishPacingDeadline(hostReceipt);
+        publishPacingDeadline(publicationTime);
         return frame;
     }
 
@@ -361,7 +432,7 @@ private:
     }
 
     [[nodiscard]] std::chrono::steady_clock::duration period() const {
-        return framePeriod(*applied_.actual.requestedFps);
+        return framePeriod_;
     }
 
     [[nodiscard]] core::Result<void> waitForPacing(
@@ -375,25 +446,34 @@ private:
 
         const auto now = clock_->steadyNow();
         if (now > nextFrameDeadline_) {
-            frameWasLate_ = true;
-            invokePacingSlipHook();
+            markFrameLateIfBehind(now);
             return core::Result<void>::success();
         }
         if (now == nextFrameDeadline_) {
             return core::Result<void>::success();
         }
 
-        const auto nonnegativeTimeout = std::max(timeout, std::chrono::milliseconds::zero());
-        const auto timeoutDeadline = now + nonnegativeTimeout;
-        const auto waitingForFrame = nextFrameDeadline_ <= timeoutDeadline;
-        const auto waitDeadline = waitingForFrame ? nextFrameDeadline_ : timeoutDeadline;
-        if (!clock_->waitUntil(waitDeadline, stopToken)) {
+        const auto outcome = clock_->waitUntil(
+            nextFrameDeadline_,
+            stopToken,
+            std::max(timeout, std::chrono::milliseconds::zero()));
+        if (outcome == core::ClockWaitOutcome::Cancelled) {
             return core::Result<void>::failure(cancelledError());
         }
-        if (!waitingForFrame) {
+        if (outcome == core::ClockWaitOutcome::MaximumWaitElapsed) {
             return core::Result<void>::failure(timeoutError());
         }
+        markFrameLateIfBehind(clock_->steadyNow());
         return core::Result<void>::success();
+    }
+
+    void markFrameLateIfBehind(
+        std::chrono::steady_clock::time_point now) noexcept {
+        if (!hasPublishedFrame_ || frameWasLate_ || now <= nextFrameDeadline_) {
+            return;
+        }
+        frameWasLate_ = true;
+        invokePacingSlipHook();
     }
 
     void publishPacingDeadline(
@@ -403,9 +483,9 @@ private:
             return;
         }
         if (!hasPublishedFrame_ || frameWasLate_) {
-            nextFrameDeadline_ = publicationTime + period();
+            nextFrameDeadline_ = saturatingDeadline(publicationTime, period());
         } else {
-            nextFrameDeadline_ += period();
+            nextFrameDeadline_ = saturatingDeadline(nextFrameDeadline_, period());
         }
         hasPublishedFrame_ = true;
     }
@@ -425,6 +505,7 @@ private:
     core::IClock* clock_;
     std::unique_ptr<IPatternGenerator> generator_;
     AppliedCameraConfiguration applied_;
+    std::chrono::steady_clock::duration framePeriod_;
     State state_{State::Closed};
     std::uint64_t nextFrameId_{1U};
     bool hasPublishedFrame_{false};
@@ -444,6 +525,13 @@ core::Result<std::unique_ptr<ICameraDevice>> makeSimulatedCameraDevice(
         return core::Result<std::unique_ptr<ICameraDevice>>::failure(
             validated.error());
     }
+    auto initialApplied = appliedConfiguration(initial, options);
+    const auto initialPeriod =
+        validatedFramePeriod(*initialApplied.actual.requestedFps);
+    if (!initialPeriod.hasValue()) {
+        return core::Result<std::unique_ptr<ICameraDevice>>::failure(
+            initialPeriod.error());
+    }
 
     try {
         auto generator = makePatternGenerator(options.pattern, options.seed);
@@ -452,7 +540,8 @@ core::Result<std::unique_ptr<ICameraDevice>> makeSimulatedCameraDevice(
                 options,
                 clock,
                 std::move(generator),
-                appliedConfiguration(initial, options)));
+                std::move(initialApplied),
+                initialPeriod.value()));
     } catch (const std::bad_alloc&) {
         return core::Result<std::unique_ptr<ICameraDevice>>::failure(
             allocationError());
