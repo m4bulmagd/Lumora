@@ -39,6 +39,32 @@ target_link_libraries(
 lumora_enable_warnings(lumora_diagnostics)
 
 add_library(
+  lumora_configuration
+  STATIC
+  configuration/include/lumora/configuration/ApplicationConfiguration.hpp
+  configuration/include/lumora/configuration/ConfigurationCodec.hpp
+  configuration/include/lumora/configuration/ConfigurationStore.hpp
+  configuration/src/ConfigurationCodec.cpp
+  configuration/src/ConfigurationStore.cpp
+)
+
+add_library(lumora::configuration ALIAS lumora_configuration)
+
+target_include_directories(
+  lumora_configuration
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/configuration/include>
+)
+
+target_link_libraries(
+  lumora_configuration
+  PUBLIC
+    lumora::core
+    Qt6::Core
+)
+lumora_enable_warnings(lumora_configuration)
+
+add_library(
   lumora_ui
   STATIC
   ui/include/lumora/ui/MainWindow.hpp

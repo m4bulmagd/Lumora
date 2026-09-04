@@ -42,3 +42,17 @@ target_link_libraries(
 )
 lumora_enable_warnings(lumora_diagnostics_tests)
 add_test(NAME Logging COMMAND lumora_diagnostics_tests)
+
+add_executable(
+  lumora_configuration_tests
+  unit/configuration/ConfigurationStoreTests.cpp
+)
+
+target_link_libraries(
+  lumora_configuration_tests
+  PRIVATE
+    lumora::configuration
+    GTest::gtest_main
+)
+lumora_enable_warnings(lumora_configuration_tests)
+add_test(NAME ConfigurationStore COMMAND lumora_configuration_tests)
