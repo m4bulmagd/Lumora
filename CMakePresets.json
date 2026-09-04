@@ -17,6 +17,8 @@
         "LUMORA_BUILD_TESTS": "ON",
         "LUMORA_BUILD_BENCHMARKS": "OFF",
         "LUMORA_ENABLE_BASLER": "OFF",
+        "VCPKG_HOST_TRIPLET": "x64-linux-dynamic",
+        "VCPKG_TARGET_TRIPLET": "x64-linux-dynamic",
         "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed",
         "VCPKG_MANIFEST_FEATURES": ""
       }
@@ -117,27 +119,27 @@
       "name": "linux-gcc-debug-sim",
       "configurePreset": "linux-gcc-debug-sim",
       "output": { "outputOnFailure": true },
-      "environment": { "QT_QPA_PLATFORM": "offscreen" }
+      "environment": { "QT_QPA_PLATFORM": "minimal" }
     },
     {
       "name": "linux-gcc-release-sim",
       "configurePreset": "linux-gcc-release-sim",
       "output": { "outputOnFailure": true },
-      "environment": { "QT_QPA_PLATFORM": "offscreen" }
+      "environment": { "QT_QPA_PLATFORM": "minimal" }
     },
     {
       "name": "windows-msvc-debug-sim",
       "configurePreset": "windows-msvc-debug-sim",
       "configuration": "Debug",
       "output": { "outputOnFailure": true },
-      "environment": { "QT_QPA_PLATFORM": "offscreen" }
+      "environment": { "QT_QPA_PLATFORM": "minimal" }
     },
     {
       "name": "windows-msvc-release-sim",
       "configurePreset": "windows-msvc-release-sim",
       "configuration": "Release",
       "output": { "outputOnFailure": true },
-      "environment": { "QT_QPA_PLATFORM": "offscreen" }
+      "environment": { "QT_QPA_PLATFORM": "minimal" }
     },
     {
       "name": "windows-msvc-debug-basler",
