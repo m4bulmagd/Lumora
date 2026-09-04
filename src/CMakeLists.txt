@@ -51,6 +51,28 @@ target_include_directories(
 target_link_libraries(lumora_camera_api PUBLIC lumora::core)
 lumora_enable_warnings(lumora_camera_api)
 
+# The generated simulator remains hardware- and UI-independent.
+add_library(
+  lumora_camera_simulator
+  STATIC
+  camera/simulator/include/lumora/camera/sim/IPatternGenerator.hpp
+  camera/simulator/include/lumora/camera/sim/SimulatedCameraOptions.hpp
+  camera/simulator/include/lumora/camera/sim/SimulatedCameraProvider.hpp
+  camera/simulator/src/PatternGenerators.cpp
+  camera/simulator/src/SimulatedCameraDevice.cpp
+  camera/simulator/src/SimulatedCameraProvider.cpp
+)
+add_library(lumora::camera_simulator ALIAS lumora_camera_simulator)
+
+target_include_directories(
+  lumora_camera_simulator
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/camera/simulator/include>
+)
+
+target_link_libraries(lumora_camera_simulator PUBLIC lumora::camera_api)
+lumora_enable_warnings(lumora_camera_simulator)
+
 target_include_directories(
   lumora_core
   PUBLIC

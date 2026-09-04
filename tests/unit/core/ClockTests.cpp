@@ -3,6 +3,9 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <future>
+#include <stop_token>
+#include <thread>
 
 namespace {
 
@@ -18,6 +21,30 @@ TEST(Clock, SystemClockExposesSeparateSteadyAndUtcDomains) {
 
     EXPECT_NE(steady.time_since_epoch(), std::chrono::steady_clock::duration::zero());
     EXPECT_NE(utc.time_since_epoch(), std::chrono::system_clock::duration::zero());
+}
+
+TEST(Clock, SystemClockWaitUntilReturnsTrueAtDeadline) {
+    const SystemClock clock;
+
+    EXPECT_TRUE(clock.waitUntil(std::chrono::steady_clock::now() + 1ms, {}));
+}
+
+TEST(Clock, SystemClockWaitUntilReturnsFalseWhenCancelled) {
+    const SystemClock clock;
+    std::stop_source stopSource;
+    std::promise<void> waiterStarted;
+    auto started = waiterStarted.get_future();
+    auto reached = std::async(std::launch::async, [&] {
+        waiterStarted.set_value();
+        return clock.waitUntil(
+            std::chrono::steady_clock::now() + 250ms,
+            stopSource.get_token());
+    });
+
+    started.wait();
+    stopSource.request_stop();
+    ASSERT_EQ(reached.wait_for(100ms), std::future_status::ready);
+    EXPECT_FALSE(reached.get());
 }
 
 TEST(ManualClock, AdvancesOnlyWhenExplicitlyRequested) {
@@ -48,6 +75,45 @@ TEST(ManualClock, UtcCorrectionDoesNotChangeMonotonicTime) {
     EXPECT_EQ(clock.steadyNow(), initialSteady);
     EXPECT_EQ(clock.utcNow(),
               std::chrono::system_clock::time_point{std::chrono::seconds{5}});
+}
+
+TEST(ManualClock, WaitUntilIsReleasedByAdvanceAtTheDeadline) {
+    ManualClock clock;
+    std::promise<void> waiterStarted;
+    auto started = waiterStarted.get_future();
+
+    auto reached = std::async(std::launch::async, [&] {
+        waiterStarted.set_value();
+        return clock.waitUntil(
+            std::chrono::steady_clock::time_point{100ms}, {});
+    });
+
+    started.wait();
+    clock.advance(99ms);
+    EXPECT_EQ(reached.wait_for(0ms), std::future_status::timeout);
+
+    clock.advance(1ms);
+    ASSERT_EQ(reached.wait_for(100ms), std::future_status::ready);
+    EXPECT_TRUE(reached.get());
+}
+
+TEST(ManualClock, WaitUntilReturnsFalseWhenCancelled) {
+    ManualClock clock;
+    std::stop_source stopSource;
+    std::promise<void> waiterStarted;
+    auto started = waiterStarted.get_future();
+
+    auto reached = std::async(std::launch::async, [&] {
+        waiterStarted.set_value();
+        return clock.waitUntil(
+            std::chrono::steady_clock::time_point{100ms},
+            stopSource.get_token());
+    });
+
+    started.wait();
+    stopSource.request_stop();
+    ASSERT_EQ(reached.wait_for(100ms), std::future_status::ready);
+    EXPECT_FALSE(reached.get());
 }
 
 }  // namespace

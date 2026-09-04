@@ -90,6 +90,20 @@ add_test(NAME CameraConfiguration COMMAND lumora_camera_api_tests --gtest_filter
 add_test(NAME CameraContract COMMAND lumora_camera_api_tests --gtest_filter=CameraContract.*)
 
 add_executable(
+  lumora_camera_simulator_tests
+  unit/camera/SimulatedCameraTests.cpp
+)
+
+target_link_libraries(
+  lumora_camera_simulator_tests
+  PRIVATE
+    lumora::camera_simulator
+    GTest::gtest_main
+)
+lumora_enable_warnings(lumora_camera_simulator_tests)
+add_test(NAME SimulatedCamera COMMAND lumora_camera_simulator_tests)
+
+add_executable(
   lumora_diagnostics_tests
   unit/diagnostics/LoggingTests.cpp
 )
