@@ -24,6 +24,9 @@ add_executable(
   unit/core/FrameMetadataTests.cpp
   unit/core/BufferPoolTests.cpp
   unit/core/FrameTests.cpp
+  unit/core/LatestValueSlotTests.cpp
+  unit/core/BoundedQueueTests.cpp
+  unit/core/ClockTests.cpp
 )
 
 target_link_libraries(
@@ -56,6 +59,18 @@ add_test(
 add_test(
   NAME Core.Frame
   COMMAND lumora_core_tests --gtest_filter=RawFrame*:ProcessedFrame*:DisplayFrame*:FrameBundle*
+)
+add_test(
+  NAME Core.LatestValueSlot
+  COMMAND lumora_core_tests --gtest_filter=LatestValueSlot*
+)
+add_test(
+  NAME Core.BoundedQueue
+  COMMAND lumora_core_tests --gtest_filter=BoundedQueue*
+)
+add_test(
+  NAME Core.Clock
+  COMMAND lumora_core_tests --gtest_filter=Clock*:ManualClock*
 )
 
 add_executable(
