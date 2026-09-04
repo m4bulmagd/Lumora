@@ -1,0 +1,21 @@
+#pragma once
+
+#include <string_view>
+
+namespace lumora::core {
+
+struct AppVersion final {
+    [[nodiscard]] static constexpr std::string_view string() noexcept {
+        return "@PROJECT_VERSION@";
+    }
+
+    [[nodiscard]] static constexpr std::string_view releaseClass() noexcept {
+        return "@LUMORA_RELEASE_CLASS@";
+    }
+
+    [[nodiscard]] static constexpr bool isEvaluation() noexcept {
+        return true;
+    }
+};
+
+}  // namespace lumora::core

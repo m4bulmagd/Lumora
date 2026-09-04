@@ -14,3 +14,31 @@ target_link_libraries(
 lumora_enable_warnings(lumora_ui_tests)
 
 add_test(NAME MainWindowSmoke COMMAND lumora_ui_tests)
+
+add_executable(
+  lumora_core_tests
+  unit/core/ResultSmokeTests.cpp
+)
+
+target_link_libraries(
+  lumora_core_tests
+  PRIVATE
+    lumora::core
+    GTest::gtest_main
+)
+lumora_enable_warnings(lumora_core_tests)
+add_test(NAME ResultSmoke COMMAND lumora_core_tests)
+
+add_executable(
+  lumora_diagnostics_tests
+  unit/diagnostics/LoggingTests.cpp
+)
+
+target_link_libraries(
+  lumora_diagnostics_tests
+  PRIVATE
+    lumora::diagnostics
+    GTest::gtest_main
+)
+lumora_enable_warnings(lumora_diagnostics_tests)
+add_test(NAME Logging COMMAND lumora_diagnostics_tests)
