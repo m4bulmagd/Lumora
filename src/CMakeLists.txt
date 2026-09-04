@@ -10,11 +10,14 @@ add_library(
   lumora_core
   STATIC
   core/include/lumora/core/CheckedMath.hpp
+  core/include/lumora/core/BufferPool.hpp
   core/include/lumora/core/Error.hpp
   core/include/lumora/core/FrameMetadata.hpp
   core/include/lumora/core/ImageLayout.hpp
   core/include/lumora/core/PixelFormat.hpp
   core/include/lumora/core/Result.hpp
+  core/include/lumora/core/SharedBuffer.hpp
+  core/src/BufferPool.cpp
   core/src/Error.cpp
   core/src/ImageLayout.cpp
 )
