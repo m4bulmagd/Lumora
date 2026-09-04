@@ -48,24 +48,21 @@
       "cacheVariables": {
         "LUMORA_BUILD_TESTS": "ON",
         "LUMORA_BUILD_BENCHMARKS": "OFF",
+        "LUMORA_ENABLE_BASLER": "OFF",
+        "VCPKG_HOST_TRIPLET": "x64-windows",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
         "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed"
       }
     },
     {
       "name": "windows-msvc-debug-sim",
       "displayName": "Windows MSVC Debug (simulator)",
-      "inherits": "windows-msvc-base",
-      "cacheVariables": {
-        "LUMORA_ENABLE_BASLER": "OFF"
-      }
+      "inherits": "windows-msvc-base"
     },
     {
       "name": "windows-msvc-release-sim",
       "displayName": "Windows MSVC Release (simulator)",
-      "inherits": "windows-msvc-base",
-      "cacheVariables": {
-        "LUMORA_ENABLE_BASLER": "OFF"
-      }
+      "inherits": "windows-msvc-base"
     },
     {
       "name": "windows-msvc-debug-basler",

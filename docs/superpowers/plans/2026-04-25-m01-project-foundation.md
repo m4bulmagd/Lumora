@@ -323,7 +323,7 @@ git commit -m "feat(config): add versioned atomic JSON storage"
 
 - [ ] **Step 1: Document exact prerequisites and commands**
 
-Include supported architectures, GCC and Visual Studio prerequisites, vcpkg bootstrap/baseline/binary-cache policy, CMake configure/build/test commands, Linux offscreen UI test configuration, and clean output removal instructions that target only `out/build`. Document that official Windows artifacts are built on Windows rather than cross-compiled.
+Include supported architectures, GCC and Visual Studio prerequisites, vcpkg bootstrap/baseline/binary-cache policy, CMake configure/build/test commands, Linux headless UI test configuration using the available Qt `minimal` platform plugin, and clean output removal instructions that target only `out/build`. Document that official Windows artifacts are built on Windows rather than cross-compiled.
 
 - [ ] **Step 2: Add Linux and Windows CI workflows**
 

@@ -1,0 +1,39 @@
+name: Windows Simulator
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-simulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator-release:
+    name: Windows MSVC Release Simulator
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up pinned vcpkg and binary cache
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4
+          vcpkgJsonGlob: '**/vcpkg.json'
+          doNotCache: false
+
+      - name: Configure Release simulator without pylon
+        shell: pwsh
+        run: cmake --preset windows-msvc-release-sim --fresh "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build all targets
+        run: cmake --build --preset windows-msvc-release-sim --parallel
+
+      - name: Test without hardware
+        run: ctest --preset windows-msvc-release-sim --output-on-failure -LE hardware

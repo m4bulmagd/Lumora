@@ -6,6 +6,7 @@ endfunction()
 
 function(lumora_verify_milestone_one_targets)
   require_target(lumora_core)
+  require_target(lumora_configuration)
   require_target(lumora_diagnostics)
   require_target(lumora_ui)
   require_target(lumora_app)

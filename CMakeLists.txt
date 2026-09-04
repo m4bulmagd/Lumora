@@ -30,3 +30,6 @@ add_subdirectory(src)
 if(LUMORA_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/VerifyTargets.cmake")
+lumora_verify_milestone_one_targets()
