@@ -26,9 +26,9 @@ namespace {
     const auto applicationData =
         QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     if (applicationData.isEmpty()) {
-        return std::filesystem::current_path() / "logs";
+        return std::filesystem::current_path() / "Logs";
     }
-    return nativePath(applicationData) / "logs";
+    return nativePath(applicationData) / "Logs";
 }
 
 }  // namespace
