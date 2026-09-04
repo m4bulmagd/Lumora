@@ -6,15 +6,37 @@ configure_file(
   @ONLY
 )
 
-add_library(lumora_core INTERFACE)
+add_library(
+  lumora_core
+  STATIC
+  core/include/lumora/core/CheckedMath.hpp
+  core/include/lumora/core/BufferPool.hpp
+  core/include/lumora/core/BoundedQueue.hpp
+  core/include/lumora/core/Clock.hpp
+  core/include/lumora/core/Error.hpp
+  core/include/lumora/core/Frame.hpp
+  core/include/lumora/core/FrameMetadata.hpp
+  core/include/lumora/core/ImageLayout.hpp
+  core/include/lumora/core/LatestValueSlot.hpp
+  core/include/lumora/core/PixelFormat.hpp
+  core/include/lumora/core/Result.hpp
+  core/include/lumora/core/SharedBuffer.hpp
+  core/src/BufferPool.cpp
+  core/src/Clock.cpp
+  core/src/CheckedMath.cpp
+  core/src/Frame.cpp
+  core/src/FrameMetadata.cpp
+  core/src/ImageLayout.cpp
+)
 add_library(lumora::core ALIAS lumora_core)
 
 target_include_directories(
   lumora_core
-  INTERFACE
+  PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/core/include>
     $<BUILD_INTERFACE:${lumora_generated_include_dir}>
 )
+lumora_enable_warnings(lumora_core)
 
 add_library(
   lumora_diagnostics
