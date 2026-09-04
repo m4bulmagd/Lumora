@@ -30,6 +30,25 @@ add_library(
 )
 add_library(lumora::core ALIAS lumora_core)
 
+# The camera API deliberately has no Qt, SDK, or transport dependency.
+add_library(
+  lumora_camera_api
+  STATIC
+  camera/api/include/lumora/camera/CameraTypes.hpp
+  camera/api/include/lumora/camera/CameraConfigurationValidator.hpp
+  camera/api/src/CameraConfigurationValidator.cpp
+)
+add_library(lumora::camera_api ALIAS lumora_camera_api)
+
+target_include_directories(
+  lumora_camera_api
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/camera/api/include>
+)
+
+target_link_libraries(lumora_camera_api PUBLIC lumora::core)
+lumora_enable_warnings(lumora_camera_api)
+
 target_include_directories(
   lumora_core
   PUBLIC

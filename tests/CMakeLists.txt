@@ -74,6 +74,20 @@ add_test(
 )
 
 add_executable(
+  lumora_camera_api_tests
+  unit/camera/CameraConfigurationValidatorTests.cpp
+)
+
+target_link_libraries(
+  lumora_camera_api_tests
+  PRIVATE
+    lumora::camera_api
+    GTest::gtest_main
+)
+lumora_enable_warnings(lumora_camera_api_tests)
+add_test(NAME CameraConfiguration COMMAND lumora_camera_api_tests)
+
+add_executable(
   lumora_diagnostics_tests
   unit/diagnostics/LoggingTests.cpp
 )
