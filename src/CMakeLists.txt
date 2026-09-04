@@ -12,6 +12,7 @@ add_library(
   core/include/lumora/core/CheckedMath.hpp
   core/include/lumora/core/BufferPool.hpp
   core/include/lumora/core/Error.hpp
+  core/include/lumora/core/Frame.hpp
   core/include/lumora/core/FrameMetadata.hpp
   core/include/lumora/core/ImageLayout.hpp
   core/include/lumora/core/PixelFormat.hpp
@@ -19,6 +20,7 @@ add_library(
   core/include/lumora/core/SharedBuffer.hpp
   core/src/BufferPool.cpp
   core/src/Error.cpp
+  core/src/Frame.cpp
   core/src/ImageLayout.cpp
 )
 add_library(lumora::core ALIAS lumora_core)

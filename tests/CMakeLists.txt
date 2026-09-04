@@ -23,6 +23,7 @@ add_executable(
   unit/core/ImageLayoutTests.cpp
   unit/core/FrameMetadataTests.cpp
   unit/core/BufferPoolTests.cpp
+  unit/core/FrameTests.cpp
 )
 
 target_link_libraries(
@@ -51,6 +52,10 @@ add_test(
 add_test(
   NAME Core.BufferPool
   COMMAND lumora_core_tests --gtest_filter=BufferPool*:SharedBuffer*
+)
+add_test(
+  NAME Core.Frame
+  COMMAND lumora_core_tests --gtest_filter=RawFrame*:ProcessedFrame*:DisplayFrame*:FrameBundle*
 )
 
 add_executable(
