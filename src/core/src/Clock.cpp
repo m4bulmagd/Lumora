@@ -83,22 +83,29 @@ ClockWaitOutcome ManualClock::waitUntil(
         return ClockWaitOutcome::DeadlineReached;
     }
 
-    bool deadlineWasReached = false;
     if (maximumRealWait == std::chrono::milliseconds::max()) {
-        deadlineWasReached = advanced_.wait(lock, stopToken, reached);
-    } else {
-        deadlineWasReached = advanced_.wait_for(
-            lock,
-            stopToken,
-            std::max(maximumRealWait, std::chrono::milliseconds::zero()),
-            reached);
+        return advanced_.wait(lock, stopToken, reached)
+                   ? ClockWaitOutcome::DeadlineReached
+                   : ClockWaitOutcome::Cancelled;
     }
-    if (deadlineWasReached) {
-        return ClockWaitOutcome::DeadlineReached;
+
+    constexpr auto maximumWaitChunk = std::chrono::hours{24};
+    auto remaining =
+        std::max(maximumRealWait, std::chrono::milliseconds::zero());
+    while (remaining > std::chrono::milliseconds::zero()) {
+        const auto chunk = std::min(
+            remaining,
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                maximumWaitChunk));
+        if (advanced_.wait_for(lock, stopToken, chunk, reached)) {
+            return ClockWaitOutcome::DeadlineReached;
+        }
+        if (stopToken.stop_requested()) {
+            return ClockWaitOutcome::Cancelled;
+        }
+        remaining -= chunk;
     }
-    return stopToken.stop_requested()
-               ? ClockWaitOutcome::Cancelled
-               : ClockWaitOutcome::MaximumWaitElapsed;
+    return ClockWaitOutcome::MaximumWaitElapsed;
 }
 
 void ManualClock::advance(std::chrono::nanoseconds elapsed) noexcept {

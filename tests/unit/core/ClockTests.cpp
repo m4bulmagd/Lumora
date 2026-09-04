@@ -131,4 +131,19 @@ TEST(ManualClock, WaitUntilHasAnIndependentRealElapsedBound) {
     EXPECT_EQ(clock.steadyNow(), std::chrono::steady_clock::time_point{});
 }
 
+TEST(ManualClock, ExtremeFiniteRealElapsedBoundRemainsCancellable) {
+    ManualClock clock;
+    std::stop_source stopSource;
+    stopSource.request_stop();
+    const auto before = std::chrono::steady_clock::now();
+
+    const auto outcome = clock.waitUntil(
+        std::chrono::steady_clock::time_point{100ms},
+        stopSource.get_token(),
+        std::chrono::milliseconds::max() - 1ms);
+
+    EXPECT_EQ(outcome, ClockWaitOutcome::Cancelled);
+    EXPECT_LT(std::chrono::steady_clock::now() - before, 100ms);
+}
+
 }  // namespace

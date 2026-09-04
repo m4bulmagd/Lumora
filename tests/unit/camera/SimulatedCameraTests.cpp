@@ -12,6 +12,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -309,6 +310,34 @@ TEST(SimulatedCamera, RejectsFrameRatesWithoutRepresentableClockPeriods) {
             core::ErrorCategory::CameraConfiguration);
         EXPECT_EQ(result.error().code, "frame_period_unrepresentable");
     }
+}
+
+TEST(SimulatedCamera, RejectsBinary64RoundedFramePeriodBoundary) {
+    using Duration = std::chrono::steady_clock::duration;
+    const auto ticksPerSecond =
+        static_cast<double>(Duration::period::den) /
+        static_cast<double>(Duration::period::num);
+    const auto boundaryFps = std::ldexp(
+        ticksPerSecond,
+        -std::numeric_limits<Duration::rep>::digits);
+    core::ManualClock clock;
+    auto cameraOptions = options();
+    cameraOptions.defaultFps = boundaryFps;
+    cameraOptions.capabilities.frameRate = {
+        .minimum = boundaryFps,
+        .maximum = boundaryFps,
+        .increment = boundaryFps,
+        .writableWhileStreaming = true,
+    };
+    SimulatedCameraProvider provider(std::move(cameraOptions), clock);
+
+    const auto result = provider.create(CameraId{"sim-001"});
+
+    ASSERT_FALSE(result.hasValue());
+    EXPECT_EQ(
+        result.error().category,
+        core::ErrorCategory::CameraConfiguration);
+    EXPECT_EQ(result.error().code, "frame_period_unrepresentable");
 }
 
 TEST(SimulatedCamera, DeadlineArithmeticSaturatesNearClockMaximum) {
@@ -780,6 +809,27 @@ TEST(SimulatedCamera, MissedDeadlineReschedulesAndReportsOnePacingSlip) {
     ASSERT_EQ(pending.wait_for(100ms), std::future_status::ready);
     EXPECT_TRUE(pending.get().hasValue());
     EXPECT_EQ(slips.load(), 1U);
+}
+
+TEST(SimulatedCamera, FastestPacingNeverReportsDeadlineSlips) {
+    core::ManualClock clock(
+        std::chrono::steady_clock::time_point{std::chrono::seconds{1}});
+    std::uint32_t slips = 0U;
+    auto device = createDevice(clock, options(
+        SimulationPattern::Ramp,
+        SimulationPacingMode::Fastest,
+        [&] { ++slips; }));
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+
+    for (int frameIndex = 0; frameIndex < 3; ++frameIndex) {
+        auto frame = device->retrieve(100ms, *destination);
+        ASSERT_TRUE(frame.hasValue());
+        frame.value().reset();
+    }
+
+    EXPECT_EQ(slips, 0U);
 }
 
 TEST(SimulatedCamera, OvershootWhileWaitingReschedulesFromCurrentTime) {

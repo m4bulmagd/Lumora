@@ -203,9 +203,13 @@ validatedFramePeriod(double fps) {
         static_cast<long double>(Period::den) /
         static_cast<long double>(Period::num);
     const auto ticks = ticksPerSecond / static_cast<long double>(fps);
-    const auto maximumTicks = static_cast<long double>(
-        std::numeric_limits<Representation>::max());
-    if (!std::isfinite(ticks) || ticks < 1.0L || ticks > maximumTicks) {
+    static_assert(std::numeric_limits<Representation>::is_integer);
+    static_assert(std::numeric_limits<Representation>::is_signed);
+    const auto exclusiveMaximumTicks = std::ldexp(
+        1.0L,
+        std::numeric_limits<Representation>::digits);
+    if (!std::isfinite(ticks) || ticks < 1.0L ||
+        ticks >= exclusiveMaximumTicks) {
         return core::Result<Duration>::failure(
             unrepresentableFramePeriodError(fps));
     }
@@ -469,7 +473,8 @@ private:
 
     void markFrameLateIfBehind(
         std::chrono::steady_clock::time_point now) noexcept {
-        if (!hasPublishedFrame_ || frameWasLate_ || now <= nextFrameDeadline_) {
+        if (options_.pacing == SimulationPacingMode::Fastest ||
+            !hasPublishedFrame_ || frameWasLate_ || now <= nextFrameDeadline_) {
             return;
         }
         frameWasLate_ = true;
