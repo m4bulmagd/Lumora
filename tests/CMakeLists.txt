@@ -74,6 +74,50 @@ add_test(
 )
 
 add_executable(
+  lumora_camera_api_tests
+  unit/camera/CameraConfigurationValidatorTests.cpp
+  unit/camera/CameraContractTests.cpp
+)
+
+target_link_libraries(
+  lumora_camera_api_tests
+  PRIVATE
+    lumora::camera_api
+    GTest::gtest_main
+)
+lumora_enable_warnings(lumora_camera_api_tests)
+add_test(NAME CameraConfiguration COMMAND lumora_camera_api_tests --gtest_filter=CameraConfigurationValidator.*)
+add_test(NAME CameraContract COMMAND lumora_camera_api_tests --gtest_filter=CameraContract.*)
+
+add_executable(
+  lumora_camera_simulator_tests
+  unit/camera/SimulatedCameraTests.cpp
+  unit/camera/SequenceSourceTests.cpp
+  unit/camera/FaultScriptTests.cpp
+)
+
+target_link_libraries(
+  lumora_camera_simulator_tests
+  PRIVATE
+    lumora::camera_simulator
+    GTest::gtest_main
+)
+lumora_enable_warnings(lumora_camera_simulator_tests)
+target_compile_definitions(lumora_camera_simulator PRIVATE LUMORA_SIMULATOR_TEST_HOOKS)
+target_include_directories(lumora_camera_simulator PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+target_include_directories(lumora_camera_simulator_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+target_compile_definitions(lumora_camera_simulator_tests PRIVATE
+  LUMORA_SEQUENCE_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/sequences")
+add_test(NAME SimulatedCamera COMMAND lumora_camera_simulator_tests --gtest_filter=SimulatedCamera.*)
+add_test(NAME SequenceSource COMMAND lumora_camera_simulator_tests --gtest_filter=SequenceSource.*)
+add_test(NAME FaultScript COMMAND lumora_camera_simulator_tests --gtest_filter=FaultScript.*)
+
+add_executable(lumora_pattern_allocation_tests unit/camera/PatternAllocationTests.cpp)
+target_link_libraries(lumora_pattern_allocation_tests PRIVATE lumora::camera_simulator)
+lumora_enable_warnings(lumora_pattern_allocation_tests)
+add_test(NAME SimulatedCamera.PatternAllocation COMMAND lumora_pattern_allocation_tests)
+
+add_executable(
   lumora_diagnostics_tests
   unit/diagnostics/LoggingTests.cpp
 )
