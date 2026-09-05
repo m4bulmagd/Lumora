@@ -17,11 +17,28 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 90
 
+    env:
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/out/vcpkg-cache,readwrite
+
     steps:
       - name: Check out source
         uses: actions/checkout@v6
 
-      - name: Set up pinned vcpkg and binary cache
+      - name: Restore vcpkg binary archives
+        id: vcpkg-cache
+        continue-on-error: true
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/vcpkg-cache
+          key: vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'CMakePresets.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'CMakePresets.json') }}-
+            vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Create vcpkg binary archive directory
+        run: cmake -E make_directory "${{ github.workspace }}/out/vcpkg-cache"
+
+      - name: Set up pinned vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: 04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4
@@ -47,3 +64,11 @@ jobs:
 
       - name: Test Release without hardware
         run: ctest --preset windows-msvc-release-sim --output-on-failure -LE hardware
+
+      - name: Save completed vcpkg binary archives
+        if: ${{ !cancelled() && steps.vcpkg-cache.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/vcpkg-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}

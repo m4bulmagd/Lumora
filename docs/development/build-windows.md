@@ -20,11 +20,14 @@ git -C .tools/vcpkg checkout 04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4
 $LumoraVcpkgRoot = (Resolve-Path .tools\vcpkg).Path
 ```
 
-The committed manifest baseline and overrides pin Qt, OpenCV, GoogleTest, and spdlog. `.tools/` is ignored. CI uses the same vcpkg commit with vcpkg's authenticated GitHub Actions binary cache. An optional local cache can be enabled for the current PowerShell session:
+The committed manifest baseline and overrides pin Qt, OpenCV, GoogleTest, and spdlog. `.tools/` is ignored. CI uses the same vcpkg commit and the supported `files` binary cache under `out/vcpkg-cache`, restored/saved by a pinned `actions/cache` action rather than the removed `x-gha` backend. An optional local cache can be enabled for the current PowerShell session:
 
 ```powershell
 $env:VCPKG_BINARY_SOURCES = "clear;files,$PWD\out\vcpkg-cache,readwrite"
+New-Item -ItemType Directory -Force out\vcpkg-cache | Out-Null
 ```
+
+CI cache keys separate operating systems and architectures; vcpkg checks package ABI compatibility before reuse. Completed dependency packages are saved even if a later build/test step fails, unless the run is cancelled. Cache-service failures do not suppress build/test failures. See [vcpkg binary caching](https://learn.microsoft.com/en-us/vcpkg/users/binarycaching) and [GitHub cache actions](https://github.com/actions/cache).
 
 ## Configure, build, and test
 

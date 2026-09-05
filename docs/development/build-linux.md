@@ -7,13 +7,13 @@ Linux x86-64 with GCC is Lumora's daily development and simulator-test environme
 - A current x86-64 Linux distribution; Ubuntu 24.04 LTS or newer is the reference family.
 - GCC 12 or newer with C++20 support.
 - CMake 3.28 or newer and Ninja.
-- Git, curl, zip, unzip, tar, `pkg-config`, autoconf, automake, and libtool for vcpkg ports.
+- Git, curl, zip, unzip, tar, `pkg-config`, autoconf, autoconf-archive, automake, and libtool for vcpkg ports.
 
 On Debian/Ubuntu, install the toolchain with:
 
 ```bash
 sudo apt-get update
-sudo apt-get install build-essential cmake ninja-build git curl zip unzip tar pkg-config autoconf automake libtool
+sudo apt-get install build-essential cmake ninja-build git curl zip unzip tar pkg-config autoconf autoconf-archive automake libtool
 ```
 
 ## Bootstrap the pinned vcpkg baseline
@@ -28,11 +28,14 @@ git -C .tools/vcpkg checkout 04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4
 .tools/vcpkg/bootstrap-vcpkg.sh -disableMetrics
 ```
 
-`.tools/` is ignored. CI checks out the same vcpkg commit and uses vcpkg's authenticated GitHub Actions binary cache. A developer may opt into a local cache before configuring:
+`.tools/` is ignored. CI checks out the same vcpkg commit. Binary packages use vcpkg's supported `files` cache under `out/vcpkg-cache`; the workflows restore/save that directory with a pinned `actions/cache` action. They do not use the removed `x-gha` backend. A developer may opt into the same local cache before configuring:
 
 ```bash
 export VCPKG_BINARY_SOURCES="clear;files,$PWD/out/vcpkg-cache,readwrite"
+mkdir -p out/vcpkg-cache
 ```
+
+CI cache keys separate operating systems and architectures. Each run saves a new archive snapshot, including completed packages if a later build or test step fails. vcpkg still checks package ABI compatibility after restoration. Caches contain dependency packages only, not installed application data or captures; cache-service failures do not suppress build/test failures. See [vcpkg binary caching](https://learn.microsoft.com/en-us/vcpkg/users/binarycaching) and [GitHub cache actions](https://github.com/actions/cache).
 
 ## Configure, build, and test
 
