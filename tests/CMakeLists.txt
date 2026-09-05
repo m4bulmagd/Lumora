@@ -103,6 +103,9 @@ target_link_libraries(
     GTest::gtest_main
 )
 lumora_enable_warnings(lumora_camera_simulator_tests)
+target_compile_definitions(lumora_camera_simulator PRIVATE LUMORA_SIMULATOR_TEST_HOOKS)
+target_include_directories(lumora_camera_simulator PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+target_include_directories(lumora_camera_simulator_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
 target_compile_definitions(lumora_camera_simulator_tests PRIVATE
   LUMORA_SEQUENCE_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/sequences")
 add_test(NAME SimulatedCamera COMMAND lumora_camera_simulator_tests --gtest_filter=SimulatedCamera.*)

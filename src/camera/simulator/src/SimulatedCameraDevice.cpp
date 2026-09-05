@@ -1,4 +1,7 @@
 #include "FrameSource.hpp"
+#ifdef LUMORA_SIMULATOR_TEST_HOOKS
+#include "SimulatedFaultPreparationHook.hpp"
+#endif
 
 #include <lumora/camera/CameraConfigurationValidator.hpp>
 #include <lumora/camera/ICameraDevice.hpp>
@@ -15,21 +18,43 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
+#include <ios>
 #include <limits>
 #include <memory>
 #include <new>
 #include <optional>
 #include <stop_token>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace lumora::camera::sim {
+#ifdef LUMORA_SIMULATOR_TEST_HOOKS
+namespace testing {
+namespace {
+thread_local FaultPreparationHook faultPreparationHook{};
+}
+
+FaultPreparationHook exchangeFaultPreparationHook(FaultPreparationHook hook) noexcept {
+    return std::exchange(faultPreparationHook, hook);
+}
+}  // namespace testing
+#endif
 namespace {
 
 using FrameResult = core::Result<std::shared_ptr<const core::RawFrame>>;
+
+void faultPreparationCheckpoint() {
+#ifdef LUMORA_SIMULATOR_TEST_HOOKS
+    if (testing::faultPreparationHook) {
+        testing::faultPreparationHook();
+    }
+#endif
+}
 
 [[nodiscard]] core::Error lifecycleError(
     core::ErrorCategory category,
@@ -109,6 +134,40 @@ using FrameResult = core::Result<std::shared_ptr<const core::RawFrame>>;
         .diagnosticDetail = "Allocating simulator device state failed.",
         .recoverable = true,
     };
+}
+
+template<typename Result, typename PrepareFailure>
+[[nodiscard]] Result commitScriptedFailure(
+    FaultScript& script,
+    FaultScript::Occurrence occurrence,
+    std::stop_token stopToken,
+    PrepareFailure&& prepareFailure) {
+    // A fully prepared local must return by a non-allocating move after commit,
+    // even when the compiler does not perform named return-value optimization.
+    static_assert(std::is_nothrow_move_constructible_v<Result>);
+    try {
+        faultPreparationCheckpoint();
+        auto result = std::forward<PrepareFailure>(prepareFailure)();
+        if (stopToken.stop_requested()) {
+            return Result::failure(cancelledError());
+        }
+        script.consume(occurrence);
+        return result;
+    } catch (const std::bad_alloc&) {
+        // Keep recovery fields within GCC/MSVC string inline storage so even
+        // an ongoing allocation failure can be reported without allocating.
+        return Result::failure({core::ErrorCategory::ResourceExhaustion,
+            "alloc_failed", "No memory", "", true});
+    } catch (const std::length_error&) {
+        return Result::failure({core::ErrorCategory::ResourceExhaustion,
+            "size_limit", "Size limit", "", true});
+    } catch (const std::filesystem::filesystem_error&) {
+        return Result::failure({core::ErrorCategory::Storage,
+            "io_failed", "I/O failed", "", true});
+    } catch (const std::ios_base::failure&) {
+        return Result::failure({core::ErrorCategory::Storage,
+            "io_failed", "I/O failed", "", true});
+    }
 }
 
 [[nodiscard]] core::Error unrepresentableFramePeriodError(double fps) {
@@ -313,11 +372,14 @@ public:
                 candidatePeriod.error());
         }
         if (const auto fault = matchingFault(FaultPoint::Configuration)) {
-            options_.faults->consume(*fault);
-            return core::Result<AppliedCameraConfiguration>::failure(lifecycleError(
-                core::ErrorCategory::CameraConfiguration, "simulated_configuration_failure",
-                "The simulated configuration failed.",
-                "The fault script rejected this validated configuration attempt."));
+            using ConfigurationResult = core::Result<AppliedCameraConfiguration>;
+            return commitScriptedFailure<ConfigurationResult>(
+                *options_.faults, *fault, {}, [] {
+                    return ConfigurationResult::failure(lifecycleError(
+                        core::ErrorCategory::CameraConfiguration, "simulated_configuration_failure",
+                        "The simulated configuration failed.",
+                        "The fault script rejected this validated configuration attempt."));
+                });
         }
         applied_ = std::move(candidate);
         framePeriod_ = candidatePeriod.value();
@@ -378,16 +440,16 @@ public:
             if (wait == core::ClockWaitOutcome::Cancelled || stopToken.stop_requested()) {
                 return FrameResult::failure(cancelledError());
             }
-            // Returning the scripted failure commits this occurrence only.
-            options_.faults->consume(*fault);
-            return FrameResult::failure(timeoutError());
+            return commitScriptedFailure<FrameResult>(
+                *options_.faults, *fault, stopToken, [] {
+                    return FrameResult::failure(timeoutError());
+                });
         }
         if (fault && fault->fault == SimulatedFault::Disconnect) {
-            if (stopToken.stop_requested()) {
-                return FrameResult::failure(cancelledError());
-            }
-            options_.faults->consume(*fault);
-            return FrameResult::failure(disconnectedError());
+            return commitScriptedFailure<FrameResult>(
+                *options_.faults, *fault, stopToken, [] {
+                    return FrameResult::failure(disconnectedError());
+                });
         }
 
         const auto& actual = applied_.actual;
@@ -436,14 +498,13 @@ public:
         if (fault && fault->fault == SimulatedFault::MalformedFrame) {
             // Construct a genuinely invalid candidate and return the normal
             // layout validator's typed error; never fabricate a malformed error.
-            const auto malformed = core::ImageLayout::create(
-                0U, actual.roi.height, strideBytes,
-                actual.pixelFormat.applicationStorage, payloadBytes);
-            if (stopToken.stop_requested()) {
-                return FrameResult::failure(cancelledError());
-            }
-            options_.faults->consume(*fault);
-            return FrameResult::failure(malformed.error());
+            return commitScriptedFailure<FrameResult>(
+                *options_.faults, *fault, stopToken, [&] {
+                    auto malformed = core::ImageLayout::create(
+                        0U, actual.roi.height, strideBytes,
+                        actual.pixelFormat.applicationStorage, payloadBytes);
+                    return FrameResult::failure(std::move(malformed).error());
+                });
         }
 
         auto sealed = std::move(*lease).seal();

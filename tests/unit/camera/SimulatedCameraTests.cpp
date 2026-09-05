@@ -2,6 +2,7 @@
 #include <lumora/camera/sim/IPatternGenerator.hpp>
 #include <lumora/camera/sim/FaultScript.hpp>
 #include <lumora/camera/sim/SequenceSource.hpp>
+#include "SimulatedFaultPreparationHook.hpp"
 
 #include <lumora/core/BufferPool.hpp>
 #include <lumora/core/Clock.hpp>
@@ -21,9 +22,12 @@
 #include <functional>
 #include <filesystem>
 #include <future>
+#include <ios>
 #include <limits>
 #include <memory>
+#include <new>
 #include <stop_token>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -1229,6 +1233,144 @@ TEST(SimulatedCamera, ExtremeInjectedTimeoutRemainsCancellableWithoutConsumingOc
     const auto recovered = device->retrieve(10ms, *destination);
     ASSERT_TRUE(recovered.hasValue());
     EXPECT_EQ(recovered.value()->frameId, 1U);
+}
+
+void failFaultPreparationAllocationOnce() {
+    static_cast<void>(testing::exchangeFaultPreparationHook(nullptr));
+    throw std::bad_alloc{};
+}
+
+TEST(SimulatedCamera, FailureResultAllocationDoesNotEscapeOrCommitFaultOccurrence) {
+    struct Case { SimulatedFault fault; const char* code; };
+    for (const auto& test : std::vector<Case>{
+             {SimulatedFault::Timeout, "acquisition_timeout"},
+             {SimulatedFault::Disconnect, "simulated_disconnect"},
+             {SimulatedFault::MalformedFrame, "zero_dimensions"},
+             {SimulatedFault::ConfigurationFailure, "simulated_configuration_failure"}}) {
+        SCOPED_TRACE(test.code);
+        core::ManualClock clock;
+        auto opts = replayOptions();
+        opts.faults = FaultScript::create({{2U, test.fault, 1U}}).value();
+        auto device = createDevice(clock, opts);
+        auto destination = pool();
+        ASSERT_TRUE(device->open().hasValue());
+        const auto requested = configuration(device->capabilities().value().pixelFormats.front(),
+            {.x = 0U, .y = 0U, .width = 3U, .height = 2U});
+        ASSERT_TRUE(device->startStream().hasValue());
+        ASSERT_TRUE(device->retrieve(10ms, *destination).hasValue());
+        const bool configuring = test.fault == SimulatedFault::ConfigurationFailure;
+        const auto point = configuring ? FaultPoint::Configuration : FaultPoint::Retrieval;
+        std::optional<core::Error> returnedError;
+        bool allocationEscaped = false;
+        {
+            testing::ScopedFaultPreparationHook injection(failFaultPreparationAllocationOnce);
+            try {
+                if (configuring) {
+                    const auto result = device->applyConfiguration(requested);
+                    ASSERT_FALSE(result.hasValue());
+                    returnedError = result.error();
+                } else {
+                    const auto result = device->retrieve(0ms, *destination);
+                    ASSERT_FALSE(result.hasValue());
+                    returnedError = result.error();
+                }
+            } catch (const std::bad_alloc&) {
+                allocationEscaped = true;
+            }
+        }
+        EXPECT_FALSE(allocationEscaped);
+        EXPECT_TRUE(returnedError.has_value());
+        EXPECT_FALSE(opts.faults->disconnected());
+        EXPECT_EQ(destination->stats().inUse, 0U);
+        const auto pending = opts.faults->match(2U, 0ms, point);
+        EXPECT_TRUE(pending.has_value());
+        if (!returnedError || !pending || opts.faults->disconnected()) {
+            continue;
+        }
+        EXPECT_EQ(returnedError->category, core::ErrorCategory::ResourceExhaustion);
+        EXPECT_EQ(returnedError->code, "alloc_failed");
+        if (configuring) {
+            const auto failure = device->applyConfiguration(requested);
+            ASSERT_FALSE(failure.hasValue());
+            EXPECT_EQ(failure.error().code, test.code);
+        } else {
+            const auto failure = device->retrieve(0ms, *destination);
+            ASSERT_FALSE(failure.hasValue());
+            EXPECT_EQ(failure.error().code, test.code);
+        }
+        EXPECT_FALSE(opts.faults->match(2U, 0ms, point).has_value());
+        EXPECT_EQ(opts.faults->disconnected(), test.fault == SimulatedFault::Disconnect);
+        opts.faults->restoreConnection();
+        if (configuring) {
+            EXPECT_TRUE(device->applyConfiguration(requested).hasValue());
+        }
+        const auto recovered = device->retrieve(10ms, *destination);
+        ASSERT_TRUE(recovered.hasValue());
+        EXPECT_EQ(recovered.value()->frameId, 2U);
+        EXPECT_EQ(readU16(*recovered.value(), 0U, 0U), 0x0456U);
+    }
+}
+
+TEST(SimulatedCamera, FailurePreparationTranslatesExpectedSizeAndIoExceptions) {
+    struct Case {
+        testing::FaultPreparationHook throwFailure;
+        core::ErrorCategory category;
+        const char* code;
+    };
+    for (const auto& test : std::vector<Case>{
+             {[] { throw std::length_error{"Injected size limit"}; },
+              core::ErrorCategory::ResourceExhaustion, "size_limit"},
+             {[] { throw std::filesystem::filesystem_error{
+                       "Injected filesystem failure", std::make_error_code(std::errc::io_error)}; },
+              core::ErrorCategory::Storage, "io_failed"},
+             {[] { throw std::ios_base::failure{"Injected stream failure"}; },
+              core::ErrorCategory::Storage, "io_failed"}}) {
+        SCOPED_TRACE(test.code);
+        core::ManualClock clock;
+        auto opts = replayOptions();
+        opts.faults = FaultScript::create({{1U, SimulatedFault::Disconnect, 1U}}).value();
+        auto device = createDevice(clock, opts);
+        auto destination = pool();
+        ASSERT_TRUE(device->open().hasValue());
+        ASSERT_TRUE(device->startStream().hasValue());
+        {
+            testing::ScopedFaultPreparationHook injection(test.throwFailure);
+            const auto result = device->retrieve(0ms, *destination);
+            ASSERT_FALSE(result.hasValue());
+            EXPECT_EQ(result.error().category, test.category);
+            EXPECT_EQ(result.error().code, test.code);
+        }
+        EXPECT_FALSE(opts.faults->disconnected());
+        EXPECT_TRUE(opts.faults->match(1U, 0ms, FaultPoint::Retrieval).has_value());
+        EXPECT_EQ(destination->stats().inUse, 0U);
+    }
+}
+
+TEST(SimulatedCamera, CancellationDuringFailurePreparationDoesNotCommitOccurrence) {
+    for (const auto fault : {SimulatedFault::Timeout, SimulatedFault::Disconnect,
+                            SimulatedFault::MalformedFrame}) {
+        SCOPED_TRACE(static_cast<int>(fault));
+        core::ManualClock clock;
+        auto opts = replayOptions();
+        opts.faults = FaultScript::create({{1U, fault, 1U}}).value();
+        auto device = createDevice(clock, opts);
+        auto destination = pool();
+        ASSERT_TRUE(device->open().hasValue());
+        ASSERT_TRUE(device->startStream().hasValue());
+        std::stop_source stop;
+        static thread_local std::stop_source* preparationStop{};
+        preparationStop = &stop;
+        {
+            testing::ScopedFaultPreparationHook injection([] { preparationStop->request_stop(); });
+            const auto result = device->retrieve(0ms, *destination, stop.get_token());
+            ASSERT_FALSE(result.hasValue());
+            EXPECT_EQ(result.error().code, "cancelled");
+        }
+        preparationStop = nullptr;
+        EXPECT_FALSE(opts.faults->disconnected());
+        EXPECT_TRUE(opts.faults->match(1U, 0ms, FaultPoint::Retrieval).has_value());
+        EXPECT_EQ(destination->stats().inUse, 0U);
+    }
 }
 
 }  // namespace
