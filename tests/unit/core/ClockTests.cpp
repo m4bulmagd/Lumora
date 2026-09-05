@@ -84,18 +84,25 @@ TEST(ManualClock, WaitUntilIsReleasedByAdvanceAtTheDeadline) {
     std::promise<void> waiterStarted;
     auto started = waiterStarted.get_future();
 
-    auto reached = std::async(std::launch::async, [&] {
+    std::packaged_task<bool(std::stop_token)> wait([&](std::stop_token stopToken) {
         waiterStarted.set_value();
         return clock.waitUntil(
-            std::chrono::steady_clock::time_point{100ms}, {});
+            std::chrono::steady_clock::time_point{100ms}, stopToken);
     });
+    auto reached = wait.get_future();
+    std::jthread worker(std::move(wait));
 
-    started.wait();
+    const auto setup = started.wait_for(1s);
     clock.advance(99ms);
-    EXPECT_EQ(reached.wait_for(0ms), std::future_status::timeout);
-
+    const auto beforeDeadline = reached.wait_for(0ms);
     clock.advance(1ms);
-    ASSERT_EQ(reached.wait_for(100ms), std::future_status::ready);
+    const auto completion = reached.wait_for(1s);
+    worker.request_stop();
+    worker.join();
+
+    ASSERT_EQ(setup, std::future_status::ready);
+    EXPECT_EQ(beforeDeadline, std::future_status::timeout);
+    ASSERT_EQ(completion, std::future_status::ready);
     EXPECT_TRUE(reached.get());
 }
 

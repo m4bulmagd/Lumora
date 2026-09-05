@@ -39,6 +39,8 @@ using RetrieveResult = decltype(std::declval<ICameraDevice&>().retrieve(
 
 static_assert(!std::is_abstract_v<ContractCamera>);
 static_assert(!std::is_abstract_v<ContractProvider>);
+static_assert(noexcept(std::declval<ICameraDevice&>().stopStream()));
+static_assert(noexcept(std::declval<ICameraDevice&>().close()));
 static_assert(std::is_same_v<
               RetrieveResult,
               core::Result<std::shared_ptr<const core::RawFrame>>>);

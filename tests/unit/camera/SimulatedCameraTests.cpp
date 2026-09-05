@@ -21,6 +21,7 @@
 #include <cstring>
 #include <functional>
 #include <filesystem>
+#include <fstream>
 #include <future>
 #include <ios>
 #include <limits>
@@ -65,6 +66,68 @@ public:
 private:
     std::stop_source* stopSource_;
     mutable std::chrono::steady_clock::time_point now_{};
+};
+
+class SignallingManualClock final : public core::IClock {
+public:
+    core::ManualClock clock;
+    mutable std::promise<void> waitEntered;
+
+    std::chrono::steady_clock::time_point steadyNow() const noexcept override {
+        return clock.steadyNow();
+    }
+    std::chrono::system_clock::time_point utcNow() const noexcept override {
+        return clock.utcNow();
+    }
+    core::ClockWaitOutcome waitUntil(
+        std::chrono::steady_clock::time_point deadline,
+        std::stop_token stopToken,
+        std::chrono::milliseconds maximumRealWait) const override {
+        waitEntered.set_value();
+        return clock.waitUntil(deadline, stopToken, maximumRealWait);
+    }
+};
+
+// Simulates time spent obtaining metadata in the calling thread. This wait is
+// intentional retrieval work, not synchronization with an asynchronous test.
+class CostlyMetadataClock final : public core::IClock {
+public:
+    mutable bool delayNextUtc{true};
+    std::stop_source* cancelAfterDelay{};
+
+    std::chrono::steady_clock::time_point steadyNow() const noexcept override { return {}; }
+    std::chrono::system_clock::time_point utcNow() const noexcept override {
+        if (std::exchange(delayNextUtc, false)) {
+            const core::SystemClock realClock;
+            static_cast<void>(realClock.waitUntil(std::chrono::steady_clock::now() + 5ms, {}));
+            if (cancelAfterDelay) {
+                cancelAfterDelay->request_stop();
+            }
+        }
+        return {};
+    }
+    core::ClockWaitOutcome waitUntil(
+        std::chrono::steady_clock::time_point,
+        std::stop_token,
+        std::chrono::milliseconds) const override {
+        throw std::logic_error{"Fastest pacing must not wait on the injected clock"};
+    }
+};
+
+class OversleepingPacingClock final : public core::IClock {
+public:
+    mutable std::chrono::steady_clock::time_point now{};
+    std::chrono::steady_clock::time_point steadyNow() const noexcept override { return now; }
+    std::chrono::system_clock::time_point utcNow() const noexcept override { return {}; }
+    core::ClockWaitOutcome waitUntil(
+        std::chrono::steady_clock::time_point deadline,
+        std::stop_token stopToken,
+        std::chrono::milliseconds) const override {
+        const core::SystemClock realClock;
+        static_cast<void>(realClock.waitUntil(std::chrono::steady_clock::now() + 5ms, stopToken));
+        now = deadline;
+        return core::ClockWaitOutcome::DeadlineReached;
+    }
 };
 
 core::SourcePixelFormat mono8() {
@@ -555,11 +618,11 @@ TEST(SimulatedCamera, CheckerboardAlternatesWithinTheConfiguredFrame) {
 }
 
 TEST(SimulatedCamera, ManualPacingWaitsForAdvanceWithoutHoldingPoolLease) {
-    core::ManualClock clock;
+    SignallingManualClock clock;
     auto destination = pool();
-    std::promise<void> firstPublished;
-    auto firstReady = firstPublished.get_future();
-    auto pending = std::async(std::launch::async, [&] {
+    auto entered = clock.waitEntered.get_future();
+    using FrameResult = core::Result<std::shared_ptr<const core::RawFrame>>;
+    std::packaged_task<FrameResult(std::stop_token)> retrieve([&](std::stop_token stopToken) {
         auto device = createDevice(clock, options(
             SimulationPattern::Ramp, SimulationPacingMode::Manual));
         if (!device->open().hasValue() ||
@@ -567,21 +630,28 @@ TEST(SimulatedCamera, ManualPacingWaitsForAdvanceWithoutHoldingPoolLease) {
                 {.x = 0U, .y = 0U, .width = 8U, .height = 8U}, 10.0)).hasValue() ||
             !device->startStream().hasValue() ||
             !device->retrieve(100ms, *destination).hasValue()) {
-            firstPublished.set_value();
             return core::Result<std::shared_ptr<const core::RawFrame>>::failure({
                 core::ErrorCategory::Internal, "test_setup_failed", "", "", false});
         }
-        firstPublished.set_value();
-        return device->retrieve(100ms, *destination);
+        return device->retrieve(5s, *destination, stopToken);
     });
+    auto pending = retrieve.get_future();
+    std::jthread worker(std::move(retrieve));
+    const auto setup = entered.wait_for(1s);
+    const auto waiting = pending.wait_for(0ms);
+    const auto poolUse = destination->stats().inUse;
+    clock.clock.advance(99ms);
+    const auto beforeDeadline = pending.wait_for(0ms);
+    clock.clock.advance(1ms);
+    const auto completion = pending.wait_for(1s);
+    worker.request_stop();
+    worker.join();
 
-    firstReady.wait();
-    EXPECT_EQ(pending.wait_for(10ms), std::future_status::timeout);
-    EXPECT_EQ(destination->stats().inUse, 0U);
-    clock.advance(99ms);
-    EXPECT_EQ(pending.wait_for(10ms), std::future_status::timeout);
-    clock.advance(1ms);
-    ASSERT_EQ(pending.wait_for(100ms), std::future_status::ready);
+    ASSERT_EQ(setup, std::future_status::ready);
+    EXPECT_EQ(waiting, std::future_status::timeout);
+    EXPECT_EQ(poolUse, 0U);
+    EXPECT_EQ(beforeDeadline, std::future_status::timeout);
+    ASSERT_EQ(completion, std::future_status::ready);
     const auto second = pending.get();
     ASSERT_TRUE(second.hasValue());
     EXPECT_EQ(second.value()->frameId, 2U);
@@ -922,6 +992,326 @@ SimulatedCameraOptions replayOptions(
     result.sequence = SequenceReplayOptions{
         std::filesystem::path{LUMORA_SEQUENCE_FIXTURES} / "ramp16", end};
     return result;
+}
+
+TEST(SimulatedCamera, GeneratedProductionTimeoutReleasesLeaseAndPreservesFrameAndFault) {
+    core::ManualClock clock;
+    auto opts = options(SimulationPattern::ImpulseNoise);
+    opts.capabilities.roi.maximum.width = 4096U;
+    opts.capabilities.roi.maximum.height = 4096U;
+    opts.faults = FaultScript::create({{1U, SimulatedFault::MalformedFrame, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool(4096U * 4096U);
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+
+    const auto before = std::chrono::steady_clock::now();
+    const auto expired = device->retrieve(1ms, *destination);
+    EXPECT_LT(std::chrono::steady_clock::now() - before, 200ms);
+    ASSERT_FALSE(expired.hasValue());
+    EXPECT_EQ(expired.error().category, core::ErrorCategory::Acquisition);
+    EXPECT_EQ(expired.error().code, "acquisition_timeout");
+    EXPECT_EQ(destination->stats().inUse, 0U);
+    EXPECT_TRUE(opts.faults->match(1U, {}, FaultPoint::Retrieval).has_value());
+
+    const auto malformed = device->retrieve(5s, *destination);
+    ASSERT_FALSE(malformed.hasValue());
+    EXPECT_EQ(malformed.error().code, "zero_dimensions");
+    const auto retry = device->retrieve(5s, *destination);
+    ASSERT_TRUE(retry.hasValue());
+    EXPECT_EQ(retry.value()->frameId, 1U);
+}
+
+TEST(SimulatedCamera, ReplayProductionTimeoutPreservesCursorAndPendingFault) {
+    core::ManualClock clock;
+    auto opts = replayOptions();
+    opts.faults = FaultScript::create({{1U, SimulatedFault::MalformedFrame, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool(64U * 1024U * 1024U);
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+
+    const auto before = std::chrono::steady_clock::now();
+    const auto expired = device->retrieve(1ms, *destination);
+    EXPECT_LT(std::chrono::steady_clock::now() - before, 200ms);
+    ASSERT_FALSE(expired.hasValue());
+    EXPECT_EQ(expired.error().category, core::ErrorCategory::Acquisition);
+    EXPECT_EQ(expired.error().code, "acquisition_timeout");
+    EXPECT_EQ(destination->stats().inUse, 0U);
+    EXPECT_TRUE(opts.faults->match(1U, {}, FaultPoint::Retrieval).has_value());
+
+    const auto malformed = device->retrieve(5s, *destination);
+    ASSERT_FALSE(malformed.hasValue());
+    EXPECT_EQ(malformed.error().code, "zero_dimensions");
+    auto first = device->retrieve(5s, *destination);
+    ASSERT_TRUE(first.hasValue());
+    EXPECT_EQ(first.value()->frameId, 1U);
+    EXPECT_EQ(readU16(*first.value(), 0U, 0U), 0x0123U);
+    first.value().reset();
+    const auto second = device->retrieve(std::chrono::milliseconds::max(), *destination);
+    ASSERT_TRUE(second.hasValue());
+    EXPECT_EQ(second.value()->frameId, 2U);
+    EXPECT_EQ(readU16(*second.value(), 0U, 0U), 0x0456U);
+}
+
+TEST(SimulatedCamera, ReplayRasterCopyTimeoutPreservesUnpublishedSequencePosition) {
+    struct TemporaryReplay {
+        std::filesystem::path directory = std::filesystem::temp_directory_path() /
+            ("lumora-copy-budget-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        TemporaryReplay() { std::filesystem::create_directory(directory); }
+        ~TemporaryReplay() {
+            std::error_code ignored;
+            std::filesystem::remove_all(directory, ignored);
+        }
+    } recording;
+    {
+        std::ofstream file(recording.directory / "frame.pgm", std::ios::binary);
+        file << "P5\n8192 8192\n255\n";
+        std::array<char, 64U * 1024U> block;
+        block.fill('*');
+        for (int i = 0; i < 1024; ++i) {
+            file.write(block.data(), static_cast<std::streamsize>(block.size()));
+        }
+        ASSERT_TRUE(file.good());
+    }
+    core::ManualClock clock;
+    auto opts = replayOptions();
+    opts.sequence = SequenceReplayOptions{recording.directory, SequenceEnd::Error};
+    auto device = createDevice(clock, opts);
+    // The pool exactly fits the raster, so no padding clear can consume time.
+    auto destination = pool(8192U * 8192U);
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    const auto before = std::chrono::steady_clock::now();
+    const auto expired = device->retrieve(1ms, *destination);
+    EXPECT_LT(std::chrono::steady_clock::now() - before, 200ms);
+    ASSERT_FALSE(expired.hasValue());
+    EXPECT_EQ(expired.error().code, "acquisition_timeout");
+    EXPECT_EQ(destination->stats().inUse, 0U);
+    auto retry = device->retrieve(5s, *destination);
+    ASSERT_TRUE(retry.hasValue());
+    EXPECT_EQ(retry.value()->frameId, 1U);
+    EXPECT_EQ(retry.value()->pixels.bytes().front(), std::byte{42U});
+    EXPECT_EQ(retry.value()->pixels.bytes().back(), std::byte{42U});
+    retry.value().reset();
+    const auto end = device->retrieve(100ms, *destination);
+    ASSERT_FALSE(end.hasValue());
+    EXPECT_EQ(end.error().code, "sequence_exhausted");
+}
+
+TEST(SimulatedCamera, StreamingConfigurationEnforcesEachPermissionBeforeScriptConsumption) {
+    struct Change {
+        const char* code;
+        void (*apply)(CameraConfiguration&);
+        bool generatedOnly{false};
+    };
+    const std::array changes{
+        Change{"frame_rate_not_writable_while_streaming", [](CameraConfiguration& c) { c.requestedFps = 20.0; }},
+        Change{"exposure_not_writable_while_streaming", [](CameraConfiguration& c) { c.exposure.requestedMicroseconds = 1200.0; }},
+        Change{"exposure_not_writable_while_streaming", [](CameraConfiguration& c) { c.exposure = {ExposureMode::Auto, {}}; }},
+        Change{"gain_not_writable_while_streaming", [](CameraConfiguration& c) { c.gain.requestedDb = 8.0; }},
+        Change{"gain_not_writable_while_streaming", [](CameraConfiguration& c) { c.gain = {GainMode::Auto, {}}; }},
+        Change{"roi_not_writable_while_streaming", [](CameraConfiguration& c) { c.roi.width = 2U; }},
+        Change{"pixel_format_not_writable_while_streaming", [](CameraConfiguration& c) { c.pixelFormat = mono12(); }, true},
+    };
+    for (const bool replay : {false, true}) {
+        for (const auto& change : changes) {
+            if (replay && change.generatedOnly) {
+                continue;
+            }
+            SCOPED_TRACE(change.code);
+            SCOPED_TRACE(replay);
+            core::ManualClock clock;
+            auto opts = replay ? replayOptions() : options();
+            opts.capabilities.frameRate.writableWhileStreaming = false;
+            opts.capabilities.exposure.writableWhileStreaming = false;
+            opts.capabilities.gain.writableWhileStreaming = false;
+            opts.faults = FaultScript::create({{0U, SimulatedFault::ConfigurationFailure, 1U, 1ms}}).value();
+            auto device = createDevice(clock, opts);
+            auto destination = pool();
+            ASSERT_TRUE(device->open().hasValue());
+            const auto caps = device->capabilities().value();
+            auto initial = configuration(caps.pixelFormats.front(),
+                {.x = 0U, .y = 0U, .width = caps.roi.maximum.width, .height = caps.roi.maximum.height});
+            ASSERT_TRUE(device->applyConfiguration(initial).hasValue());
+            ASSERT_TRUE(device->startStream().hasValue());
+            EXPECT_TRUE(device->applyConfiguration(initial).hasValue());
+            ASSERT_TRUE(device->retrieve(100ms, *destination).hasValue());
+            clock.advance(1ms);
+            auto changed = initial;
+            change.apply(changed);
+            const auto rejected = device->applyConfiguration(changed);
+            ASSERT_FALSE(rejected.hasValue());
+            EXPECT_EQ(rejected.error().category, core::ErrorCategory::CameraConfiguration);
+            EXPECT_EQ(rejected.error().code, change.code);
+            EXPECT_TRUE(opts.faults->match(2U, 1ms, FaultPoint::Configuration).has_value());
+            auto invalid = changed;
+            invalid.requestedFps = -1.0;
+            EXPECT_EQ(device->applyConfiguration(invalid).error().code, "frame_rate_positive");
+            const auto unchanged = device->retrieve(100ms, *destination);
+            ASSERT_TRUE(unchanged.hasValue());
+            EXPECT_EQ(unchanged.value()->metadata.acquisitionSettings.actualFps, 30.0);
+            EXPECT_EQ(unchanged.value()->metadata.acquisitionSettings.exposureMicroseconds, 1000.0);
+            EXPECT_EQ(unchanged.value()->metadata.acquisitionSettings.gainDb, 6.0);
+            EXPECT_EQ(unchanged.value()->layout.width(), caps.roi.maximum.width);
+            ASSERT_TRUE(device->stopStream().hasValue());
+            const auto fault = device->applyConfiguration(changed);
+            ASSERT_FALSE(fault.hasValue());
+            EXPECT_EQ(fault.error().code, "simulated_configuration_failure");
+            EXPECT_TRUE(device->applyConfiguration(changed).hasValue());
+        }
+    }
+}
+
+TEST(SimulatedCamera, WritableStreamingNumbersUpdatePacingForGeneratedAndReplay) {
+    for (const bool replay : {false, true}) {
+        core::ManualClock clock;
+        auto opts = replay ? replayOptions(SequenceEnd::Loop, SimulationPacingMode::Manual)
+                           : options(SimulationPattern::Ramp, SimulationPacingMode::Manual);
+        auto device = createDevice(clock, opts);
+        auto destination = pool();
+        ASSERT_TRUE(device->open().hasValue());
+        const auto caps = device->capabilities().value();
+        auto requested = configuration(caps.pixelFormats.front(),
+            {.x = 0U, .y = 0U, .width = caps.roi.maximum.width, .height = caps.roi.maximum.height}, 10.0);
+        ASSERT_TRUE(device->applyConfiguration(requested).hasValue());
+        ASSERT_TRUE(device->startStream().hasValue());
+        ASSERT_TRUE(device->retrieve(100ms, *destination).hasValue());
+        requested.requestedFps = 20.0;
+        requested.exposure.requestedMicroseconds = 1100.0;
+        requested.gain.requestedDb = 7.0;
+        EXPECT_TRUE(device->applyConfiguration(requested).hasValue());
+        clock.advance(49ms);
+        EXPECT_EQ(device->retrieve(1ms, *destination).error().code, "acquisition_timeout");
+        clock.advance(1ms);
+        auto frame = device->retrieve(100ms, *destination);
+        ASSERT_TRUE(frame.hasValue());
+        EXPECT_EQ(frame.value()->metadata.acquisitionSettings.actualFps, 20.0);
+        EXPECT_EQ(frame.value()->metadata.acquisitionSettings.exposureMicroseconds, 1100.0);
+        EXPECT_EQ(frame.value()->metadata.acquisitionSettings.gainDb, 7.0);
+        requested.exposure = {ExposureMode::Auto, {}};
+        requested.gain = {GainMode::Auto, {}};
+        EXPECT_TRUE(device->applyConfiguration(requested).hasValue());
+    }
+}
+
+TEST(SimulatedCamera, AbsentFpsRequestsMaximumWhileInitialDefaultsRemainIntact) {
+    for (const bool replay : {false, true}) {
+        core::ManualClock clock;
+        auto device = createDevice(clock, replay ? replayOptions() : options());
+        auto destination = pool();
+        ASSERT_TRUE(device->open().hasValue());
+        ASSERT_TRUE(device->startStream().hasValue());
+        auto initial = device->retrieve(100ms, *destination);
+        ASSERT_TRUE(initial.hasValue());
+        EXPECT_EQ(initial.value()->metadata.acquisitionSettings.actualFps, 30.0);
+        initial.value().reset();
+        ASSERT_TRUE(device->stopStream().hasValue());
+        const auto caps = device->capabilities().value();
+        auto requested = configuration(caps.pixelFormats.front(),
+            {.x = 0U, .y = 0U, .width = caps.roi.maximum.width, .height = caps.roi.maximum.height});
+        requested.requestedFps.reset();
+        const auto applied = device->applyConfiguration(requested);
+        ASSERT_TRUE(applied.hasValue());
+        EXPECT_FALSE(applied.value().requested.requestedFps.has_value());
+        EXPECT_EQ(applied.value().actual.requestedFps, 60.0);
+        ASSERT_TRUE(device->startStream().hasValue());
+        auto frame = device->retrieve(100ms, *destination);
+        ASSERT_TRUE(frame.hasValue());
+        EXPECT_EQ(frame.value()->metadata.acquisitionSettings.requestedFps, 60.0);
+        EXPECT_EQ(frame.value()->metadata.acquisitionSettings.actualFps, 60.0);
+    }
+}
+
+TEST(SimulatedCamera, MetadataWorkSharesDeadlineAndCancellationWinsBeforePublication) {
+    for (const bool replay : {false, true}) {
+        for (const bool cancel : {false, true}) {
+            CostlyMetadataClock clock;
+            std::stop_source stop;
+            clock.cancelAfterDelay = cancel ? &stop : nullptr;
+            auto device = createDevice(clock, replay ? replayOptions() : options());
+            auto destination = pool();
+            ASSERT_TRUE(device->open().hasValue());
+            ASSERT_TRUE(device->startStream().hasValue());
+            const auto expired = device->retrieve(1ms, *destination, stop.get_token());
+            ASSERT_FALSE(expired.hasValue());
+            EXPECT_EQ(expired.error().code, cancel ? "cancelled" : "acquisition_timeout");
+            EXPECT_EQ(destination->stats().inUse, 0U);
+            const auto retry = device->retrieve(std::chrono::milliseconds::max(), *destination);
+            ASSERT_TRUE(retry.hasValue());
+            EXPECT_EQ(retry.value()->frameId, 1U);
+            if (replay) {
+                EXPECT_EQ(readU16(*retry.value(), 0U, 0U), 0x0123U);
+            }
+        }
+    }
+}
+
+TEST(SimulatedCamera, NonPositiveProductionBudgetsNeverConsumeFrameOrFault) {
+    for (const bool replay : {false, true}) {
+        core::ManualClock clock;
+        auto opts = replay ? replayOptions() : options();
+        opts.faults = FaultScript::create({{1U, SimulatedFault::MalformedFrame, 1U}}).value();
+        auto device = createDevice(clock, opts);
+        auto destination = pool();
+        ASSERT_TRUE(device->open().hasValue());
+        ASSERT_TRUE(device->startStream().hasValue());
+        for (const auto timeout : {0ms, -1ms}) {
+            const auto expired = device->retrieve(timeout, *destination);
+            ASSERT_FALSE(expired.hasValue());
+            EXPECT_EQ(expired.error().code, "acquisition_timeout");
+            std::stop_source stop;
+            stop.request_stop();
+            const auto cancelled = device->retrieve(timeout, *destination, stop.get_token());
+            ASSERT_FALSE(cancelled.hasValue());
+            EXPECT_EQ(cancelled.error().code, "cancelled");
+        }
+        EXPECT_TRUE(opts.faults->match(1U, {}, FaultPoint::Retrieval).has_value());
+        EXPECT_EQ(destination->stats().inUse, 0U);
+        const auto malformed = device->retrieve(100ms, *destination);
+        ASSERT_FALSE(malformed.hasValue());
+        EXPECT_EQ(malformed.error().code, "zero_dimensions");
+        const auto retry = device->retrieve(100ms, *destination);
+        ASSERT_TRUE(retry.hasValue());
+        EXPECT_EQ(retry.value()->frameId, 1U);
+    }
+}
+
+TEST(SimulatedCamera, PatternGeneratorChecksAbsoluteDeadlineAndPrioritizesCancellation) {
+    const auto generator = makePatternGenerator(SimulationPattern::Ramp, 1U);
+    std::array<std::byte, 4U> bytes{};
+    const auto expired = std::chrono::steady_clock::now();
+    const auto timedOut = generator->fill(bytes, 2U, 2U, 2U, mono8(), 1U, {}, expired);
+    ASSERT_FALSE(timedOut.hasValue());
+    EXPECT_EQ(timedOut.error().code, "acquisition_timeout");
+    std::stop_source stop;
+    stop.request_stop();
+    const auto cancelled = generator->fill(bytes, 0U, 0U, 0U, mono8(), 1U, stop.get_token(), expired);
+    ASSERT_FALSE(cancelled.hasValue());
+    EXPECT_EQ(cancelled.error().code, "cancelled");
+}
+
+TEST(SimulatedCamera, PacingOvershootDoesNotConsumeANewTimeoutOccurrence) {
+    OversleepingPacingClock clock;
+    auto opts = replayOptions(SequenceEnd::Loop, SimulationPacingMode::Manual);
+    opts.faults = FaultScript::create({{2U, SimulatedFault::Timeout, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    ASSERT_TRUE(device->retrieve(100ms, *destination).hasValue());
+    const auto expired = device->retrieve(1ms, *destination);
+    ASSERT_FALSE(expired.hasValue());
+    EXPECT_EQ(expired.error().code, "acquisition_timeout");
+    EXPECT_TRUE(opts.faults->match(2U, {}, FaultPoint::Retrieval).has_value());
+    EXPECT_EQ(destination->stats().inUse, 0U);
+    const auto scripted = device->retrieve(1ms, *destination);
+    ASSERT_FALSE(scripted.hasValue());
+    EXPECT_EQ(scripted.error().code, "acquisition_timeout");
+    const auto retry = device->retrieve(100ms, *destination);
+    ASSERT_TRUE(retry.hasValue());
+    EXPECT_EQ(retry.value()->frameId, 2U);
+    EXPECT_EQ(readU16(*retry.value(), 0U, 0U), 0x0456U);
 }
 
 TEST(SimulatedCamera, ReplaysImmutableNumericFramesThroughPoolAndSharedRoiValidator) {
@@ -1268,7 +1658,7 @@ TEST(SimulatedCamera, MalformedFrameReleasesLeaseBeforeFailureResultPreparation)
             ++preparationCount;
             releasedBeforePreparation &= preparationPool->stats().inUse == 0U;
         });
-        const auto failure = device->retrieve(0ms, *destination);
+        const auto failure = device->retrieve(100ms, *destination);
         ASSERT_FALSE(failure.hasValue());
         EXPECT_EQ(failure.error().code, "zero_dimensions");
     }
@@ -1321,7 +1711,8 @@ TEST(SimulatedCamera, FailureResultAllocationDoesNotEscapeOrCommitFaultOccurrenc
                     ASSERT_FALSE(result.hasValue());
                     returnedError = result.error();
                 } else {
-                    const auto result = device->retrieve(0ms, *destination);
+                    const auto result = device->retrieve(
+                        test.fault == SimulatedFault::Timeout ? 0ms : 100ms, *destination);
                     ASSERT_FALSE(result.hasValue());
                     returnedError = result.error();
                 }
@@ -1345,7 +1736,8 @@ TEST(SimulatedCamera, FailureResultAllocationDoesNotEscapeOrCommitFaultOccurrenc
             ASSERT_FALSE(failure.hasValue());
             EXPECT_EQ(failure.error().code, test.code);
         } else {
-            const auto failure = device->retrieve(0ms, *destination);
+            const auto failure = device->retrieve(
+                test.fault == SimulatedFault::Timeout ? 0ms : 100ms, *destination);
             ASSERT_FALSE(failure.hasValue());
             EXPECT_EQ(failure.error().code, test.code);
         }
@@ -1392,7 +1784,7 @@ TEST(SimulatedCamera, FailurePreparationTranslatesExpectedSizeAndIoExceptions) {
         ASSERT_TRUE(device->startStream().hasValue());
         {
             testing::ScopedFaultPreparationHook injection(test.throwFailure);
-            const auto result = device->retrieve(0ms, *destination);
+            const auto result = device->retrieve(100ms, *destination);
             ASSERT_FALSE(result.hasValue());
             EXPECT_EQ(result.error().category, test.category);
             EXPECT_EQ(result.error().code, test.code);
@@ -1419,7 +1811,8 @@ TEST(SimulatedCamera, CancellationDuringFailurePreparationDoesNotCommitOccurrenc
         preparationStop = &stop;
         {
             testing::ScopedFaultPreparationHook injection([] { preparationStop->request_stop(); });
-            const auto result = device->retrieve(0ms, *destination, stop.get_token());
+            const auto result = device->retrieve(
+                fault == SimulatedFault::Timeout ? 0ms : 100ms, *destination, stop.get_token());
             ASSERT_FALSE(result.hasValue());
             EXPECT_EQ(result.error().code, "cancelled");
         }
@@ -1441,12 +1834,12 @@ TEST(SimulatedCamera, FailedAllocationTranslationPropagatesWithoutCommittingFaul
         ASSERT_TRUE(device->startStream().hasValue());
         {
             testing::ScopedFaultPreparationHook injection([] { throw std::bad_alloc{}; });
-            EXPECT_THROW(static_cast<void>(device->retrieve(0ms, *destination)), std::bad_alloc);
+            EXPECT_THROW(static_cast<void>(device->retrieve(100ms, *destination)), std::bad_alloc);
         }
         EXPECT_FALSE(opts.faults->disconnected());
         EXPECT_TRUE(opts.faults->match(1U, 0ms, FaultPoint::Retrieval).has_value());
         EXPECT_EQ(destination->stats().inUse, 0U);
-        const auto failure = device->retrieve(0ms, *destination);
+        const auto failure = device->retrieve(100ms, *destination);
         ASSERT_FALSE(failure.hasValue());
         EXPECT_EQ(failure.error().code,
             fault == SimulatedFault::Disconnect ? "simulated_disconnect" : "zero_dimensions");

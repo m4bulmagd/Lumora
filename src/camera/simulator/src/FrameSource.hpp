@@ -14,7 +14,8 @@ public:
     virtual ~FrameSource() = default;
     [[nodiscard]] virtual core::Result<bool> fill(
         std::span<std::byte> destination, const CameraConfiguration& actual,
-        std::size_t strideBytes, std::uint64_t frameId, std::stop_token stopToken) = 0;
+        std::size_t strideBytes, std::uint64_t frameId, std::stop_token stopToken,
+        std::chrono::steady_clock::time_point deadline) = 0;
     virtual void commit() noexcept = 0;
     [[nodiscard]] virtual const char* model() const noexcept = 0;
 };

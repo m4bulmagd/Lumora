@@ -112,6 +112,11 @@ add_test(NAME SimulatedCamera COMMAND lumora_camera_simulator_tests --gtest_filt
 add_test(NAME SequenceSource COMMAND lumora_camera_simulator_tests --gtest_filter=SequenceSource.*)
 add_test(NAME FaultScript COMMAND lumora_camera_simulator_tests --gtest_filter=FaultScript.*)
 
+add_executable(lumora_pattern_allocation_tests unit/camera/PatternAllocationTests.cpp)
+target_link_libraries(lumora_pattern_allocation_tests PRIVATE lumora::camera_simulator)
+lumora_enable_warnings(lumora_pattern_allocation_tests)
+add_test(NAME SimulatedCamera.PatternAllocation COMMAND lumora_pattern_allocation_tests)
+
 add_executable(
   lumora_diagnostics_tests
   unit/diagnostics/LoggingTests.cpp

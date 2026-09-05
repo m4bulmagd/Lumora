@@ -1,4 +1,5 @@
 #include "FrameSource.hpp"
+#include "RetrievalBudget.hpp"
 #ifdef LUMORA_SIMULATOR_TEST_HOOKS
 #include "SimulatedFaultPreparationHook.hpp"
 #endif
@@ -28,6 +29,7 @@
 #include <stop_token>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -98,7 +100,7 @@ void faultPreparationCheckpoint() {
         core::ErrorCategory::Acquisition,
         "acquisition_timeout",
         "No camera frame arrived before the timeout.",
-        "The next simulated frame was scheduled after the retrieval deadline.", true};
+        "The retrieval budget expired before frame publication.", true};
 }
 
 [[nodiscard]] core::Error disconnectedError() {
@@ -140,7 +142,8 @@ template<typename Value, typename PrepareError>
     FaultScript& script,
     FaultScript::Occurrence occurrence,
     std::stop_token stopToken,
-    PrepareError&& prepareError) {
+    PrepareError&& prepareError,
+    std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max()) {
     using Result = core::Result<Value>;
     try {
         faultPreparationCheckpoint();
@@ -151,6 +154,9 @@ template<typename Value, typename PrepareError>
         // copy after this check does not replace the selected scripted failure.
         if (stopToken.stop_requested()) {
             return Result::failureAndCommit(cancelledError(), []() noexcept {});
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return Result::failureAndCommit(timeoutError(), []() noexcept {});
         }
         // Every return from here through retrieve/applyConfiguration is a
         // same-type prvalue. C++20 constructs the caller's final result directly:
@@ -247,7 +253,7 @@ template<typename Mode>
     const SimulatedCameraOptions& options) {
     auto actual = requested;
     actual.requestedFps = quantize(
-        requested.requestedFps.value_or(options.defaultFps),
+        requested.requestedFps.value_or(options.capabilities.frameRate.maximum),
         options.capabilities.frameRate);
     if (requested.exposure.requestedMicroseconds.has_value()) {
         actual.exposure.requestedMicroseconds = quantize(
@@ -260,6 +266,42 @@ template<typename Mode>
             options.capabilities.gain);
     }
     return {.requested = requested, .actual = std::move(actual)};
+}
+
+[[nodiscard]] std::optional<core::Error> streamingConfigurationError(
+    const CameraConfiguration& requested,
+    const CameraConfiguration& previous,
+    const CameraCapabilities& capabilities) {
+    const auto formatValues = [](const core::SourcePixelFormat& f) {
+        return std::tie(f.canonicalName, f.canonicalEncoding, f.validBits, f.sampleMaximum,
+            f.packing, f.alignment, f.applicationStorage);
+    };
+    const auto roiValues = [](const core::RegionOfInterest& roi) {
+        return std::tie(roi.x, roi.y, roi.width, roi.height);
+    };
+    const char* code = nullptr;
+    if (formatValues(requested.pixelFormat) != formatValues(previous.pixelFormat)) {
+        code = "pixel_format_not_writable_while_streaming";
+    } else if (roiValues(requested.roi) != roiValues(previous.roi)) {
+        code = "roi_not_writable_while_streaming";
+    } else if (!capabilities.frameRate.writableWhileStreaming &&
+               requested.requestedFps != previous.requestedFps) {
+        code = "frame_rate_not_writable_while_streaming";
+    } else if (!capabilities.exposure.writableWhileStreaming &&
+               (requested.exposure.mode != previous.exposure.mode ||
+                requested.exposure.requestedMicroseconds != previous.exposure.requestedMicroseconds)) {
+        code = "exposure_not_writable_while_streaming";
+    } else if (!capabilities.gain.writableWhileStreaming &&
+               (requested.gain.mode != previous.gain.mode ||
+                requested.gain.requestedDb != previous.gain.requestedDb)) {
+        code = "gain_not_writable_while_streaming";
+    }
+    if (!code) {
+        return std::nullopt;
+    }
+    return lifecycleError(core::ErrorCategory::CameraConfiguration, code,
+        "Stop the stream before changing this setting.",
+        "The requested setting cannot be changed while the simulated camera is streaming.");
 }
 
 [[nodiscard]] std::size_t bytesPerSample(core::StorageType storage) noexcept {
@@ -375,6 +417,13 @@ public:
                 validated.error());
         }
 
+        if (state_ == State::Streaming) {
+            if (const auto error = streamingConfigurationError(
+                    configuration, applied_.requested, options_.capabilities)) {
+                return core::Result<AppliedCameraConfiguration>::failure(*error);
+            }
+        }
+
         auto candidate = appliedConfiguration(configuration, options_);
         const auto candidatePeriod =
             validatedFramePeriod(*candidate.actual.requestedFps);
@@ -391,9 +440,10 @@ public:
                         "The fault script rejected this validated configuration attempt.", true};
                 });
         }
+        const auto periodChanged = candidatePeriod.value() != framePeriod_;
         applied_ = std::move(candidate);
         framePeriod_ = candidatePeriod.value();
-        if (state_ == State::Streaming && hasPublishedFrame_) {
+        if (state_ == State::Streaming && hasPublishedFrame_ && periodChanged) {
             nextFrameDeadline_ =
                 saturatingDeadline(clock_->steadyNow(), period());
         }
@@ -419,6 +469,8 @@ public:
         std::chrono::milliseconds timeout,
         core::BufferPool& destination,
         std::stop_token stopToken) override {
+        const auto realDeadline = retrievalDeadline(timeout);
+        const RetrievalBudget budget(realDeadline, stopToken);
         if (state_ != State::Streaming) {
             return FrameResult::failure(notStreamingError());
         }
@@ -426,12 +478,11 @@ public:
             return FrameResult::failure(cancelledError());
         }
 
-        const auto realDeadline = retrievalDeadline(timeout);
         if (disconnected()) {
             return FrameResult::failure(disconnectedError());
         }
 
-        const auto pacing = waitForPacing(timeout, stopToken);
+        const auto pacing = waitForPacing(budget, stopToken);
         if (!pacing.hasValue()) {
             return FrameResult::failure(pacing.error());
         }
@@ -443,10 +494,18 @@ public:
             return FrameResult::failure(disconnectedError());
         }
         const auto fault = matchingFault(FaultPoint::Retrieval);
+        // Preserve the explicit zero-budget scripted Timeout attempt. A
+        // positive budget already spent in pacing or fault lookup must not
+        // consume a newly selected occurrence.
+        if (timeout > std::chrono::milliseconds::zero()) {
+            if (const auto interrupted = budget.interruption()) {
+                return FrameResult::failure(*interrupted);
+            }
+        }
         if (fault && fault->fault == SimulatedFault::Timeout) {
             core::SystemClock realClock;
             const auto wait = realClock.waitUntil(realDeadline, stopToken,
-                std::max(timeout, std::chrono::milliseconds::zero()));
+                budget.remainingWait());
             if (wait == core::ClockWaitOutcome::Cancelled || stopToken.stop_requested()) {
                 return FrameResult::failure(cancelledError());
             }
@@ -455,11 +514,14 @@ public:
                     return timeoutError();
                 });
         }
+        if (const auto interrupted = budget.interruption()) {
+            return FrameResult::failure(*interrupted);
+        }
         if (fault && fault->fault == SimulatedFault::Disconnect) {
             return commitScriptedFailure<std::shared_ptr<const core::RawFrame>>(
                 *options_.faults, *fault, stopToken, [] {
                     return disconnectedError();
-                });
+                }, realDeadline);
         }
 
         const auto& actual = applied_.actual;
@@ -479,6 +541,9 @@ public:
             return FrameResult::failure(
                 invalidFrameError(layout.error().diagnosticDetail));
         }
+        if (const auto interrupted = budget.interruption()) {
+            return FrameResult::failure(*interrupted);
+        }
 
         auto lease = destination.tryAcquire();
         if (!lease.has_value()) {
@@ -489,12 +554,13 @@ public:
             actual,
             strideBytes,
             nextFrameId_,
-            stopToken);
+            stopToken,
+            realDeadline);
         if (!generated.hasValue()) {
             return FrameResult::failure(generated.error());
         }
-        if (stopToken.stop_requested()) {
-            return FrameResult::failure(cancelledError());
+        if (const auto interrupted = budget.interruption()) {
+            return FrameResult::failure(*interrupted);
         }
         if (!generated.value()) {
             // Stop is a completed end-of-stream transition. Reopening does not
@@ -517,7 +583,7 @@ public:
                         0U, actual.roi.height, strideBytes,
                         actual.pixelFormat.applicationStorage, payloadBytes);
                     return malformed.error();
-                });
+                }, realDeadline);
         }
 
         auto sealed = std::move(*lease).seal();
@@ -527,7 +593,7 @@ public:
             identity(),
             actual.pixelFormat,
             actual.roi,
-            applied_.requested.requestedFps.value_or(options_.defaultFps),
+            applied_.requested.requestedFps.value_or(options_.capabilities.frameRate.maximum),
             fps,
             actual.exposure.requestedMicroseconds,
             actual.gain.requestedDb);
@@ -535,8 +601,8 @@ public:
             return FrameResult::failure(
                 invalidFrameError(settings.error().diagnosticDetail));
         }
-        if (stopToken.stop_requested()) {
-            return FrameResult::failure(cancelledError());
+        if (const auto interrupted = budget.interruption()) {
+            return FrameResult::failure(*interrupted);
         }
 
         const auto hostReceipt = clock_->steadyNow();
@@ -557,8 +623,8 @@ public:
         }
         const auto publicationTime = clock_->steadyNow();
         markFrameLateIfBehind(publicationTime);
-        if (stopToken.stop_requested()) {
-            return FrameResult::failure(cancelledError());
+        if (const auto interrupted = budget.interruption()) {
+            return FrameResult::failure(*interrupted);
         }
         ++nextFrameId_;
         source_->commit();
@@ -634,7 +700,7 @@ private:
     }
 
     [[nodiscard]] core::Result<void> waitForPacing(
-        std::chrono::milliseconds timeout,
+        const RetrievalBudget& budget,
         std::stop_token stopToken) {
         frameWasLate_ = false;
         if (options_.pacing == SimulationPacingMode::Fastest ||
@@ -654,7 +720,7 @@ private:
         const auto outcome = clock_->waitUntil(
             nextFrameDeadline_,
             stopToken,
-            std::max(timeout, std::chrono::milliseconds::zero()));
+            budget.remainingWait());
         if (outcome == core::ClockWaitOutcome::Cancelled) {
             return core::Result<void>::failure(cancelledError());
         }

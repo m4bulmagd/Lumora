@@ -5,6 +5,7 @@
 #include <lumora/core/Result.hpp>
 
 #include <cstddef>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -16,6 +17,8 @@ class IPatternGenerator {
 public:
     virtual ~IPatternGenerator() = default;
 
+    // Allocation failures in typed error construction may propagate to the
+    // camera/worker boundary. The optional deadline uses the real steady clock.
     [[nodiscard]] virtual core::Result<void> fill(
         std::span<std::byte> destination,
         std::uint32_t width,
@@ -23,7 +26,9 @@ public:
         std::size_t strideBytes,
         const core::SourcePixelFormat& format,
         std::uint64_t frameId,
-        std::stop_token stopToken = {}) const noexcept = 0;
+        std::stop_token stopToken = {},
+        std::chrono::steady_clock::time_point deadline =
+            std::chrono::steady_clock::time_point::max()) const = 0;
 };
 
 [[nodiscard]] std::unique_ptr<IPatternGenerator> makePatternGenerator(

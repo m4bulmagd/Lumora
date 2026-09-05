@@ -1,4 +1,5 @@
 #include "FrameSource.hpp"
+#include "RetrievalBudget.hpp"
 
 #include <lumora/camera/sim/IPatternGenerator.hpp>
 #include <lumora/core/CheckedMath.hpp>
@@ -17,9 +18,10 @@ public:
 
     core::Result<bool> fill(
         std::span<std::byte> destination, const CameraConfiguration& actual,
-        std::size_t strideBytes, std::uint64_t frameId, std::stop_token stopToken) override {
+        std::size_t strideBytes, std::uint64_t frameId, std::stop_token stopToken,
+        std::chrono::steady_clock::time_point deadline) override {
         auto filled = generator_->fill(destination, actual.roi.width, actual.roi.height,
-            strideBytes, actual.pixelFormat, frameId, stopToken);
+            strideBytes, actual.pixelFormat, frameId, stopToken, deadline);
         return filled.hasValue() ? core::Result<bool>::success(true)
                                  : core::Result<bool>::failure(filled.error());
     }
@@ -36,8 +38,13 @@ public:
 
     core::Result<bool> fill(
         std::span<std::byte> destination, const CameraConfiguration& actual,
-        std::size_t strideBytes, std::uint64_t frameId, std::stop_token stopToken) override {
+        std::size_t strideBytes, std::uint64_t frameId, std::stop_token stopToken,
+        std::chrono::steady_clock::time_point deadline) override {
         static_cast<void>(frameId);
+        const RetrievalBudget budget(deadline, stopToken);
+        if (const auto interrupted = budget.interruption()) {
+            return core::Result<bool>::failure(*interrupted);
+        }
         const auto next = sequence_.peek();
         if (!next.hasValue()) {
             return core::Result<bool>::failure(next.error());
@@ -57,9 +64,8 @@ public:
         // Bounded chunks keep cancellation responsive even for very wide rows.
         constexpr std::size_t chunkBytes = 64U * 1024U;
         for (std::size_t offset = required.value(); offset < destination.size();) {
-            if (stopToken.stop_requested()) {
-                return core::Result<bool>::failure({core::ErrorCategory::Cancelled,
-                    "cancelled", "Frame retrieval was cancelled.", "Replay padding clear was cancelled before publication.", true});
+            if (const auto interrupted = budget.interruption()) {
+                return core::Result<bool>::failure(*interrupted);
             }
             const auto count = std::min(chunkBytes, destination.size() - offset);
             std::fill_n(destination.data() + offset, count, std::byte{0U});
@@ -70,15 +76,17 @@ public:
                                       static_cast<std::size_t>(actual.roi.x) * sampleBytes;
             const auto destinationOffset = static_cast<std::size_t>(row) * strideBytes;
             for (std::size_t offset = 0U; offset < strideBytes;) {
-                if (stopToken.stop_requested()) {
-                    return core::Result<bool>::failure({core::ErrorCategory::Cancelled,
-                        "cancelled", "Frame retrieval was cancelled.", "Replay copy was cancelled before publication.", true});
+                if (const auto interrupted = budget.interruption()) {
+                    return core::Result<bool>::failure(*interrupted);
                 }
                 const auto count = std::min(chunkBytes, strideBytes - offset);
                 std::memcpy(destination.data() + destinationOffset + offset,
                             source.pixels.data() + sourceOffset + offset, count);
                 offset += count;
             }
+        }
+        if (const auto interrupted = budget.interruption()) {
+            return core::Result<bool>::failure(*interrupted);
         }
         return core::Result<bool>::success(true);
     }

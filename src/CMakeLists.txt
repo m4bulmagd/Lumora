@@ -64,6 +64,7 @@ add_library(
   camera/simulator/src/SequenceSource.cpp
   camera/simulator/src/FaultScript.cpp
   camera/simulator/src/FrameSource.hpp
+  camera/simulator/src/RetrievalBudget.hpp
   camera/simulator/src/FrameSource.cpp
   camera/simulator/src/SimulatedCameraDevice.cpp
   camera/simulator/src/SimulatedCameraProvider.cpp
