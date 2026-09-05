@@ -53,6 +53,9 @@ jobs:
         run: cmake --build --preset windows-msvc-debug-sim --parallel
 
       - name: Test Debug without hardware
+        env:
+          QT_DEBUG_PLUGINS: '1'
+          QT_FORCE_STDERR_LOGGING: '1'
         run: ctest --preset windows-msvc-debug-sim --output-on-failure -LE hardware
 
       - name: Configure Release simulator without pylon
@@ -63,6 +66,9 @@ jobs:
         run: cmake --build --preset windows-msvc-release-sim --parallel
 
       - name: Test Release without hardware
+        env:
+          QT_DEBUG_PLUGINS: '1'
+          QT_FORCE_STDERR_LOGGING: '1'
         run: ctest --preset windows-msvc-release-sim --output-on-failure -LE hardware
 
       - name: Save completed vcpkg binary archives

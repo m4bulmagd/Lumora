@@ -14,6 +14,8 @@ target_link_libraries(
 lumora_enable_warnings(lumora_ui_tests)
 
 add_test(NAME MainWindowSmoke COMMAND lumora_ui_tests)
+# Surface stalled Qt startup promptly on unattended CI runners.
+set_tests_properties(MainWindowSmoke PROPERTIES TIMEOUT 60)
 
 add_executable(
   lumora_core_tests
