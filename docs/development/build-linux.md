@@ -59,6 +59,8 @@ ctest --preset linux-gcc-release-sim --output-on-failure -LE hardware
 
 The simulator presets force `LUMORA_ENABLE_BASLER=OFF`; pylon is neither searched for nor linked. The test presets set `QT_QPA_PLATFORM=minimal`, allowing the Qt window smoke test to run without a display server. The reduced Qt build intentionally supplies the `minimal` plugin rather than the separate `offscreen` plugin.
 
+CTest also selects the smoke test's plugin directory from `Qt6::QMinimalIntegrationPlugin` for the active Debug or Release configuration, without requiring a machine-wide Qt plugin-path setting.
+
 To launch the shell in a graphical Linux session:
 
 ```bash

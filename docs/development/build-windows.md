@@ -49,6 +49,8 @@ ctest --preset windows-msvc-release-sim --output-on-failure -LE hardware
 
 These presets force `LUMORA_ENABLE_BASLER=OFF`, so a pylon installation is not required. They use the dynamic `x64-windows` triplet to preserve the approved Qt LGPL linking boundary. The Qt smoke test uses the `minimal` platform plugin and does not open an interactive desktop window.
 
+CTest sets the smoke test's `QT_QPA_PLATFORM_PLUGIN_PATH` from the imported `Qt6::QMinimalIntegrationPlugin` target, selecting the installed plugin directory for the active Debug or Release configuration. Copying Qt DLLs beside the executable alone does not provide this plugin path. This test-only environment does not replace deploying the Qt runtime and the `windows` platform plugin with the future Windows installer.
+
 Basler presets are reserved for the later camera-adapter milestone. Machine-specific pylon paths belong in ignored `CMakeUserPresets.json`, never in the shared presets.
 
 ## Clean generated builds

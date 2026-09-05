@@ -15,7 +15,14 @@ lumora_enable_warnings(lumora_ui_tests)
 
 add_test(NAME MainWindowSmoke COMMAND lumora_ui_tests)
 # Surface stalled Qt startup promptly on unattended CI runners.
-set_tests_properties(MainWindowSmoke PROPERTIES TIMEOUT 60)
+# Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
+# does not make the installed Qt platform plugins discoverable by itself.
+set_tests_properties(
+  MainWindowSmoke
+  PROPERTIES
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
+)
 
 add_executable(
   lumora_core_tests
