@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution checkpoint (2026-09-05):** Implementation is merged; Linux verification and implementation clarifications are recorded in the [M3 verification record](../../architecture/milestones/m03-camera-api-simulator.md). Windows/MSVC verification is pending, so the milestone is not yet accepted. The record contains observed evidence; the task instructions below remain the original execution checklist.
+**Execution checkpoint (2026-09-05 UTC):** M3 is accepted for engineering/evaluation at `2c88ec90ab58e3e6719be5e236dc49388dbc72dd`; Linux/GCC and Windows/MSVC each pass 18/18 CTest entries in Debug and Release. Exact run links, implementation clarifications, and remaining Windows 11/hardware boundaries are in the [M3 verification record](../../architecture/milestones/m03-camera-api-simulator.md). The record contains observed evidence; the task instructions below remain the original execution checklist, not a new backlog.
 
 ## Global Constraints
 

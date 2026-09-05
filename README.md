@@ -25,7 +25,7 @@ Milestones 1–3 provide:
 - a vendor-neutral camera API, deterministic generated patterns, strict PGM sequence replay, pacing, and scripted faults;
 - headless unit and UI smoke tests.
 
-Linux Debug and Release verification is recorded in the [M3 verification record](docs/architecture/milestones/m03-camera-api-simulator.md). Windows/MSVC verification remains pending, so M3 is implemented but not formally accepted. The application still opens the foundation shell; the simulated live viewer is M4, not yet implemented. See the [M4 preflight](docs/architecture/milestones/m04-preflight.md) for the remaining entry checks.
+M3 is accepted for engineering/evaluation: Linux/GCC and Windows/MSVC CI each passed all 18 CTest entries in both Debug and Release at the exact merged source commit. Run links and platform details are in the [M3 verification record](docs/architecture/milestones/m03-camera-api-simulator.md). The application still opens the foundation shell; the simulated live viewer is M4, not yet implemented. See the [M4 preflight](docs/architecture/milestones/m04-preflight.md) for the next implementation boundary. Windows 11 installation and hardware acceptance remain later milestones.
 
 The software is still an engineering/evaluation build. It is **not for clinical use**, must not be used for diagnosis, and must not acquire or store real patient data.
 
