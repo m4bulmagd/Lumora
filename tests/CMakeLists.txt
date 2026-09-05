@@ -70,7 +70,7 @@ add_test(
 )
 add_test(
   NAME Core.Clock
-  COMMAND lumora_core_tests --gtest_filter=Clock*:ManualClock*
+  COMMAND lumora_core_tests --gtest_filter=Clock*:ManualClock*:SystemClock*
 )
 
 add_executable(
