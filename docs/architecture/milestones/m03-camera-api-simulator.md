@@ -62,8 +62,8 @@ The clock-registration check was first observed failing because verbose CTest ou
 
 ## Remaining acceptance work
 
-1. Select the existing GitHub repository that will host the source and run the committed `Windows Simulator` workflow. This Linux checkout currently has no Git remote, so no run can be associated with this checkpoint yet.
-2. Run the `Windows MSVC Debug and Release Simulator` job against a commit containing this checkpoint. Both configurations must configure, build and pass all simulator CTest entries with pylon disabled. The [Windows build guide](../../development/build-windows.md) also gives native reproduction commands.
+1. Repository selection is complete: [m4bulmagd/Lumora](https://github.com/m4bulmagd/Lumora) is connected as `origin` at `git@github.com:m4bulmagd/Lumora.git`. The reviewed `main` checkpoint `fd0f4dd6cb6daf63bfd941a3e284e6da841ea2ef` was pushed on 2026-09-05.
+2. The push started the [Windows Simulator run](https://github.com/m4bulmagd/Lumora/actions/runs/33964511101) and [Linux Simulator run](https://github.com/m4bulmagd/Lumora/actions/runs/33964511078). Their final results are not yet recorded here. The `Windows MSVC Debug and Release Simulator` job must configure, build and pass all simulator CTest entries in both configurations with pylon disabled. The [Windows build guide](../../development/build-windows.md) also gives native reproduction commands.
 3. Record the tested commit SHA, workflow/run URL, runner/compiler versions and both test summaries here; resolve any failures and rerun before changing the status to accepted. The run should also cover the earlier M1/M2 regression suites, whose Windows evidence is still pending.
 4. Commit the completed acceptance record separately from feature changes, then begin M4 according to the roadmap order.
 
