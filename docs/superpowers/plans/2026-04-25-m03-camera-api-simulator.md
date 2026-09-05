@@ -12,6 +12,8 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
+**Execution checkpoint (2026-09-05):** Implementation is merged; Linux verification and implementation clarifications are recorded in the [M3 verification record](../../architecture/milestones/m03-camera-api-simulator.md). Windows/MSVC verification is pending, so the milestone is not yet accepted. The record contains observed evidence; the task instructions below remain the original execution checklist.
+
 ## Global Constraints
 
 - This milestone contributes only to the open-source evaluation release, which must display `EVALUATION — NOT FOR CLINICAL USE` and must not acquire or store real patient data.

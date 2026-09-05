@@ -12,6 +12,8 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
+**Execution readiness (2026-09-05):** Not started; M3 Windows/MSVC acceptance is pending. Read the [M4 preflight](../../architecture/milestones/m04-preflight.md) for merged API/build integration details and the Fit-limit and headless-plugin instructions to resolve before executing the affected tasks.
+
 ## Global Constraints
 
 - This milestone contributes only to the open-source evaluation release, which must display `EVALUATION — NOT FOR CLINICAL USE` and must not acquire or store real patient data.
