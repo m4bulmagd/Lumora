@@ -56,9 +56,15 @@ add_library(
   lumora_camera_simulator
   STATIC
   camera/simulator/include/lumora/camera/sim/IPatternGenerator.hpp
+  camera/simulator/include/lumora/camera/sim/SequenceSource.hpp
+  camera/simulator/include/lumora/camera/sim/FaultScript.hpp
   camera/simulator/include/lumora/camera/sim/SimulatedCameraOptions.hpp
   camera/simulator/include/lumora/camera/sim/SimulatedCameraProvider.hpp
   camera/simulator/src/PatternGenerators.cpp
+  camera/simulator/src/SequenceSource.cpp
+  camera/simulator/src/FaultScript.cpp
+  camera/simulator/src/FrameSource.hpp
+  camera/simulator/src/FrameSource.cpp
   camera/simulator/src/SimulatedCameraDevice.cpp
   camera/simulator/src/SimulatedCameraProvider.cpp
 )

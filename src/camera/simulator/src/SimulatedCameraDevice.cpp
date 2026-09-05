@@ -1,6 +1,8 @@
+#include "FrameSource.hpp"
+
 #include <lumora/camera/CameraConfigurationValidator.hpp>
 #include <lumora/camera/ICameraDevice.hpp>
-#include <lumora/camera/sim/IPatternGenerator.hpp>
+#include <lumora/camera/sim/FaultScript.hpp>
 #include <lumora/camera/sim/SimulatedCameraOptions.hpp>
 #include <lumora/core/Clock.hpp>
 #include <lumora/core/Error.hpp>
@@ -20,6 +22,7 @@
 #include <optional>
 #include <stop_token>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -72,6 +75,12 @@ using FrameResult = core::Result<std::shared_ptr<const core::RawFrame>>;
         "acquisition_timeout",
         "No camera frame arrived before the timeout.",
         "The next simulated frame was scheduled after the retrieval deadline.");
+}
+
+[[nodiscard]] core::Error disconnectedError() {
+    return lifecycleError(core::ErrorCategory::CameraConnection,
+        "simulated_disconnect", "The simulated camera is disconnected.",
+        "The test controller must call FaultScript::restoreConnection.");
 }
 
 [[nodiscard]] core::Error poolExhaustedError() {
@@ -236,21 +245,35 @@ validatedFramePeriod(double fps) {
         Duration{static_cast<Representation>(baseTicks + delayTicks)}};
 }
 
+[[nodiscard]] std::chrono::steady_clock::time_point retrievalDeadline(
+    std::chrono::milliseconds timeout) noexcept {
+    using Clock = std::chrono::steady_clock;
+    // Clamp before converting milliseconds to the finer steady-clock duration.
+    if (timeout >= std::chrono::duration_cast<std::chrono::milliseconds>(Clock::duration::max())) {
+        return Clock::time_point::max();
+    }
+    return saturatingDeadline(Clock::now(),
+        std::chrono::duration_cast<Clock::duration>(std::max(timeout, std::chrono::milliseconds::zero())));
+}
+
 class SimulatedCameraDevice final : public ICameraDevice {
 public:
     SimulatedCameraDevice(
         SimulatedCameraOptions options,
         core::IClock& clock,
-        std::unique_ptr<IPatternGenerator> generator,
+        std::unique_ptr<FrameSource> source,
         AppliedCameraConfiguration initialConfiguration,
         std::chrono::steady_clock::duration framePeriod)
         : options_(std::move(options)),
           clock_(&clock),
-          generator_(std::move(generator)),
+          source_(std::move(source)),
           applied_(std::move(initialConfiguration)),
           framePeriod_(framePeriod) {}
 
     core::Result<void> open() override {
+        if (disconnected()) {
+            return core::Result<void>::failure(disconnectedError());
+        }
         if (state_ == State::Closed) {
             state_ = State::Open;
         }
@@ -261,6 +284,9 @@ public:
         if (state_ == State::Closed) {
             return core::Result<CameraCapabilities>::failure(notOpenError());
         }
+        if (disconnected()) {
+            return core::Result<CameraCapabilities>::failure(disconnectedError());
+        }
         return core::Result<CameraCapabilities>::success(options_.capabilities);
     }
 
@@ -268,6 +294,9 @@ public:
         const CameraConfiguration& configuration) override {
         if (state_ == State::Closed) {
             return core::Result<AppliedCameraConfiguration>::failure(notOpenError());
+        }
+        if (disconnected()) {
+            return core::Result<AppliedCameraConfiguration>::failure(disconnectedError());
         }
         const auto validated =
             validateCameraConfiguration(configuration, options_.capabilities);
@@ -283,6 +312,13 @@ public:
             return core::Result<AppliedCameraConfiguration>::failure(
                 candidatePeriod.error());
         }
+        if (const auto fault = matchingFault(FaultPoint::Configuration)) {
+            options_.faults->consume(*fault);
+            return core::Result<AppliedCameraConfiguration>::failure(lifecycleError(
+                core::ErrorCategory::CameraConfiguration, "simulated_configuration_failure",
+                "The simulated configuration failed.",
+                "The fault script rejected this validated configuration attempt."));
+        }
         applied_ = std::move(candidate);
         framePeriod_ = candidatePeriod.value();
         if (state_ == State::Streaming && hasPublishedFrame_) {
@@ -296,9 +332,13 @@ public:
         if (state_ == State::Closed) {
             return core::Result<void>::failure(notOpenError());
         }
+        if (disconnected()) {
+            return core::Result<void>::failure(disconnectedError());
+        }
         if (state_ == State::Open) {
             state_ = State::Streaming;
             hasPublishedFrame_ = false;
+            streamStart_ = clock_->steadyNow();
         }
         return core::Result<void>::success();
     }
@@ -314,12 +354,40 @@ public:
             return FrameResult::failure(cancelledError());
         }
 
+        const auto realDeadline = retrievalDeadline(timeout);
+        if (disconnected()) {
+            return FrameResult::failure(disconnectedError());
+        }
+
         const auto pacing = waitForPacing(timeout, stopToken);
         if (!pacing.hasValue()) {
             return FrameResult::failure(pacing.error());
         }
         if (stopToken.stop_requested()) {
             return FrameResult::failure(cancelledError());
+        }
+
+        if (disconnected()) {
+            return FrameResult::failure(disconnectedError());
+        }
+        const auto fault = matchingFault(FaultPoint::Retrieval);
+        if (fault && fault->fault == SimulatedFault::Timeout) {
+            core::SystemClock realClock;
+            const auto wait = realClock.waitUntil(realDeadline, stopToken,
+                std::max(timeout, std::chrono::milliseconds::zero()));
+            if (wait == core::ClockWaitOutcome::Cancelled || stopToken.stop_requested()) {
+                return FrameResult::failure(cancelledError());
+            }
+            // Returning the scripted failure commits this occurrence only.
+            options_.faults->consume(*fault);
+            return FrameResult::failure(timeoutError());
+        }
+        if (fault && fault->fault == SimulatedFault::Disconnect) {
+            if (stopToken.stop_requested()) {
+                return FrameResult::failure(cancelledError());
+            }
+            options_.faults->consume(*fault);
+            return FrameResult::failure(disconnectedError());
         }
 
         const auto& actual = applied_.actual;
@@ -344,12 +412,10 @@ public:
         if (!lease.has_value()) {
             return FrameResult::failure(poolExhaustedError());
         }
-        const auto generated = generator_->fill(
+        const auto generated = source_->fill(
             lease->bytes(),
-            actual.roi.width,
-            actual.roi.height,
+            actual,
             strideBytes,
-            actual.pixelFormat,
             nextFrameId_,
             stopToken);
         if (!generated.hasValue()) {
@@ -357,6 +423,27 @@ public:
         }
         if (stopToken.stop_requested()) {
             return FrameResult::failure(cancelledError());
+        }
+        if (!generated.value()) {
+            // Stop is a completed end-of-stream transition. Reopening does not
+            // rewind a recording; create another device for a fresh replay.
+            state_ = State::Open;
+            hasPublishedFrame_ = false;
+            return FrameResult::failure(lifecycleError(core::ErrorCategory::Acquisition,
+                "sequence_stopped", "The evaluation sequence has ended.",
+                "The Stop end policy stopped the camera stream."));
+        }
+        if (fault && fault->fault == SimulatedFault::MalformedFrame) {
+            // Construct a genuinely invalid candidate and return the normal
+            // layout validator's typed error; never fabricate a malformed error.
+            const auto malformed = core::ImageLayout::create(
+                0U, actual.roi.height, strideBytes,
+                actual.pixelFormat.applicationStorage, payloadBytes);
+            if (stopToken.stop_requested()) {
+                return FrameResult::failure(cancelledError());
+            }
+            options_.faults->consume(*fault);
+            return FrameResult::failure(malformed.error());
         }
 
         auto sealed = std::move(*lease).seal();
@@ -400,6 +487,7 @@ public:
             return FrameResult::failure(cancelledError());
         }
         ++nextFrameId_;
+        source_->commit();
         publishPacingDeadline(publicationTime);
         return frame;
     }
@@ -428,7 +516,7 @@ private:
     [[nodiscard]] core::CameraIdentity identity() const {
         return {
             .manufacturer = "Lumora",
-            .model = "Generated Camera",
+            .model = source_->model(),
             .serial = options_.id.value,
             .transport = "Simulator",
             .firmware = std::nullopt,
@@ -437,6 +525,38 @@ private:
 
     [[nodiscard]] std::chrono::steady_clock::duration period() const {
         return framePeriod_;
+    }
+
+    [[nodiscard]] bool disconnected() const {
+        return options_.faults && options_.faults->disconnected();
+    }
+
+    [[nodiscard]] std::optional<FaultScript::Occurrence> matchingFault(FaultPoint point) const {
+        if (!options_.faults) {
+            return std::nullopt;
+        }
+        std::optional<std::chrono::milliseconds> elapsed;
+        if (streamStart_) {
+            using Duration = std::chrono::steady_clock::duration;
+            using Unsigned = std::make_unsigned_t<Duration::rep>;
+            using UnsignedDuration = std::chrono::duration<Unsigned, Duration::period>;
+            using UnsignedMilliseconds = std::chrono::duration<Unsigned, std::milli>;
+            // Linux/GCC and Windows/MSVC steady clocks have sub-ms ticks.
+            // Unsigned subtraction avoids overflow across negative origins,
+            // and integer division preserves exact thresholds on both platforms.
+            static_assert(std::ratio_divide<Duration::period, std::milli>::num == 1);
+            const auto now = clock_->steadyNow();
+            const auto ticks = now <= *streamStart_ ? Unsigned{0U}
+                : static_cast<Unsigned>(now.time_since_epoch().count()) -
+                  static_cast<Unsigned>(streamStart_->time_since_epoch().count());
+            const auto milliseconds = std::chrono::duration_cast<UnsignedMilliseconds>(
+                UnsignedDuration{ticks}).count();
+            const auto maximum = static_cast<Unsigned>(std::chrono::milliseconds::max().count());
+            elapsed = milliseconds >= maximum ? std::chrono::milliseconds::max()
+                : std::chrono::milliseconds{
+                      static_cast<std::chrono::milliseconds::rep>(milliseconds)};
+        }
+        return options_.faults->match(nextFrameId_, elapsed, point);
     }
 
     [[nodiscard]] core::Result<void> waitForPacing(
@@ -508,7 +628,7 @@ private:
 
     SimulatedCameraOptions options_;
     core::IClock* clock_;
-    std::unique_ptr<IPatternGenerator> generator_;
+    std::unique_ptr<FrameSource> source_;
     AppliedCameraConfiguration applied_;
     std::chrono::steady_clock::duration framePeriod_;
     State state_{State::Closed};
@@ -516,6 +636,7 @@ private:
     bool hasPublishedFrame_{false};
     bool frameWasLate_{false};
     std::chrono::steady_clock::time_point nextFrameDeadline_{};
+    std::optional<std::chrono::steady_clock::time_point> streamStart_{};
 };
 
 }  // namespace
@@ -523,28 +644,31 @@ private:
 core::Result<std::unique_ptr<ICameraDevice>> makeSimulatedCameraDevice(
     SimulatedCameraOptions options,
     core::IClock& clock) {
-    const auto initial = defaultConfiguration(options);
-    const auto validated =
-        validateCameraConfiguration(initial, options.capabilities);
-    if (!validated.hasValue()) {
-        return core::Result<std::unique_ptr<ICameraDevice>>::failure(
-            validated.error());
-    }
-    auto initialApplied = appliedConfiguration(initial, options);
-    const auto initialPeriod =
-        validatedFramePeriod(*initialApplied.actual.requestedFps);
-    if (!initialPeriod.hasValue()) {
-        return core::Result<std::unique_ptr<ICameraDevice>>::failure(
-            initialPeriod.error());
-    }
-
     try {
-        auto generator = makePatternGenerator(options.pattern, options.seed);
+        auto source = makeFrameSource(options);
+        if (!source.hasValue()) {
+            return core::Result<std::unique_ptr<ICameraDevice>>::failure(source.error());
+        }
+        const auto initial = defaultConfiguration(options);
+        const auto validated =
+            validateCameraConfiguration(initial, options.capabilities);
+        if (!validated.hasValue()) {
+            return core::Result<std::unique_ptr<ICameraDevice>>::failure(
+                validated.error());
+        }
+        auto initialApplied = appliedConfiguration(initial, options);
+        const auto initialPeriod =
+            validatedFramePeriod(*initialApplied.actual.requestedFps);
+        if (!initialPeriod.hasValue()) {
+            return core::Result<std::unique_ptr<ICameraDevice>>::failure(
+                initialPeriod.error());
+        }
+
         return core::Result<std::unique_ptr<ICameraDevice>>::success(
             std::make_unique<SimulatedCameraDevice>(
                 options,
                 clock,
-                std::move(generator),
+                std::move(source).value(),
                 std::move(initialApplied),
                 initialPeriod.value()));
     } catch (const std::bad_alloc&) {

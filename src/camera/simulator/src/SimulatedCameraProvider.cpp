@@ -54,7 +54,7 @@ core::Result<std::vector<CameraDescriptor>> SimulatedCameraProvider::discover(
         .id = options_.id,
         .identity = {
             .manufacturer = "Lumora",
-            .model = "Generated Camera",
+            .model = options_.sequence ? "PGM Replay Camera" : "Generated Camera",
             .serial = options_.id.value,
             .transport = "Simulator",
             .firmware = std::nullopt,

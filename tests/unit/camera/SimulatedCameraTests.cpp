@@ -1,5 +1,7 @@
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
 #include <lumora/camera/sim/IPatternGenerator.hpp>
+#include <lumora/camera/sim/FaultScript.hpp>
+#include <lumora/camera/sim/SequenceSource.hpp>
 
 #include <lumora/core/BufferPool.hpp>
 #include <lumora/core/Clock.hpp>
@@ -17,6 +19,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <filesystem>
 #include <future>
 #include <limits>
 #include <memory>
@@ -906,6 +909,326 @@ TEST(SimulatedCamera, RealTimePacingUsesStopAwareClockWait) {
 
     ASSERT_TRUE(second.hasValue());
     EXPECT_GE(elapsed, 10ms);
+}
+
+SimulatedCameraOptions replayOptions(
+    SequenceEnd end = SequenceEnd::Loop,
+    SimulationPacingMode pacing = SimulationPacingMode::Fastest) {
+    auto result = options(SimulationPattern::Ramp, pacing);
+    result.sequence = SequenceReplayOptions{
+        std::filesystem::path{LUMORA_SEQUENCE_FIXTURES} / "ramp16", end};
+    return result;
+}
+
+TEST(SimulatedCamera, ReplaysImmutableNumericFramesThroughPoolAndSharedRoiValidator) {
+    core::ManualClock clock;
+    auto device = createDevice(clock, replayOptions());
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    const auto caps = device->capabilities().value();
+    ASSERT_EQ(caps.pixelFormats.size(), 1U);
+    EXPECT_EQ(caps.pixelFormats.front().sampleMaximum, 4095U);
+    EXPECT_EQ(caps.roi.maximum.width, 3U);
+    EXPECT_EQ(caps.roi.maximum.height, 2U);
+    const auto format = caps.pixelFormats.front();
+    const auto invalid = device->applyConfiguration(configuration(
+        format, {.x = 2U, .y = 0U, .width = 2U, .height = 1U}));
+    ASSERT_FALSE(invalid.hasValue());
+    EXPECT_EQ(invalid.error().code, "roi_containment");
+    ASSERT_TRUE(device->applyConfiguration(configuration(
+        format, {.x = 1U, .y = 0U, .width = 2U, .height = 2U}, 10.0)).hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    auto first = device->retrieve(20ms, *destination);
+    ASSERT_TRUE(first.hasValue());
+    EXPECT_EQ(readU16(*first.value(), 0U, 0U), 0xABCU);
+    EXPECT_EQ(readU16(*first.value(), 1U, 1U), 0x30U);
+    EXPECT_EQ(first.value()->metadata.acquisitionSettings.actualFps, 10.0);
+    EXPECT_FALSE(device->retrieve(20ms, *destination).hasValue());
+    EXPECT_EQ(readU16(*first.value(), 0U, 0U), 0xABCU);
+    first.value().reset();
+    auto second = device->retrieve(20ms, *destination);
+    ASSERT_TRUE(second.hasValue());
+    EXPECT_EQ(second.value()->frameId, 2U);
+    EXPECT_EQ(readU16(*second.value(), 0U, 0U), 0x789U);
+    second.value().reset();
+    auto looped = device->retrieve(20ms, *destination);
+    ASSERT_TRUE(looped.hasValue());
+    EXPECT_EQ(looped.value()->frameId, 3U);
+    EXPECT_EQ(readU16(*looped.value(), 0U, 0U), 0xABCU);
+}
+
+TEST(SimulatedCamera, ReplayStopEndsStreamAndErrorKeepsReportingExhaustion) {
+    for (const auto end : {SequenceEnd::Stop, SequenceEnd::Error}) {
+        core::ManualClock clock;
+        auto device = createDevice(clock, replayOptions(end));
+        auto destination = pool();
+        ASSERT_TRUE(device->open().hasValue());
+        ASSERT_TRUE(device->startStream().hasValue());
+        ASSERT_TRUE(device->retrieve(10ms, *destination).hasValue());
+        ASSERT_TRUE(device->retrieve(10ms, *destination).hasValue());
+        const auto exhausted = device->retrieve(10ms, *destination);
+        ASSERT_FALSE(exhausted.hasValue());
+        EXPECT_EQ(exhausted.error().code,
+                  end == SequenceEnd::Stop ? "sequence_stopped" : "sequence_exhausted");
+        const auto repeated = device->retrieve(10ms, *destination);
+        ASSERT_FALSE(repeated.hasValue());
+        EXPECT_EQ(repeated.error().code,
+                  end == SequenceEnd::Stop ? "stream_not_started" : "sequence_exhausted");
+        EXPECT_EQ(destination->stats().inUse, 0U);
+    }
+}
+
+TEST(SimulatedCamera, FaultFailuresRepeatAtExactNextIdWithoutConsumingReplayPosition) {
+    core::ManualClock clock;
+    auto opts = replayOptions();
+    opts.faults = FaultScript::create({
+        {2U, SimulatedFault::Timeout, 2U},
+        {2U, SimulatedFault::MalformedFrame, 2U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    ASSERT_TRUE(device->retrieve(10ms, *destination).hasValue());
+    for (const auto* code : {"acquisition_timeout", "acquisition_timeout", "zero_dimensions", "zero_dimensions"}) {
+        const auto failed = device->retrieve(1ms, *destination);
+        ASSERT_FALSE(failed.hasValue());
+        EXPECT_EQ(failed.error().code, code);
+        EXPECT_EQ(destination->stats().inUse, 0U);
+    }
+    const auto recovered = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(recovered.hasValue());
+    EXPECT_EQ(recovered.value()->frameId, 2U);
+    EXPECT_EQ(readU16(*recovered.value(), 0U, 0U), 0x0456U);
+}
+
+TEST(SimulatedCamera, DisconnectPersistsAcrossLifecycleUntilExplicitRestore) {
+    core::ManualClock clock;
+    auto opts = replayOptions();
+    opts.faults = FaultScript::create({{1U, SimulatedFault::Disconnect, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    const auto disconnected = device->retrieve(10ms, *destination);
+    ASSERT_FALSE(disconnected.hasValue());
+    EXPECT_EQ(disconnected.error().category, core::ErrorCategory::CameraConnection);
+    EXPECT_EQ(disconnected.error().code, "simulated_disconnect");
+    ASSERT_TRUE(device->close().hasValue());
+    EXPECT_FALSE(device->open().hasValue());
+    opts.faults->restoreConnection();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    const auto restored = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(restored.hasValue());
+    EXPECT_EQ(restored.value()->frameId, 1U);
+    EXPECT_EQ(readU16(*restored.value(), 0U, 0U), 0x0123U);
+}
+
+TEST(SimulatedCamera, ConfigurationFaultConsumesOnlyAnApplicableValidatedAttempt) {
+    core::ManualClock clock;
+    auto opts = options();
+    opts.faults = FaultScript::create({{1U, SimulatedFault::ConfigurationFailure, 2U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    auto invalid = configuration(mono8());
+    invalid.requestedFps = -1.0;
+    EXPECT_EQ(device->applyConfiguration(invalid).error().code, "frame_rate_positive");
+    for (int repeat = 0; repeat != 2; ++repeat) {
+        const auto failed = device->applyConfiguration(configuration(mono8(),
+            {.x = 0U, .y = 0U, .width = 4U, .height = 4U}, 10.0));
+        ASSERT_FALSE(failed.hasValue());
+        EXPECT_EQ(failed.error().category, core::ErrorCategory::CameraConfiguration);
+        EXPECT_EQ(failed.error().code, "simulated_configuration_failure");
+    }
+    ASSERT_TRUE(device->startStream().hasValue());
+    auto unchanged = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(unchanged.hasValue());
+    EXPECT_EQ(unchanged.value()->layout.width(), 8U);
+    unchanged.value().reset();
+    EXPECT_TRUE(device->applyConfiguration(configuration(mono8())).hasValue());
+}
+
+TEST(SimulatedCamera, ElapsedFaultsUseStreamStartAndEvaluateOnOperations) {
+    core::ManualClock clock;
+    auto opts = options();
+    opts.faults = FaultScript::create({{0U, SimulatedFault::Timeout, 1U, 100ms}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool();
+    clock.advance(5s);
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    ASSERT_TRUE(device->retrieve(10ms, *destination).hasValue());
+    clock.advance(99ms);
+    ASSERT_TRUE(device->retrieve(10ms, *destination).hasValue());
+    clock.advance(1ms);
+    const auto failed = device->retrieve(1ms, *destination);
+    ASSERT_FALSE(failed.hasValue());
+    EXPECT_EQ(failed.error().code, "acquisition_timeout");
+    const auto recovered = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(recovered.hasValue());
+    EXPECT_EQ(recovered.value()->frameId, 3U);
+}
+
+TEST(SimulatedCamera, CancellationDuringInjectedTimeoutPreservesOccurrenceAndSequence) {
+    core::ManualClock clock;
+    auto opts = replayOptions();
+    opts.faults = FaultScript::create({{1U, SimulatedFault::Timeout, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    std::stop_source stop;
+    auto pending = std::async(std::launch::async, [&] {
+        return device->retrieve(1s, *destination, stop.get_token());
+    });
+    EXPECT_EQ(pending.wait_for(10ms), std::future_status::timeout);
+    EXPECT_EQ(destination->stats().inUse, 0U);
+    stop.request_stop();
+    ASSERT_EQ(pending.wait_for(100ms), std::future_status::ready);
+    const auto cancelled = pending.get();
+    ASSERT_FALSE(cancelled.hasValue());
+    EXPECT_EQ(cancelled.error().category, core::ErrorCategory::Cancelled);
+    const auto stillDue = device->retrieve(1ms, *destination);
+    ASSERT_FALSE(stillDue.hasValue());
+    EXPECT_EQ(stillDue.error().code, "acquisition_timeout");
+    auto recovered = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(recovered.hasValue());
+    EXPECT_EQ(recovered.value()->frameId, 1U);
+    EXPECT_EQ(readU16(*recovered.value(), 0U, 0U), 0x0123U);
+}
+
+TEST(SimulatedCamera, ReplayManualTimeoutAndCancellationPreservePendingFrameAndFault) {
+    core::ManualClock clock;
+    auto opts = replayOptions(SequenceEnd::Loop, SimulationPacingMode::Manual);
+    opts.faults = FaultScript::create({{2U, SimulatedFault::MalformedFrame, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    auto format = device->capabilities().value().pixelFormats.front();
+    ASSERT_TRUE(device->applyConfiguration(configuration(format,
+        {.x = 0U, .y = 0U, .width = 3U, .height = 2U}, 10.0)).hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    ASSERT_TRUE(device->retrieve(10ms, *destination).hasValue());
+    EXPECT_EQ(device->retrieve(1ms, *destination).error().code, "acquisition_timeout");
+    std::stop_source stop;
+    auto pending = std::async(std::launch::async, [&] {
+        return device->retrieve(1s, *destination, stop.get_token());
+    });
+    EXPECT_EQ(pending.wait_for(10ms), std::future_status::timeout);
+    stop.request_stop();
+    const auto cancelled = pending.get();
+    ASSERT_FALSE(cancelled.hasValue());
+    EXPECT_EQ(cancelled.error().code, "cancelled");
+    EXPECT_EQ(destination->stats().inUse, 0U);
+    clock.advance(100ms);
+    EXPECT_EQ(device->retrieve(10ms, *destination).error().code, "zero_dimensions");
+    const auto second = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(second.hasValue());
+    EXPECT_EQ(second.value()->frameId, 2U);
+    EXPECT_EQ(readU16(*second.value(), 0U, 0U), 0x0456U);
+}
+
+TEST(SimulatedCamera, ReplayUsesConfiguredRealTimePacing) {
+    core::SystemClock clock;
+    auto device = createDevice(clock, replayOptions(SequenceEnd::Loop, SimulationPacingMode::RealTime));
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->applyConfiguration(configuration(device->capabilities().value().pixelFormats.front(),
+        {.x = 0U, .y = 0U, .width = 3U, .height = 2U}, 20.0)).hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    ASSERT_TRUE(device->retrieve(100ms, *destination).hasValue());
+    const auto before = std::chrono::steady_clock::now();
+    const auto second = device->retrieve(150ms, *destination);
+    ASSERT_TRUE(second.hasValue());
+    EXPECT_GE(std::chrono::steady_clock::now() - before, 30ms);
+    EXPECT_EQ(second.value()->frameId, 2U);
+}
+
+TEST(SimulatedCamera, ReplayClearsPoolTailForDeterministicPublishedBytes) {
+    core::ManualClock clock;
+    auto device = createDevice(clock, replayOptions());
+    auto destination = pool(32U);
+    auto dirty = destination->tryAcquire();
+    ASSERT_TRUE(dirty.has_value());
+    std::fill(dirty->bytes().begin(), dirty->bytes().end(), std::byte{0xA5U});
+    dirty.reset();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    auto frame = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(frame.hasValue());
+    EXPECT_EQ(readU16(*frame.value(), 0U, 0U), 0x0123U);
+    for (std::size_t offset = 12U; offset < 32U; ++offset) {
+        EXPECT_EQ(frame.value()->pixels.bytes()[offset], std::byte{0U});
+    }
+}
+
+TEST(SimulatedCamera, ReplayTooSmallPoolAndPreCancellationDoNotConsumeMalformedFault) {
+    core::ManualClock clock;
+    auto opts = replayOptions();
+    opts.faults = FaultScript::create({{1U, SimulatedFault::MalformedFrame, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    auto tooSmall = pool(1U);
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    EXPECT_EQ(device->retrieve(10ms, *tooSmall).error().code, "invalid_frame");
+    EXPECT_EQ(tooSmall->stats().inUse, 0U);
+    std::stop_source stop;
+    stop.request_stop();
+    EXPECT_EQ(device->retrieve(10ms, *destination, stop.get_token()).error().code, "cancelled");
+    EXPECT_EQ(device->retrieve(10ms, *destination).error().code, "zero_dimensions");
+    const auto recovered = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(recovered.hasValue());
+    EXPECT_EQ(recovered.value()->frameId, 1U);
+    EXPECT_EQ(readU16(*recovered.value(), 0U, 0U), 0x0123U);
+}
+
+TEST(SimulatedCamera, ReplayAndFaultTimeoutShareOneRealDeadline) {
+    core::SystemClock clock;
+    auto opts = replayOptions(SequenceEnd::Loop, SimulationPacingMode::RealTime);
+    opts.faults = FaultScript::create({{2U, SimulatedFault::Timeout, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->applyConfiguration(configuration(device->capabilities().value().pixelFormats.front(),
+        {.x = 0U, .y = 0U, .width = 3U, .height = 2U}, 10.0)).hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    ASSERT_TRUE(device->retrieve(10ms, *destination).hasValue());
+    const auto before = std::chrono::steady_clock::now();
+    const auto timedOut = device->retrieve(150ms, *destination);
+    const auto elapsed = std::chrono::steady_clock::now() - before;
+    ASSERT_FALSE(timedOut.hasValue());
+    EXPECT_EQ(timedOut.error().code, "acquisition_timeout");
+    EXPECT_GE(elapsed, 140ms);
+    EXPECT_LT(elapsed, 230ms);
+    const auto recovered = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(recovered.hasValue());
+    EXPECT_EQ(recovered.value()->frameId, 2U);
+    EXPECT_EQ(readU16(*recovered.value(), 0U, 0U), 0x0456U);
+}
+
+TEST(SimulatedCamera, ExtremeInjectedTimeoutRemainsCancellableWithoutConsumingOccurrence) {
+    core::ManualClock clock;
+    auto opts = options();
+    opts.faults = FaultScript::create({{1U, SimulatedFault::Timeout, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    std::stop_source stop;
+    auto pending = std::async(std::launch::async, [&] {
+        return device->retrieve(std::chrono::milliseconds::max(), *destination, stop.get_token());
+    });
+    EXPECT_EQ(pending.wait_for(10ms), std::future_status::timeout);
+    stop.request_stop();
+    const auto cancelled = pending.get();
+    ASSERT_FALSE(cancelled.hasValue());
+    EXPECT_EQ(cancelled.error().code, "cancelled");
+    EXPECT_EQ(device->retrieve(0ms, *destination).error().code, "acquisition_timeout");
+    const auto recovered = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(recovered.hasValue());
+    EXPECT_EQ(recovered.value()->frameId, 1U);
 }
 
 }  // namespace
