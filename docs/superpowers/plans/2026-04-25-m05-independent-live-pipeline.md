@@ -260,6 +260,8 @@ Expected: FAIL.
 
 `main.cpp` creates one `SimulatedCameraProvider`, ten raw buffers, required processing/display pools, workers, controller, and main window. Connect/Start/Stop/Disconnect actions post commands. FramePresenter consumes only the bundle slot.
 
+Carry forward the [M4 source-session and presentation contracts](../../architecture/milestones/m04-preflight.md#resolved-implementation-contracts). When replacing a device/session, quiesce the old publisher, supply a fresh bundle slot owned for the new session, and call `FramePresenter::resetSource` before accepting its frames. Do not compare the new device's IDs against the previous session or reuse a slot containing old-session values. Ordinary stop/start of the same device retains its ID sequence. Freshness advances on completed presentation of a fresh frame, not on acquisition or processing activity.
+
 - [ ] **Step 5: Exercise 100 lifecycle cycles**
 
 Run the integration test with first-run confirmation, later-run Resume Live, changed-capability review, repeated connect/start/pause/resume/stop/disconnect, and application shutdown from each state. Stall camera retrieval, processing publication, and UI presentation independently; each must produce `STALE IMAGE / NOT LIVE` within the specified deadline without removing the last contextual frame. Verify thread joins, pool in-use counts return to zero, and no latest slot exceeds capacity one.

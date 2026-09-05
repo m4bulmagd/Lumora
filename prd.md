@@ -607,6 +607,8 @@ Paused presentation must include a persistent high-contrast **PAUSED** overlay, 
 
 While in Live mode, if no new frame is successfully presented within `max(500 ms, 3 expected frame periods)`, the viewer must show a persistent **STALE IMAGE / NOT LIVE** overlay. The last image may remain visible for context but must be visibly invalidated until a fresh frame is presented.
 
+Successful presentation means a new source frame has completed the UI paint path, not merely arrived in a slot or been scheduled for painting. Repainting the same frame does not renew freshness. A frame whose monotonic host-receipt age already exceeds the deadline cannot clear the stale indication merely by being displayed on Resume. An entirely blocked UI event loop cannot redraw an overlay while blocked; it must reevaluate freshness at its first opportunity after recovery.
+
 The viewer should use the available area efficiently while preserving the image aspect ratio.
 
 The image should never be stretched or geometrically distorted merely to fill the screen.
@@ -626,6 +628,8 @@ The user should be able to:
 - double-click or use a control to fit image to screen
 - return to 100% scale
 - enter fullscreen mode
+
+Fit shows the entire image at the exact aspect-preserving scale, including when that scale is outside the manual zoom range of 5%–3200%. The manual limits must not crop Fit. The 100% action uses one source pixel per logical viewport pixel; Windows display scaling changes physical screen pixels, not this logical scale.
 
 Image-processing controls must continue functioning while zoomed or panned.
 

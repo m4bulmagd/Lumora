@@ -148,7 +148,7 @@ public:
 
 - [ ] **Step 4: Run the shell test headlessly**
 
-Run with `QT_QPA_PLATFORM=offscreen`: `ctest --preset linux-gcc-debug-sim --output-on-failure -R MainWindowSmoke`
+Run with the simulator preset's `QT_QPA_PLATFORM=minimal`: `ctest --preset linux-gcc-debug-sim --output-on-failure -R MainWindowSmoke`. The implemented CTest entry sets the configuration-matched `Qt6::QMinimalIntegrationPlugin` directory; preserve that setting when extending UI tests. The reduced Qt build does not require an `offscreen` plugin.
 
 Expected: PASS and process exits without leaked top-level widgets.
 

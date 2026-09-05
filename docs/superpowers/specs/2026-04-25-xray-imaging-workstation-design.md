@@ -300,6 +300,8 @@ Viewer state is independent from camera state:
 
 Resuming consumes the freshest available bundle. While `Live`, if no new frame is successfully presented within `max(500 ms, 3 expected frame periods)`, the last frame may remain for context but a persistent `STALE IMAGE / NOT LIVE` overlay visibly invalidates it until a fresh frame is presented. Tests separately stall the camera, processing worker, and UI presentation path.
 
+For this deadline, successful presentation is the completion of a new source frame's Qt paint path. Receiving a bundle, wrapping its pixels, scheduling an update, or repainting the same source frame does not advance the presentation timestamp. A newly painted bundle whose monotonic host-receipt age already exceeds the deadline remains stale; Resume must not make an old retained slot value appear fresh. Before the first frame, show an explicit waiting/no-image state. A stalled presentation path with a responsive event loop must still update its health indication; a completely blocked UI event loop can only repaint and reevaluate freshness when it resumes. This is an application paint-completion measurement, not a guarantee about physical monitor scan-out.
+
 This separation allows instant fresh resume without coupling viewport or presentation actions to camera ownership.
 
 ## 8. Thread ownership and communication
@@ -329,6 +331,8 @@ Current displayed FrameBundle
 ```
 
 Publishing to a full latest slot atomically replaces and releases the older value. The replacement increments the corresponding drop counter. The processing worker wakes for a newer sequence number and consumes the newest available raw frame. The UI checks for a new bundle at a maximum 60 Hz presentation cadence and paints only a new frame ID.
+
+Source frame IDs are ordered only within one source session; slot revisions are a separate delivery sequence. Replacing a device/session requires quiescing the old publisher, supplying a fresh session-owned bundle slot, and resetting or recreating the presenter before accepting the new session. Old ID/revision/freshness state and retained images must not leak into the new session. Stop/start of the same device instance does not itself reset its source IDs. View-only repaints are allowed but do not count as new live frames.
 
 The camera command queue is bounded to 32 low-frequency commands. Commands that supersede earlier pending values, such as repeated configuration changes, are coalesced. Stop, Disconnect, and Shutdown take precedence over ordinary reconfiguration.
 
@@ -444,8 +448,8 @@ The Qt Widgets interface contains:
 
 - Original, Enhanced, and Compare are mutually exclusive presentation modes.
 - Compare begins as synchronized side-by-side images with identical zoom and pan.
-- Fit preserves aspect ratio and responds to window resizing.
-- 100% maps one source pixel to one logical image pixel, subject to documented Windows display scaling.
+- Fit shows the entire image using `min(viewportWidth / imageWidth, viewportHeight / imageHeight)`, preserves aspect ratio, and recomputes on resize. Fit is not restricted by the manual zoom range `[0.05, 32.0]`.
+- 100% maps one source pixel to one logical viewport pixel: scale is exactly `1.0` at Windows display scaling of 100%, 125%, 150%, and 200%. Device pixel ratio is not an extra factor in the viewport transform.
 - Mouse-wheel zoom is centered at the pointer; drag pans only when the image exceeds the viewport.
 - Double-click returns to Fit.
 - Processing changes do not reset viewport state.
