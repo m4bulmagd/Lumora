@@ -28,7 +28,6 @@
 #include <stop_token>
 #include <stdexcept>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -87,25 +86,25 @@ void faultPreparationCheckpoint() {
 }
 
 [[nodiscard]] core::Error cancelledError() {
-    return lifecycleError(
+    return {
         core::ErrorCategory::Cancelled,
         "cancelled",
         "Frame retrieval was cancelled.",
-        "The retrieval stop token was requested before a frame was published.");
+        "The retrieval stop token was requested before a frame was published.", true};
 }
 
 [[nodiscard]] core::Error timeoutError() {
-    return lifecycleError(
+    return {
         core::ErrorCategory::Acquisition,
         "acquisition_timeout",
         "No camera frame arrived before the timeout.",
-        "The next simulated frame was scheduled after the retrieval deadline.");
+        "The next simulated frame was scheduled after the retrieval deadline.", true};
 }
 
 [[nodiscard]] core::Error disconnectedError() {
-    return lifecycleError(core::ErrorCategory::CameraConnection,
+    return {core::ErrorCategory::CameraConnection,
         "simulated_disconnect", "The simulated camera is disconnected.",
-        "The test controller must call FaultScript::restoreConnection.");
+        "The test controller must call FaultScript::restoreConnection.", true};
 }
 
 [[nodiscard]] core::Error poolExhaustedError() {
@@ -136,37 +135,49 @@ void faultPreparationCheckpoint() {
     };
 }
 
-template<typename Result, typename PrepareFailure>
-[[nodiscard]] Result commitScriptedFailure(
+template<typename Value, typename PrepareError>
+[[nodiscard]] core::Result<Value> commitScriptedFailure(
     FaultScript& script,
     FaultScript::Occurrence occurrence,
     std::stop_token stopToken,
-    PrepareFailure&& prepareFailure) {
-    // A fully prepared local must return by a non-allocating move after commit,
-    // even when the compiler does not perform named return-value optimization.
-    static_assert(std::is_nothrow_move_constructible_v<Result>);
+    PrepareError&& prepareError) {
+    using Result = core::Result<Value>;
     try {
         faultPreparationCheckpoint();
-        auto result = std::forward<PrepareFailure>(prepareFailure)();
+        const auto error = std::forward<PrepareError>(prepareError)();
+        auto pending = script.prepareConsumption(occurrence);
+        faultPreparationCheckpoint();
+        // This is the cancellation boundary. A stop racing with the final error
+        // copy after this check does not replace the selected scripted failure.
         if (stopToken.stop_requested()) {
-            return Result::failure(cancelledError());
+            return Result::failureAndCommit(cancelledError(), []() noexcept {});
         }
-        script.consume(occurrence);
-        return result;
+        // Every return from here through retrieve/applyConfiguration is a
+        // same-type prvalue. C++20 constructs the caller's final result directly:
+        // error copy first, scalar commit second, no Result/Error move afterward.
+        return Result::failureAndCommit(error, [&pending]() noexcept { pending.commit(); });
     } catch (const std::bad_alloc&) {
-        // Keep recovery fields within GCC/MSVC string inline storage so even
-        // an ongoing allocation failure can be reported without allocating.
-        return Result::failure({core::ErrorCategory::ResourceExhaustion,
-            "alloc_failed", "No memory", "", true});
+        faultPreparationCheckpoint();
+        // Translation can itself allocate and fail. If it does, the exception
+        // propagates while the uncommitted occurrence and connection stay intact.
+        return Result::failureAndCommit({core::ErrorCategory::ResourceExhaustion,
+            "alloc_failed", "Failure preparation could not allocate memory.",
+            "The scripted occurrence remains pending.", true}, []() noexcept {});
     } catch (const std::length_error&) {
-        return Result::failure({core::ErrorCategory::ResourceExhaustion,
-            "size_limit", "Size limit", "", true});
+        faultPreparationCheckpoint();
+        return Result::failureAndCommit({core::ErrorCategory::ResourceExhaustion,
+            "size_limit", "Failure preparation exceeded a storage limit.",
+            "The scripted occurrence remains pending.", true}, []() noexcept {});
     } catch (const std::filesystem::filesystem_error&) {
-        return Result::failure({core::ErrorCategory::Storage,
-            "io_failed", "I/O failed", "", true});
+        faultPreparationCheckpoint();
+        return Result::failureAndCommit({core::ErrorCategory::Storage,
+            "io_failed", "Failure preparation encountered an I/O error.",
+            "The scripted occurrence remains pending.", true}, []() noexcept {});
     } catch (const std::ios_base::failure&) {
-        return Result::failure({core::ErrorCategory::Storage,
-            "io_failed", "I/O failed", "", true});
+        faultPreparationCheckpoint();
+        return Result::failureAndCommit({core::ErrorCategory::Storage,
+            "io_failed", "Failure preparation encountered an I/O error.",
+            "The scripted occurrence remains pending.", true}, []() noexcept {});
     }
 }
 
@@ -372,13 +383,12 @@ public:
                 candidatePeriod.error());
         }
         if (const auto fault = matchingFault(FaultPoint::Configuration)) {
-            using ConfigurationResult = core::Result<AppliedCameraConfiguration>;
-            return commitScriptedFailure<ConfigurationResult>(
+            return commitScriptedFailure<AppliedCameraConfiguration>(
                 *options_.faults, *fault, {}, [] {
-                    return ConfigurationResult::failure(lifecycleError(
+                    return core::Error{
                         core::ErrorCategory::CameraConfiguration, "simulated_configuration_failure",
                         "The simulated configuration failed.",
-                        "The fault script rejected this validated configuration attempt."));
+                        "The fault script rejected this validated configuration attempt.", true};
                 });
         }
         applied_ = std::move(candidate);
@@ -440,15 +450,15 @@ public:
             if (wait == core::ClockWaitOutcome::Cancelled || stopToken.stop_requested()) {
                 return FrameResult::failure(cancelledError());
             }
-            return commitScriptedFailure<FrameResult>(
+            return commitScriptedFailure<std::shared_ptr<const core::RawFrame>>(
                 *options_.faults, *fault, stopToken, [] {
-                    return FrameResult::failure(timeoutError());
+                    return timeoutError();
                 });
         }
         if (fault && fault->fault == SimulatedFault::Disconnect) {
-            return commitScriptedFailure<FrameResult>(
+            return commitScriptedFailure<std::shared_ptr<const core::RawFrame>>(
                 *options_.faults, *fault, stopToken, [] {
-                    return FrameResult::failure(disconnectedError());
+                    return disconnectedError();
                 });
         }
 
@@ -496,14 +506,17 @@ public:
                 "The Stop end policy stopped the camera stream."));
         }
         if (fault && fault->fault == SimulatedFault::MalformedFrame) {
+            // Return writable storage before the failure's state commit so no
+            // pool-release locking remains on the committed return path.
+            lease.reset();
             // Construct a genuinely invalid candidate and return the normal
             // layout validator's typed error; never fabricate a malformed error.
-            return commitScriptedFailure<FrameResult>(
+            return commitScriptedFailure<std::shared_ptr<const core::RawFrame>>(
                 *options_.faults, *fault, stopToken, [&] {
                     auto malformed = core::ImageLayout::create(
                         0U, actual.roi.height, strideBytes,
                         actual.pixelFormat.applicationStorage, payloadBytes);
-                    return FrameResult::failure(std::move(malformed).error());
+                    return malformed.error();
                 });
         }
 

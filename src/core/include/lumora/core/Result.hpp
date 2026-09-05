@@ -2,6 +2,7 @@
 
 #include <lumora/core/Error.hpp>
 
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -16,6 +17,17 @@ public:
 
     [[nodiscard]] static Result failure(E error) {
         return Result(std::in_place_index<1>, std::move(error));
+    }
+
+    // Copies directly into the final return object's error storage, then commits.
+    // A failed copy never invokes commit. The callback must itself perform only
+    // non-allocating, non-throwing work. Callers must preserve a same-type
+    // prvalue return chain; returning a named local from a wrapper or moving the
+    // committed Result afterward defeats this guarantee.
+    template<typename Commit>
+        requires std::is_nothrow_invocable_v<Commit&>
+    [[nodiscard]] static Result failureAndCommit(const E& error, Commit&& commit) {
+        return Result(FailureCommitTag{}, error, std::forward<Commit>(commit));
     }
 
     [[nodiscard]] bool hasValue() const noexcept {
@@ -47,6 +59,14 @@ public:
     }
 
 private:
+    struct FailureCommitTag {};
+
+    template<typename Commit>
+    explicit Result(FailureCommitTag, const E& error, Commit&& commit)
+        : valueOrError_(std::in_place_index<1>, error) {
+        commit();
+    }
+
     template<typename... Args>
     explicit Result(std::in_place_index_t<0> index, Args&&... args)
         : valueOrError_(index, std::forward<Args>(args)...) {}
@@ -69,6 +89,13 @@ public:
         return Result(std::in_place_index<1>, std::move(error));
     }
 
+    // Same final-storage and prvalue-return contract as Result<T, E> above.
+    template<typename Commit>
+        requires std::is_nothrow_invocable_v<Commit&>
+    [[nodiscard]] static Result failureAndCommit(const E& error, Commit&& commit) {
+        return Result(FailureCommitTag{}, error, std::forward<Commit>(commit));
+    }
+
     [[nodiscard]] bool hasValue() const noexcept {
         return valueOrError_.index() == 0;
     }
@@ -86,6 +113,14 @@ public:
     }
 
 private:
+    struct FailureCommitTag {};
+
+    template<typename Commit>
+    explicit Result(FailureCommitTag, const E& error, Commit&& commit)
+        : valueOrError_(std::in_place_index<1>, error) {
+        commit();
+    }
+
     explicit Result(std::in_place_index_t<0> index)
         : valueOrError_(index) {}
 

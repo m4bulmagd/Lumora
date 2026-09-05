@@ -68,5 +68,28 @@ TEST(FaultScript, SelectionDoesNotConsumeAndDisconnectRequiresExplicitRestore) {
     EXPECT_FALSE(script->disconnected());
 }
 
+TEST(FaultScript, PreparedConsumptionRollsBackUnlessExplicitlyCommitted) {
+    auto script = FaultScript::create({{1U, SimulatedFault::Disconnect, 2U}}).value();
+    const auto occurrence = script->match(1U, 0ms, FaultPoint::Retrieval);
+    ASSERT_TRUE(occurrence.has_value());
+    {
+        const auto pending = script->prepareConsumption(*occurrence);
+        static_cast<void>(pending);
+    }
+    EXPECT_FALSE(script->disconnected());
+    EXPECT_TRUE(script->match(1U, 0ms, FaultPoint::Retrieval).has_value());
+    {
+        auto pending = script->prepareConsumption(*occurrence);
+        pending.commit();
+        pending.commit();
+    }
+    EXPECT_TRUE(script->disconnected());
+    script->restoreConnection();
+    const auto second = script->match(1U, 0ms, FaultPoint::Retrieval);
+    ASSERT_TRUE(second.has_value());
+    script->consume(*second);
+    EXPECT_FALSE(script->match(1U, 0ms, FaultPoint::Retrieval).has_value());
+}
+
 }  // namespace
 }  // namespace lumora::camera::sim

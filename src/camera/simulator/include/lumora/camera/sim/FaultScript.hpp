@@ -33,6 +33,25 @@ public:
         SimulatedFault fault;
     };
 
+    // Holds the script lock before constructing a caller's result. Destruction
+    // without commit leaves state unchanged; commit performs scalar writes only.
+    class PendingConsumption final {
+    public:
+        PendingConsumption(const PendingConsumption&) = delete;
+        PendingConsumption& operator=(const PendingConsumption&) = delete;
+        PendingConsumption(PendingConsumption&&) = delete;
+        PendingConsumption& operator=(PendingConsumption&&) = delete;
+        void commit() noexcept;
+
+    private:
+        friend class FaultScript;
+        PendingConsumption(FaultScript& script, Occurrence occurrence);
+        FaultScript* script_;
+        Occurrence occurrence_;
+        std::unique_lock<std::mutex> lock_;
+        bool committed_{false};
+    };
+
     [[nodiscard]] static core::Result<std::shared_ptr<FaultScript>> create(
         std::vector<FaultEvent> events);
 
@@ -48,11 +67,13 @@ public:
     // Selection is non-consuming. Consume at the failed operation's commit
     // point, after cancellation checks. Repeated failures leave frame ID fixed.
     void consume(Occurrence occurrence);
+    [[nodiscard]] PendingConsumption prepareConsumption(Occurrence occurrence);
     [[nodiscard]] bool disconnected() const;
     void restoreConnection();
 
 private:
     explicit FaultScript(std::vector<FaultEvent> events);
+    void consumeLocked(Occurrence occurrence) noexcept;
     mutable std::mutex mutex_;
     std::vector<FaultEvent> events_;
     bool disconnected_{false};

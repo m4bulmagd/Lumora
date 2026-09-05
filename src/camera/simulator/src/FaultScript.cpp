@@ -72,7 +72,25 @@ std::optional<FaultScript::Occurrence> FaultScript::match(
 }
 
 void FaultScript::consume(Occurrence occurrence) {
-    std::scoped_lock lock(mutex_);
+    auto pending = prepareConsumption(occurrence);
+    pending.commit();
+}
+
+FaultScript::PendingConsumption FaultScript::prepareConsumption(Occurrence occurrence) {
+    return PendingConsumption{*this, occurrence};
+}
+
+FaultScript::PendingConsumption::PendingConsumption(FaultScript& script, Occurrence occurrence)
+    : script_(&script), occurrence_(occurrence), lock_(script.mutex_) {}
+
+void FaultScript::PendingConsumption::commit() noexcept {
+    if (!committed_) {
+        script_->consumeLocked(occurrence_);
+        committed_ = true;
+    }
+}
+
+void FaultScript::consumeLocked(Occurrence occurrence) noexcept {
     if (occurrence.index >= events_.size()) {
         return;
     }

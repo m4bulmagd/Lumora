@@ -1240,13 +1240,64 @@ void failFaultPreparationAllocationOnce() {
     throw std::bad_alloc{};
 }
 
+void failFinalFaultResultAllocationOnce() {
+    static thread_local int checkpointCount{};
+    if (++checkpointCount == 2) {
+        checkpointCount = 0;
+        static_cast<void>(testing::exchangeFaultPreparationHook(nullptr));
+        throw std::bad_alloc{};
+    }
+}
+
+TEST(SimulatedCamera, MalformedFrameReleasesLeaseBeforeFailureResultPreparation) {
+    core::ManualClock clock;
+    auto opts = replayOptions();
+    opts.faults = FaultScript::create({{1U, SimulatedFault::MalformedFrame, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    auto destination = pool();
+    ASSERT_TRUE(device->open().hasValue());
+    ASSERT_TRUE(device->startStream().hasValue());
+    static thread_local core::BufferPool* preparationPool{};
+    static thread_local bool releasedBeforePreparation{};
+    static thread_local unsigned preparationCount{};
+    preparationPool = destination.get();
+    releasedBeforePreparation = true;
+    preparationCount = 0U;
+    {
+        testing::ScopedFaultPreparationHook observation([] {
+            ++preparationCount;
+            releasedBeforePreparation &= preparationPool->stats().inUse == 0U;
+        });
+        const auto failure = device->retrieve(0ms, *destination);
+        ASSERT_FALSE(failure.hasValue());
+        EXPECT_EQ(failure.error().code, "zero_dimensions");
+    }
+    preparationPool = nullptr;
+    EXPECT_EQ(preparationCount, 2U);
+    EXPECT_TRUE(releasedBeforePreparation);
+    EXPECT_EQ(destination->stats().inUse, 0U);
+    EXPECT_FALSE(opts.faults->match(1U, 0ms, FaultPoint::Retrieval).has_value());
+    const auto recovered = device->retrieve(10ms, *destination);
+    ASSERT_TRUE(recovered.hasValue());
+    EXPECT_EQ(recovered.value()->frameId, 1U);
+    EXPECT_EQ(readU16(*recovered.value(), 0U, 0U), 0x0123U);
+}
+
 TEST(SimulatedCamera, FailureResultAllocationDoesNotEscapeOrCommitFaultOccurrence) {
-    struct Case { SimulatedFault fault; const char* code; };
+    struct Case {
+        SimulatedFault fault;
+        const char* code;
+        testing::FaultPreparationHook hook{failFaultPreparationAllocationOnce};
+    };
     for (const auto& test : std::vector<Case>{
              {SimulatedFault::Timeout, "acquisition_timeout"},
              {SimulatedFault::Disconnect, "simulated_disconnect"},
              {SimulatedFault::MalformedFrame, "zero_dimensions"},
-             {SimulatedFault::ConfigurationFailure, "simulated_configuration_failure"}}) {
+             {SimulatedFault::ConfigurationFailure, "simulated_configuration_failure"},
+             {SimulatedFault::Timeout, "acquisition_timeout", failFinalFaultResultAllocationOnce},
+             {SimulatedFault::Disconnect, "simulated_disconnect", failFinalFaultResultAllocationOnce},
+             {SimulatedFault::MalformedFrame, "zero_dimensions", failFinalFaultResultAllocationOnce},
+             {SimulatedFault::ConfigurationFailure, "simulated_configuration_failure", failFinalFaultResultAllocationOnce}}) {
         SCOPED_TRACE(test.code);
         core::ManualClock clock;
         auto opts = replayOptions();
@@ -1263,7 +1314,7 @@ TEST(SimulatedCamera, FailureResultAllocationDoesNotEscapeOrCommitFaultOccurrenc
         std::optional<core::Error> returnedError;
         bool allocationEscaped = false;
         {
-            testing::ScopedFaultPreparationHook injection(failFaultPreparationAllocationOnce);
+            testing::ScopedFaultPreparationHook injection(test.hook);
             try {
                 if (configuring) {
                     const auto result = device->applyConfiguration(requested);
@@ -1318,12 +1369,18 @@ TEST(SimulatedCamera, FailurePreparationTranslatesExpectedSizeAndIoExceptions) {
         const char* code;
     };
     for (const auto& test : std::vector<Case>{
-             {[] { throw std::length_error{"Injected size limit"}; },
+             {[] {
+                  static_cast<void>(testing::exchangeFaultPreparationHook(nullptr));
+                  throw std::length_error{"Injected size limit"}; },
               core::ErrorCategory::ResourceExhaustion, "size_limit"},
-             {[] { throw std::filesystem::filesystem_error{
+             {[] {
+                  static_cast<void>(testing::exchangeFaultPreparationHook(nullptr));
+                  throw std::filesystem::filesystem_error{
                        "Injected filesystem failure", std::make_error_code(std::errc::io_error)}; },
               core::ErrorCategory::Storage, "io_failed"},
-             {[] { throw std::ios_base::failure{"Injected stream failure"}; },
+             {[] {
+                  static_cast<void>(testing::exchangeFaultPreparationHook(nullptr));
+                  throw std::ios_base::failure{"Injected stream failure"}; },
               core::ErrorCategory::Storage, "io_failed"}}) {
         SCOPED_TRACE(test.code);
         core::ManualClock clock;
@@ -1370,6 +1427,34 @@ TEST(SimulatedCamera, CancellationDuringFailurePreparationDoesNotCommitOccurrenc
         EXPECT_FALSE(opts.faults->disconnected());
         EXPECT_TRUE(opts.faults->match(1U, 0ms, FaultPoint::Retrieval).has_value());
         EXPECT_EQ(destination->stats().inUse, 0U);
+    }
+}
+
+TEST(SimulatedCamera, FailedAllocationTranslationPropagatesWithoutCommittingFaultState) {
+    for (const auto fault : {SimulatedFault::Disconnect, SimulatedFault::MalformedFrame}) {
+        core::ManualClock clock;
+        auto opts = replayOptions();
+        opts.faults = FaultScript::create({{1U, fault, 1U}}).value();
+        auto device = createDevice(clock, opts);
+        auto destination = pool();
+        ASSERT_TRUE(device->open().hasValue());
+        ASSERT_TRUE(device->startStream().hasValue());
+        {
+            testing::ScopedFaultPreparationHook injection([] { throw std::bad_alloc{}; });
+            EXPECT_THROW(static_cast<void>(device->retrieve(0ms, *destination)), std::bad_alloc);
+        }
+        EXPECT_FALSE(opts.faults->disconnected());
+        EXPECT_TRUE(opts.faults->match(1U, 0ms, FaultPoint::Retrieval).has_value());
+        EXPECT_EQ(destination->stats().inUse, 0U);
+        const auto failure = device->retrieve(0ms, *destination);
+        ASSERT_FALSE(failure.hasValue());
+        EXPECT_EQ(failure.error().code,
+            fault == SimulatedFault::Disconnect ? "simulated_disconnect" : "zero_dimensions");
+        opts.faults->restoreConnection();
+        const auto recovered = device->retrieve(10ms, *destination);
+        ASSERT_TRUE(recovered.hasValue());
+        EXPECT_EQ(recovered.value()->frameId, 1U);
+        EXPECT_EQ(readU16(*recovered.value(), 0U, 0U), 0x0123U);
     }
 }
 
