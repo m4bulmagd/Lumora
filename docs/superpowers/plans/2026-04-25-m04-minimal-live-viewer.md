@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution progress (2026-09-06):** Tasks 1–3 passed independent reviews and were merged through [PR #1](https://github.com/m4bulmagd/Lumora/pull/1), [PR #2](https://github.com/m4bulmagd/Lumora/pull/2), and [PR #4](https://github.com/m4bulmagd/Lumora/pull/4). Task 3's source `14eeb1f039457de2d0fbb46fda0561452326cf61` passed Linux/GCC and Windows/MSVC Debug/Release CI and merged as `8f0866d7919d98be85a80f2fbb404e86ce84c2bb` with an identical tree. Task 4 is implemented through `c349606f7e72b7b5d8959580afaedfc2294cd314`, with clean task re-review and full local native-inclusive suites passing 24/24 Debug/Release. Step 5 remains open for its external Windows/stress requirements. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see [M4 execution evidence and remaining gates](../../architecture/milestones/m04-preflight.md). Local task completion is not M4 acceptance.
+**Execution progress (2026-09-06):** Tasks 1–3 passed independent reviews and were merged through [PR #1](https://github.com/m4bulmagd/Lumora/pull/1), [PR #2](https://github.com/m4bulmagd/Lumora/pull/2), and [PR #4](https://github.com/m4bulmagd/Lumora/pull/4). Task 3's source `14eeb1f039457de2d0fbb46fda0561452326cf61` passed Linux/GCC and Windows/MSVC Debug/Release CI and merged as `8f0866d7919d98be85a80f2fbb404e86ce84c2bb` with an identical tree. Task 4 is locally complete through implementation `c4b7e7fb0f434c921d0d5a377ff5ba3cc8fab639`, with all task/final-review findings resolved, 24/24 native-inclusive Linux Debug/Release test groups passing, and the final-source 600-second Linux Release stress passing. Step 5 remains open for matching Windows CI and Windows Release stress. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see [M4 execution evidence and remaining gates](../../architecture/milestones/m04-preflight.md). Local task completion is not M4 acceptance.
 
 ## Global Constraints
 
@@ -370,6 +370,7 @@ git commit -m "feat(ui): add minimal workstation layout"
 - Create: `tools/viewer-harness/main.cpp`
 - Create: `tools/viewer-harness/SimulatorFeed.hpp`
 - Create: `tools/viewer-harness/SimulatorFeed.cpp`
+- Create: `tools/viewer-harness/ViewerHarnessUi.hpp` (tools-only Qt translation boundary added by final review)
 - Modify: `CMakeLists.txt`
 - Modify: `src/CMakeLists.txt`
 - Modify: `tests/CMakeLists.txt`
