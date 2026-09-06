@@ -1,4 +1,5 @@
 #include "SimulatorFeed.hpp"
+#include "ViewerHarnessUi.hpp"
 
 #include <lumora/core/Clock.hpp>
 #include <lumora/core/Frame.hpp>
@@ -20,13 +21,14 @@ int main(int argc, char** argv) {
         argv + 1, argv + argc,
         [](const char* argument) { return std::string_view{argument} == "--start"; });
 
-    std::cerr << "EVALUATION — NOT FOR CLINICAL USE\n";
+    std::cerr << lumora::tools::ui_detail::evaluationBanner().toStdString()
+              << '\n';
     lumora::core::LatestValueSlot<lumora::core::FrameBundle> slot;
     lumora::core::SystemClock clock;
     lumora::ui::WorkstationView view;
     lumora::ui::FramePresenter presenter(slot, view, clock);
     lumora::tools::SimulatorFeed feed(slot, clock);
-    view.setWindowTitle(QStringLiteral("Lumora Simulated Viewer"));
+    view.setWindowTitle(lumora::tools::ui_detail::viewerWindowTitle());
     view.resize(1280, 800);
     view.show();
     presenter.start();
@@ -44,20 +46,22 @@ int main(int argc, char** argv) {
         if (lumora::tools::detail::isRecoverableAcquisitionTimeout(result.error())) {
             if (!timeoutReported) {
                 timeoutReported = true;
-                view.setWindowTitle(QStringLiteral(
-                    "Lumora Simulated Viewer — RETRIEVAL TIMEOUT OBSERVED"));
-                std::cerr << "acquisition_timeout: transient retrieval timeout; "
-                             "feed continues\n";
+                view.setWindowTitle(
+                    lumora::tools::ui_detail::timeoutWindowTitle());
+                std::cerr
+                    << lumora::tools::ui_detail::timeoutConsoleNotice()
+                           .toStdString()
+                    << '\n';
             }
             return;
         }
         errorMonitor.stop();
         QMessageBox::critical(
             &view,
-            QStringLiteral("Simulated viewer error"),
-            QString::fromStdString(
-                result.error().operatorSummary + "\n\n" +
-                result.error().diagnosticDetail));
+            lumora::tools::ui_detail::errorDialogTitle(),
+            lumora::tools::ui_detail::translatedOperatorSummary(result.error()) +
+                QStringLiteral("\n\n") +
+                QString::fromStdString(result.error().diagnosticDetail));
     });
     if (startFeed) {
         errorMonitor.start(100);

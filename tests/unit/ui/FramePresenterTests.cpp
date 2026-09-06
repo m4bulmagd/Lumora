@@ -9,9 +9,6 @@
 #include <lumora/ui/WorkstationStatus.hpp>
 #include <lumora/ui/WorkstationView.hpp>
 
-#include <QCoreApplication>
-#include <QElapsedTimer>
-
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -20,7 +17,6 @@
 #include <limits>
 #include <optional>
 #include <ranges>
-#include <thread>
 
 namespace {
 
@@ -35,15 +31,6 @@ using lumora::ui::WorkstationView;
 
 void paint(WorkstationView& view) {
     static_cast<void>(lumora::test::paintWidget(*view.imageViewport()));
-}
-
-void serviceEventsFor(std::chrono::milliseconds duration) {
-    QElapsedTimer elapsed;
-    elapsed.start();
-    while (elapsed.elapsed() < duration.count()) {
-        QCoreApplication::processEvents();
-        std::this_thread::sleep_for(1ms);
-    }
 }
 
 std::shared_ptr<const FrameBundle> makeUnsupportedBundle(
@@ -347,35 +334,6 @@ TEST(FramePresenter, EventLoopStallBecomesStaleOnFirstRecoveryRefresh) {
     presenter.refresh();
 
     EXPECT_EQ(view.status().freshness, FrameFreshness::Stale);
-}
-
-TEST(FramePresenter, TimerStartStopAndCadenceGuardBoundAutomaticRefresh) {
-    LatestValueSlot<FrameBundle> slot;
-    WorkstationView view;
-    ManualClock clock;
-    view.resize(640, 480);
-    view.show();
-    FramePresenter presenter(slot, view, clock);
-    (void)slot.publish(lumora::test::makeBundle(64, 32, 1U, clock));
-    presenter.start();
-    presenter.start();
-    serviceEventsFor(50ms);
-    ASSERT_EQ(presenter.displayedFrameCount(), 1U);
-
-    (void)slot.publish(lumora::test::makeBundle(64, 32, 2U, clock));
-    clock.advance(16ms);
-    serviceEventsFor(25ms);
-    EXPECT_EQ(presenter.displayedFrameCount(), 1U);
-    clock.advance(1ms);
-    serviceEventsFor(30ms);
-    EXPECT_EQ(presenter.displayedFrameCount(), 2U);
-
-    presenter.stop();
-    presenter.stop();
-    (void)slot.publish(lumora::test::makeBundle(64, 32, 3U, clock));
-    clock.advance(100ms);
-    serviceEventsFor(30ms);
-    EXPECT_EQ(presenter.displayedFrameCount(), 2U);
 }
 
 TEST(FramePresenter, DestructionClearsObserverAndDisconnectsViewIntents) {

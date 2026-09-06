@@ -1,4 +1,6 @@
 #include "SimulatorFeed.hpp"
+#include "ViewportTestSupport.hpp"
+#include "ViewerHarnessUi.hpp"
 
 #include <lumora/core/Clock.hpp>
 #include <lumora/core/Frame.hpp>
@@ -9,7 +11,10 @@
 
 #include <QApplication>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QMouseEvent>
+#include <QTimer>
+#include <QTranslator>
 
 #include <gtest/gtest.h>
 
@@ -17,6 +22,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -24,6 +30,147 @@
 namespace {
 
 using namespace std::chrono_literals;
+
+bool waitForQtCondition(
+    const std::function<bool()>& condition,
+    std::chrono::milliseconds timeout = 2s) {
+    QElapsedTimer elapsed;
+    elapsed.start();
+    while (elapsed.elapsed() < timeout.count()) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        if (condition()) {
+            return true;
+        }
+        std::this_thread::yield();
+    }
+    QCoreApplication::processEvents();
+    return condition();
+}
+
+class HarnessTranslator final : public QTranslator {
+public:
+    QString translate(
+        const char* context,
+        const char* sourceText,
+        const char*,
+        int) const override {
+        if (QString::fromLatin1(context) !=
+            QStringLiteral("LumoraViewerHarness")) {
+            return {};
+        }
+        const auto source = QString::fromUtf8(sourceText);
+        if (source == QStringLiteral("Lumora Simulated Viewer")) {
+            return QStringLiteral("translated viewer title");
+        }
+        if (source == QStringLiteral(
+                "Lumora Simulated Viewer — RETRIEVAL TIMEOUT OBSERVED")) {
+            return QStringLiteral("translated timeout title");
+        }
+        if (source == QStringLiteral("Simulated viewer error")) {
+            return QStringLiteral("translated error title");
+        }
+        if (source == QStringLiteral("EVALUATION — NOT FOR CLINICAL USE")) {
+            return QStringLiteral("translated evaluation banner");
+        }
+        if (source == QStringLiteral(
+                "acquisition_timeout: transient retrieval timeout; feed continues")) {
+            return QStringLiteral("translated timeout notice");
+        }
+        if (source == QStringLiteral(
+                "The simulated frame could not be published.")) {
+            return QStringLiteral("translated publication failure");
+        }
+        if (source == QStringLiteral(
+                "The simulated viewer encountered an error.")) {
+            return QStringLiteral("translated generic viewer error");
+        }
+        return {};
+    }
+};
+
+void verifyHarnessOperatorTextUsesQtTranslationBoundary() {
+    HarnessTranslator translator;
+    EXPECT_TRUE(QCoreApplication::installTranslator(&translator));
+    const lumora::core::Error publicationError{
+        lumora::core::ErrorCategory::Internal,
+        "viewer_slot_closed", "Runtime-only operator summary",
+        "technical diagnostic", false};
+    const lumora::core::Error unknownError{
+        lumora::core::ErrorCategory::Internal,
+        "unmapped_fixture", "Another runtime-only summary",
+        "technical diagnostic", false};
+
+    EXPECT_EQ(
+        lumora::tools::ui_detail::viewerWindowTitle(),
+        QStringLiteral("translated viewer title"));
+    EXPECT_EQ(
+        lumora::tools::ui_detail::timeoutWindowTitle(),
+        QStringLiteral("translated timeout title"));
+    EXPECT_EQ(
+        lumora::tools::ui_detail::errorDialogTitle(),
+        QStringLiteral("translated error title"));
+    EXPECT_EQ(
+        lumora::tools::ui_detail::evaluationBanner(),
+        QStringLiteral("translated evaluation banner"));
+    EXPECT_EQ(
+        lumora::tools::ui_detail::timeoutConsoleNotice(),
+        QStringLiteral("translated timeout notice"));
+    EXPECT_EQ(
+        lumora::tools::ui_detail::translatedOperatorSummary(publicationError),
+        QStringLiteral("translated publication failure"));
+    EXPECT_EQ(
+        lumora::tools::ui_detail::translatedOperatorSummary(unknownError),
+        QStringLiteral("translated generic viewer error"));
+
+    QCoreApplication::removeTranslator(&translator);
+}
+
+void verifyPresenterTimerStartStopAndCadence() {
+    lumora::core::LatestValueSlot<lumora::core::FrameBundle> slot;
+    lumora::core::ManualClock clock;
+    lumora::ui::WorkstationView view;
+    view.resize(640, 480);
+    view.show();
+    lumora::ui::FramePresenter presenter(slot, view, clock);
+    (void)slot.publish(lumora::test::makeBundle(64, 32, 1U, clock));
+    presenter.start();
+    presenter.start();
+    ASSERT_TRUE(waitForQtCondition([&] {
+        return presenter.displayedFrameCount() == 1U;
+    }));
+
+    QTimer witnessTimer;
+    witnessTimer.setInterval(17);
+    int witnessTicks = 0;
+    QObject::connect(&witnessTimer, &QTimer::timeout, [&] { ++witnessTicks; });
+    (void)slot.publish(lumora::test::makeBundle(64, 32, 2U, clock));
+    clock.advance(16ms);
+    witnessTimer.start();
+    ASSERT_TRUE(waitForQtCondition([&] { return witnessTicks >= 2; }));
+    witnessTimer.stop();
+    EXPECT_EQ(presenter.displayedFrameCount(), 1U);
+
+    clock.advance(1ms);
+    ASSERT_TRUE(waitForQtCondition([&] {
+        return presenter.displayedFrameCount() == 2U;
+    }));
+
+    presenter.stop();
+    presenter.stop();
+    (void)slot.publish(lumora::test::makeBundle(64, 32, 3U, clock));
+    clock.advance(100ms);
+    witnessTicks = 0;
+    witnessTimer.start();
+    ASSERT_TRUE(waitForQtCondition([&] { return witnessTicks >= 2; }));
+    witnessTimer.stop();
+    EXPECT_EQ(presenter.displayedFrameCount(), 2U);
+
+    presenter.start();
+    ASSERT_TRUE(waitForQtCondition([&] {
+        return presenter.displayedFrameCount() == 3U;
+    }));
+    presenter.stop();
+}
 
 void verifyTimeoutPredicateRequiresExactTypedRecoverableError() {
     const lumora::core::Error exact{
@@ -300,10 +447,20 @@ void verifySuppressedPreparedPublicationKeepsAcquiringAndBecomesStale() {
 }
 
 TEST(SimulatedViewer, ResponsiveTenSeconds) {
+    verifyHarnessOperatorTextUsesQtTranslationBoundary();
+    verifyPresenterTimerStartStopAndCadence();
     verifyTimeoutPredicateRequiresExactTypedRecoverableError();
     runResponsiveViewer(10s);
     verifyTimeoutIsObservableAndRecovers();
     verifySuppressedPreparedPublicationKeepsAcquiringAndBecomesStale();
+}
+
+TEST(SimulatedViewer, HarnessOperatorTextUsesQtTranslationBoundary) {
+    verifyHarnessOperatorTextUsesQtTranslationBoundary();
+}
+
+TEST(SimulatedViewer, PresenterTimerStartStopAndCadence) {
+    verifyPresenterTimerStartStopAndCadence();
 }
 
 TEST(SimulatedViewer, TimeoutPredicateRequiresExactTypedRecoverableError) {

@@ -60,7 +60,9 @@ add_executable(
 )
 target_include_directories(
   lumora_integration_tests
-  PRIVATE "${PROJECT_SOURCE_DIR}/tools/viewer-harness"
+  PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/support"
+    "${PROJECT_SOURCE_DIR}/tools/viewer-harness"
 )
 target_link_libraries(
   lumora_integration_tests

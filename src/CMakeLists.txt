@@ -209,6 +209,7 @@ if(LUMORA_BUILD_TESTS)
   add_executable(
     lumora_viewer_harness
     "${PROJECT_SOURCE_DIR}/tools/viewer-harness/main.cpp"
+    "${PROJECT_SOURCE_DIR}/tools/viewer-harness/ViewerHarnessUi.hpp"
   )
   target_link_libraries(
     lumora_viewer_harness
