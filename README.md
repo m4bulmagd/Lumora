@@ -29,6 +29,8 @@ M3 is accepted for engineering/evaluation: Linux/GCC and Windows/MSVC CI each pa
 
 M4 Tasks 1–4 (viewport geometry, grayscale rendering, workstation layout, controls, safety indications, latest-frame presenter, and separate synthetic moving-video harness) are merged with passing Linux and Windows Debug/Release CI. The normal application still opens in `Waiting for image`; production live-pipeline composition remains M5. Launch the evaluation harness using the [Linux instructions](docs/development/build-linux.md#m4-synthetic-live-viewer-harness). See the [M4 execution evidence and outstanding Windows gates](docs/architecture/milestones/m04-preflight.md). M4 is not yet accepted; Windows 11 installation and hardware acceptance remain later milestones.
 
+M5 Task 1 adds a Qt-free camera state machine and bounded priority command mailbox, with local Debug/Release verification. See the [Task 1 checkpoint](docs/architecture/milestones/m05-camera-state-mailbox.md). No new UI or production live video is connected yet; acquisition and processing workers follow in later M5 tasks.
+
 The software is still an engineering/evaluation build. It is **not for clinical use**, must not be used for diagnosis, and must not acquire or store real patient data.
 
 ## Build

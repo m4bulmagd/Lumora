@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. The user authorized Task 1 development while native Windows 11 manual checks remain pending; this is not M4/M5 acceptance or authorization to push. Tasks 2–5 remain later work.
+**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. The user authorized Task 1 development while native Windows 11 manual checks remain pending; this is not M4/M5 acceptance or authorization to push. Task 1 is implemented locally at `51cdc04`; see its [execution evidence](../../architecture/milestones/m05-camera-state-mailbox.md). Tasks 2–5 remain later work.
 
 ## Global Constraints
 
@@ -67,7 +67,7 @@ Apply the same configure/build/test cycle to Release and matching Windows preset
 - Consumes: `CameraId`, `CameraConfiguration`, `AppliedCameraConfiguration`, capabilities, `Error`, stop tokens, and fixed bounded storage. The M2 generic FIFO is unchanged.
 - Produces: `CameraSessionState`, `CameraSessionEvent`, `struct CameraCommand`, `CameraStatusSnapshot`, and `CameraCommandMailbox::{post,tryPop,waitPop,completeBarrier,close,size,stats}` with the [exact priority/admission contract](../../architecture/milestones/m05-preflight.md#1-camera-commands-and-bounded-mailbox).
 
-- [ ] **Step 1: Write the failing transition-table tests**
+- [x] **Step 1: Write the failing transition-table tests**
 
 ```cpp
 TEST(CameraSessionStateMachine, CannotStreamBeforeConnection) {
@@ -84,7 +84,7 @@ TEST(CameraSessionStateMachine, RemovalWhileStreamingRequestsReconnect) {
 }
 ```
 
-- [ ] **Step 2: Register and run the failing state/mailbox suites**
+- [x] **Step 2: Register and run the failing state/mailbox suites**
 
 Create/register `lumora_application`, `lumora_application_tests`, `Application.CameraSessionStateMachine` and `Application.CameraCommandMailbox` with the target map, then:
 
@@ -96,7 +96,7 @@ ctest --preset linux-gcc-debug-sim --no-tests=error --output-on-failure -R '^App
 
 Expected: a transition or priority assertion fails against compiling stubs, not an unknown target.
 
-- [ ] **Step 3: Implement the explicit state/event table**
+- [x] **Step 3: Implement the explicit state/event table**
 
 ```cpp
 enum class CameraSessionState {
@@ -117,15 +117,15 @@ Reject invalid transitions without mutation; preserve idempotent same-ID Connect
 
 Keep startup intent/confirmation separate from camera and viewer state. Task 4 supplies the typed saved record/panel, Task 5 wires its flow. Start requires a successful applied revision and matching confirmation on the camera worker; a UI button alone is not authorization. A later Resume action must revalidate identity/capabilities and actual readback before Start; drift cancels the continuation and requires review.
 
-- [ ] **Step 4: Implement mailbox priority/coalescing**
+- [x] **Step 4: Implement mailbox priority/coalescing**
 
 Use fixed storage for 32 commands with one lock around admission/coalescing/selection. Shutdown > Disconnect > Stop > ordinary FIFO. Priority commands remain admissible under full load by cancelling superseded/oldest ordinary work; repeated priority commands coalesce. Stop cancels pending Start/Confirm, Disconnect cancels all pending camera-specific work, and Shutdown seals admission. Coalesce Apply only within the same generation and lifecycle-barrier segment. Return `Result<void>` with `ResourceExhaustion / camera_mailbox_full` or `Cancelled / cancelled`, not an unexplained bool. Implement the pending Stop/Disconnect admission fences and nonblocking `tryPop` described in the preflight.
 
-- [ ] **Step 5: Exhaustively test state/event pairs and mailbox concurrency**
+- [x] **Step 5: Exhaustively test state/event pairs and mailbox concurrency**
 
 Generate every enum pair, assert the documented next state or unchanged typed error, and test concurrent producers, a full mailbox for each priority command, late Start/Connect during pending and in-flight barriers, generation-isolated Apply coalescing and preserved Apply/Confirm/Start payloads, configuration coalescing across lifecycle barriers, bounded diagnostic counters, close/cancellation, and idle wakeup. Execution-time stale-session Apply/Confirm/Start rejection belongs to Task 2's worker tests, because this mailbox has no authoritative current session. Rerun the Step 2 command at green; all registered focused cases must pass.
 
-- [ ] **Step 6: Commit state control**
+- [x] **Step 6: Commit state control**
 
 ```powershell
 git add src/application tests/unit/application src/CMakeLists.txt tests/CMakeLists.txt

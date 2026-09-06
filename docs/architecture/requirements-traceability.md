@@ -18,9 +18,9 @@ M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with pas
 | DES-8 | §8 Threading model | Thread-confined camera port; UI-timer presenter and joined test-only simulator worker; no per-frame queued Qt signal | M4 harness subset verified | M4 harness subset verified in CI | Production worker orchestration remains M5/M12 |
 | DES-9 | §9 Frame memory ownership and bounded buffering | Core pool/frame/slot/queue tests; `ImageViewport`, `FramePresenter`, `SimulatedViewer` retained-ownership checks | M4 viewer subset verified | M4 viewer subset verified in CI | Production pipeline pools remain later work |
 | DES-10 | §10 Processing pipeline | Frame/provenance contracts exist; processing, high-bit-depth mapping and enhancements remain M5/M7/M8 | Not yet verified as pipeline | Not run | Planned |
-| DES-11 | §11 Rendering and workstation UI | `ViewportTransform`, `ImageViewport`, `WorkstationView`, `FramePresenter`, `SimulatedViewer`; native Linux desktop smoke | M4 subset verified | Tasks 1–4 verified in CI; native Windows visual/DPI pending | M4 unaccepted; later controls remain M9 |
+| DES-11 | §11 Rendering and workstation UI | `ViewportTransform`, `ImageViewport`, `WorkstationView`, `FramePresenter`, `SimulatedViewer`; native Linux desktop smoke | M4 subset verified | Tasks 1–4 verified in CI; native Windows visual/DPI pending | M4 unaccepted; minimal startup controls remain M5, complete editor M9 |
 | DES-12 | §12 Capture and future recording | M10 capture plan; recording requires its own approved specification | Not run | Not run | Planned/deferred |
-| DES-13 | §13 Configuration and presets | `ConfigurationStore`; presets, installation profiles and controls remain M9 | Verified for store only | Verified for store only | Partial |
+| DES-13 | §13 Configuration and presets | `ConfigurationStore`; startup preferences remain M5, presets/installation profiles/full controls M9 | Verified for store only | Verified for store only | Partial |
 | DES-14 | §14 Diagnostics, metrics, and logging | `Logging`, pool/slot counters and simulator pacing-slip tests; full diagnostics remain M11 | Verified for foundation only | Verified for foundation only | Partial |
 | DES-15 | §15 Reliability and failure policy | M3 device faults; M4 paused/stale, blocked-image-path, event-loop recovery and observable harness-timeout tests | M4 subset verified | M4 subset verified in CI | System recovery remains M12 |
 | DES-16 | §16 Test strategy | M1–M4 verification maps below; default short integration and opt-in 600-second M4 stress | See exact-source M4 execution record | M4 and follow-up CI passed; Release stress passed at `6c054a7` | Reference-image/performance/hardware gates remain later work |
@@ -90,5 +90,15 @@ M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with pas
 | Native Linux checks and tests-disabled build | XCB exposure, synthetic render inspection, harness excluded from normal app links and install scope | Local-only engineering evidence; not physical-display or Windows validation |
 
 The [M3 record](milestones/m03-camera-api-simulator.md) retains every M3 acceptance criterion. The [M4 record](milestones/m04-preflight.md) separates completed automated verification from deferred native Windows 11 validation. M5 Task 1 development is authorized under the scoped exception; later M5 tasks and M6–M14 remain planned; production live composition, Windows installer validation (M13), and hardware acceptance (M14) are not supplied by the test harness.
+
+## Milestone 5 Task 1 verification map (local only)
+
+| Test/check | Requirement covered | Evidence boundary |
+|---|---|---|
+| `Application.CameraSessionStateMachine` | Pure camera state ordering, 192 state/event pairs, unchanged typed rejection, request/success separation and terminal cancellation | Four tests at `51cdc04`; Linux Debug/Release pass; worker identity/revision/device effects remain Task 2 |
+| `Application.CameraCommandMailbox` | Fixed 32-command storage, priority under full load, in-flight fences and exact completion IDs, generation/lifecycle coalescing, stop/close/wakeup, bounded counters and concurrent admission | 22 tests at `51cdc04`; Linux Debug/Release pass; no production acquisition connected yet |
+| Build/registration | Qt-free application linkage, explicit suites/watchdogs, tests-OFF/Basler-OFF application and state library build | Full Linux 27/27 Debug and Release; Windows CI for new source pending |
+
+See the [Task 1 checkpoint](milestones/m05-camera-state-mailbox.md) for source, commands, independent review, counts and limitations. M5 Tasks 2–5 and native checks are not passed by this partial implementation.
 
 No row in this file represents clinical validation, regulatory evidence, or authorization for diagnostic use.
