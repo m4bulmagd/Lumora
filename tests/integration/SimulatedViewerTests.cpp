@@ -370,6 +370,13 @@ void runResponsiveViewer(std::chrono::milliseconds duration) {
     QCoreApplication::processEvents();
     presenter.stop();
 
+    // Retain accumulated evidence even if a final fatal assertion returns early.
+    std::cout << "observed publications=" << observedPublications
+              << ", completed paints=" << presenter.displayedFrameCount()
+              << ", max retained bundles=" << maximumRetainedBundles
+              << ", retrieval timeouts="
+              << feed.timeoutCount() << '\n';
+
     EXPECT_GT(observedPublications, 0U);
     EXPECT_TRUE(publicationContinuedDuringPause);
     EXPECT_GT(presenter.displayedFrameCount(), 0U);
@@ -392,11 +399,6 @@ void runResponsiveViewer(std::chrono::milliseconds duration) {
     const auto stoppedRevision = latest->revision;
     std::this_thread::sleep_for(100ms);
     EXPECT_FALSE(slot.consumeAfter(stoppedRevision).has_value());
-    std::cout << "observed publications=" << observedPublications
-              << ", completed paints=" << presenter.displayedFrameCount()
-              << ", max retained bundles=" << maximumRetainedBundles
-              << ", retrieval timeouts="
-              << feed.timeoutCount() << '\n';
     slot.close();
 }
 

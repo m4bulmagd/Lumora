@@ -17,14 +17,21 @@ file(WRITE "${fixture}/build/CTestTestfile.cmake"
   "set_tests_properties(StressFixture PROPERTIES LABELS stress)\n"
   "add_test(UnrelatedFailure \"${CMAKE_COMMAND}\" -E false)\n")
 
-execute_process(
-  COMMAND "${CMAKE_COMMAND}" -DLUMORA_STRESS_PRESET=fixture
-    "-DLUMORA_STRESS_OUTPUT_DIR=${fixture}/passed"
-    -P "${PROJECT_SOURCE_DIR}/cmake/RunStress.cmake"
-  WORKING_DIRECTORY "${fixture}"
-  RESULT_VARIABLE result
-  OUTPUT_VARIABLE output ERROR_VARIABLE error
-)
+function(run_collector evidence_suffix)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -DLUMORA_STRESS_PRESET=fixture
+      "-DLUMORA_STRESS_OUTPUT_DIR=${fixture}/${evidence_suffix}"
+      -P "${PROJECT_SOURCE_DIR}/cmake/RunStress.cmake"
+    WORKING_DIRECTORY "${fixture}"
+    RESULT_VARIABLE result
+    OUTPUT_VARIABLE output ERROR_VARIABLE error
+  )
+  set(result "${result}" PARENT_SCOPE)
+  set(output "${output}" PARENT_SCOPE)
+  set(error "${error}" PARENT_SCOPE)
+endfunction()
+
+run_collector(passed)
 if(NOT result STREQUAL "0")
   message(FATAL_ERROR "Passing stress test must succeed and exclude unrelated tests: ${output}${error}")
 endif()
@@ -43,17 +50,13 @@ if(NOT junit MATCHES "name=\"StressFixture\"" OR junit MATCHES "name=\"Unrelated
 endif()
 
 # A runner that swallows CTest's exit code must not turn a failed test green.
+file(WRITE "${fixture}/fail-after-counts.cmake"
+  "message(\"observed publications=3 completed paints=0\")\n"
+  "message(FATAL_ERROR \"fixture presentation failed\")\n")
 file(WRITE "${fixture}/build/CTestTestfile.cmake"
-  "add_test(FailingStress \"${CMAKE_COMMAND}\" -E false)\n"
+  "add_test(FailingStress \"${CMAKE_COMMAND}\" -P \"${fixture}/fail-after-counts.cmake\")\n"
   "set_tests_properties(FailingStress PROPERTIES LABELS stress)\n")
-execute_process(
-  COMMAND "${CMAKE_COMMAND}" -DLUMORA_STRESS_PRESET=fixture
-    "-DLUMORA_STRESS_OUTPUT_DIR=${fixture}/failed"
-    -P "${PROJECT_SOURCE_DIR}/cmake/RunStress.cmake"
-  WORKING_DIRECTORY "${fixture}"
-  RESULT_VARIABLE result
-  OUTPUT_VARIABLE output ERROR_VARIABLE error
-)
+run_collector(failed)
 if(result STREQUAL "0")
   message(FATAL_ERROR "Failed stress test must fail the runner")
 endif()
@@ -66,32 +69,24 @@ file(READ "${fixture}/failed/metadata.txt" metadata)
 if(NOT metadata MATCHES "ctest_exit_code=[1-9][0-9]*")
   message(FATAL_ERROR "Metadata must record the failed CTest result")
 endif()
+foreach(name IN ITEMS ctest.log results.xml)
+  file(READ "${fixture}/failed/${name}" failed_output)
+  if(NOT failed_output MATCHES "observed publications=3 completed paints=0")
+    message(FATAL_ERROR "Failed test counts must survive in ${name}")
+  endif()
+endforeach()
 
 # With stress registration OFF, CTest must fail rather than report a false pass.
 file(WRITE "${fixture}/build/CTestTestfile.cmake"
   "add_test(UnrelatedSuccess \"${CMAKE_COMMAND}\" -E true)\n")
-execute_process(
-  COMMAND "${CMAKE_COMMAND}" -DLUMORA_STRESS_PRESET=fixture
-    "-DLUMORA_STRESS_OUTPUT_DIR=${fixture}/missing"
-    -P "${PROJECT_SOURCE_DIR}/cmake/RunStress.cmake"
-  WORKING_DIRECTORY "${fixture}"
-  RESULT_VARIABLE result
-  OUTPUT_VARIABLE output ERROR_VARIABLE error
-)
+run_collector(missing)
 if(result STREQUAL "0" OR NOT "${output}${error}" MATCHES "No tests were found")
   message(FATAL_ERROR "Missing stress registration must fail visibly: ${output}${error}")
 endif()
 
 # A second invocation must preserve the evidence from the first invocation.
 file(READ "${fixture}/passed/metadata.txt" original_metadata)
-execute_process(
-  COMMAND "${CMAKE_COMMAND}" -DLUMORA_STRESS_PRESET=fixture
-    "-DLUMORA_STRESS_OUTPUT_DIR=${fixture}/passed"
-    -P "${PROJECT_SOURCE_DIR}/cmake/RunStress.cmake"
-  WORKING_DIRECTORY "${fixture}"
-  RESULT_VARIABLE result
-  OUTPUT_VARIABLE output ERROR_VARIABLE error
-)
+run_collector(passed)
 file(READ "${fixture}/passed/metadata.txt" preserved_metadata)
 if(result STREQUAL "0" OR NOT original_metadata STREQUAL preserved_metadata)
   message(FATAL_ERROR "Existing evidence must not be overwritten")

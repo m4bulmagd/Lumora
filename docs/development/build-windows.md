@@ -102,10 +102,10 @@ The workflow must exist on the default branch before it can be manually dispatch
 The artifact `windows-stress-<SHA>-<run ID>-<attempt>` is retained for 30 days and includes:
 
 - `metadata.txt`: checked-out source SHA, test preset, host OS, CMake/runner image versions, run/attempt IDs, UTC start/end, and CTest exit code.
-- `ctest.log`: verbose CTest output, including successful-test publication/paint counts, maximum retained bundles, timeout count, and elapsed time.
+- `ctest.log`: verbose CTest output, including publication/paint counts, maximum retained bundles, timeout count, and elapsed time. The viewer prints accumulated counts before its final assertions, so those assertion failures retain the counts too.
 - `results.xml`: JUnit test identities, outcomes, output, and durations.
 
-Failure still fails the job; available evidence uploads even on failure. An early configure/build failure may have no stress artifact: inspect the job log and do not treat it as a completed stress run. Missing stress registration is an error, never a pass. The local collector requires a new output directory so an earlier evidence set cannot be overwritten. Preserve downloaded acceptance evidence before the artifact expires.
+Failure still fails the job; available evidence uploads even on failure. An early configure/build failure may have no stress artifact, and process termination before the summary may leave no counts: inspect the job log and do not treat it as a completed stress run. Missing stress registration is an error, never a pass. The local collector requires a new output directory so an earlier evidence set cannot be overwritten. Preserve downloaded acceptance evidence before the artifact expires.
 
 The hosted runner is `windows-2022` (Windows Server), not a Windows 11 desktop. This workflow can supply the Windows/MSVC automated stress evidence, but **does not satisfy native Windows 11 visual/DPI, installer, hardware, or clinical acceptance**. Creating the workflow is not evidence that its Windows stress run passed.
 
