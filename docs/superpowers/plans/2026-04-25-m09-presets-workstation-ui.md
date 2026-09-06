@@ -183,6 +183,8 @@ git commit -m "feat(ui): add synchronized original enhanced comparison"
 
 ### Task 4: Camera selection and safe settings dialog
 
+Extend the [M5 startup contract](../../architecture/milestones/m05-preflight.md#3-minimal-startup-ui-and-persistence). M5 already provides minimal startup controls, typed saved preferences, capability comparison, confirmation/revision guards, and asynchronous persistence. This task replaces/expands the small `CameraStartupPanel` with the complete panel/dialog without duplicating its controller policy or stored last-camera record.
+
 **Files:**
 - Create: `src/ui/include/lumora/ui/CameraPanel.hpp`
 - Create: `src/ui/include/lumora/ui/CameraSettingsDialog.hpp`
@@ -190,9 +192,19 @@ git commit -m "feat(ui): add synchronized original enhanced comparison"
 - Create: `src/ui/src/CameraSettingsDialog.cpp`
 - Create: `tests/unit/ui/CameraSettingsDialogTests.cpp`
 - Modify: `src/ui/src/WorkstationController.cpp`
+- Modify: `src/ui/include/lumora/ui/CameraStartupPanel.hpp` and `src/ui/src/CameraStartupPanel.cpp` (retire the replaced panel after its callers/tests move)
+- Modify: `src/application/include/lumora/application/StartupPreferences.hpp`
+- Modify: `src/application/include/lumora/application/AcquisitionWorker.hpp`
+- Modify: `src/application/src/AcquisitionWorker.cpp`
+- Modify: `src/application/src/LivePipeline.cpp`
+- Modify: `src/configuration/src/StartupPreferencesService.cpp`
 - Modify: `src/configuration/include/lumora/configuration/ApplicationConfiguration.hpp`
 - Modify: `src/configuration/src/ConfigurationCodec.cpp`
 - Modify: `tests/unit/configuration/ConfigurationStoreTests.cpp`
+- Modify: `tests/unit/application/AcquisitionWorkerTests.cpp`
+- Modify: `tests/integration/LivePipelineTests.cpp`
+- Modify: `src/CMakeLists.txt`
+- Modify: `tests/CMakeLists.txt`
 
 **Interfaces:**
 - Consumes: `CameraDescriptor`, `CameraCapabilities`, `CameraConfiguration`, `AppliedCameraConfiguration`, and application commands.
@@ -214,18 +226,20 @@ Main view shows selected camera identity, active installation orientation, conne
 
 If the application reports a setting requires stopping, the dialog clearly states that Apply will perform stop/apply/verify/restart. One Apply command carries the entire requested configuration; UI does not issue individual node writes. Flip/rotation changes require the application to be deliberately launched by an administrator, a stopped stream, explicit confirmation, and a preview showing that both Original and Enhanced will use the same orientation; they never transform native stored Original. The ordinary operator UI is read-only for this setting, and Lumora never silently self-elevates.
 
+Extend M5's fixed-mode contract with a stopped-state resource-rebinding operation on the camera-owning worker for resolution changes. Quiesce old processing, provision checked replacement pools/exchanges, reset/rebind presentation and acknowledge the new context before restart; keep the same device instance and its source-ID sequence. Test a rejected request/allocation failure without partial activation, successful rebind, stale acknowledgement, and same-device ID continuity. A configuration or pool change must not quietly become a Disconnect/Connect that resets IDs.
+
 - [ ] **Step 5: Test errors and applied-value feedback**
 
 Cover no cameras, first-run confirmation, later Resume Live, identity/capability change requiring review, manual Disconnect suppressing reconnect, camera disappearance, unsupported saved profile, absent/invalid/mismatched Basler installation profile blocking Start, simulator identity-orientation fallback, orientation confirmation/stopped-state/admin enforcement, validation errors, quantized applied value, apply rollback, connection failure, and UI responsiveness using asynchronous command results.
 
 - [ ] **Step 6: Persist selected camera and per-serial profiles**
 
-Extend typed per-user configuration with last selected `CameraId` and preferences keyed by vendor/model/serial. Store requested and last-applied settings there. Store the confirmed installation identity/orientation in a separate machine-profile schema/path adapter: `%PROGRAMDATA%\Lumora\Config` on Windows with admin-write/operator-read ACLs and an injected system root on Linux tests. On discovery, validate the saved request and installation identity/capability fingerprint; require operator Apply/review when either is no longer valid.
+Extend the M5 schema-2 typed startup record into per-camera preferences keyed by vendor/model/serial; retain its last selected `CameraId`, requested/last-applied settings, and versioned canonical capability fingerprint. Supply sequential migration from schema 2 for any schema change and keep M5 first-run/Resume/drift/save-failure tests passing. Reuse the background persistence adapter; do not add file I/O to the UI or camera worker. Store the confirmed installation identity/orientation in a separate machine-profile schema/path adapter: `%PROGRAMDATA%\Lumora\Config` on Windows with admin-write/operator-read ACLs and an injected system root on Linux tests. On discovery, validate the saved request and installation identity/capability fingerprint; require operator Apply/review when either is no longer valid.
 
 - [ ] **Step 7: Commit camera UI**
 
 ```powershell
-git add src/ui src/configuration tests/unit/ui/CameraSettingsDialogTests.cpp tests/unit/configuration/ConfigurationStoreTests.cpp
+git add src/ui src/application src/configuration tests/unit/ui/CameraSettingsDialogTests.cpp tests/unit/configuration/ConfigurationStoreTests.cpp tests/unit/application/AcquisitionWorkerTests.cpp tests/integration/LivePipelineTests.cpp src/CMakeLists.txt tests/CMakeLists.txt
 git commit -m "feat(ui): add capability-driven camera controls"
 ```
 
