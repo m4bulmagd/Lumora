@@ -1,10 +1,10 @@
 # M4 minimal live viewer preflight
 
-Prepared: 2026-09-05. Updated: 2026-09-06. Status: **preflight complete; Task 1 implemented locally; M4 acceptance pending**.
+Prepared: 2026-09-05. Updated: 2026-09-06. Status: **preflight complete; Task 1 merged with cross-platform CI; Task 2 implemented locally; M4 acceptance pending**.
 
 The [M4 plan](../../superpowers/plans/2026-04-25-m04-minimal-live-viewer.md) remains the task plan. Its [M3 entry gate is accepted](m03-camera-api-simulator.md): the exact merged source commit `2c88ec90ab58e3e6719be5e236dc49388dbc72dd` passed all 18 CTest entries in Linux/GCC and Windows/MSVC Debug and Release CI. The reviewed clarifications below are propagated into PRD §19.7–19.8, design §7/§8.2/§11.2, and the M4 plan. Planning completion is not M4 implementation or acceptance.
 
-## Integration facts from the merged code
+## Integration facts at M4 entry (before implementation)
 
 | Area | Existing contract | M4 consequence |
 |---|---|---|
@@ -36,15 +36,25 @@ The [M4 plan](../../superpowers/plans/2026-04-25-m04-minimal-live-viewer.md) rem
 
 ## Task 1 execution evidence
 
-- Verified source: `9c2dfdde300c43aaaa7147f52fe107467da5da6a`, including the initial model at `edee9d30b07986fa17237ad85e7bd379aaa36cdf` and the final-review portrait Fit regression. Implementation changes are limited to the Qt-independent transform header/source, its unit tests, and the existing source/test CMake lists.
+- Verified PR head: `0d8d1163cde7cb0fb4656e7b3caa71d9c1840f11`, including the initial model at `edee9d30b07986fa17237ad85e7bd379aaa36cdf` and the final-review portrait Fit regression at `9c2dfdde300c43aaaa7147f52fe107467da5da6a`. [PR #1](https://github.com/m4bulmagd/Lumora/pull/1) merged this head as `a6351e374caa308ce55fc1eef5232de14ead461f` on 2026-09-06; the merged tree is identical to the reviewed head. Implementation changes are limited to the Qt-independent transform header/source, its unit tests, and the existing source/test CMake lists.
 - Test-first evidence: missing-model compile failure, then behavioral Fit failures against a compilable scaffold, followed by focused zoom, pan, and resize RED/GREEN cycles. `ViewportTransform.*` now discovers and passes 28 real geometry tests, including invalid and extreme finite inputs; `MainWindowSmoke.*` remains separately filtered. The added height-constrained Fit test failed under a temporary width-only mutation and passed after restoration; no production change was needed.
 - Linux/GCC 15.2.0 Debug and Release: complete builds pass under the existing C++20 warning-as-error settings. Full CTest passes 19/19 in each configuration (controller runs: Debug 3.46 s, Release 1.07 s). Configuration-matched Qt `minimal` plugin paths and the 60-second UI-test timeout are preserved. `git diff --check` passes.
 - Local configuration reused the pinned installed dependencies through `CMAKE_PREFIX_PATH`; it is not fresh vcpkg-bootstrap evidence. Commands are `cmake --build --preset linux-gcc-debug-sim --parallel 4` and `ctest --preset linux-gcc-debug-sim --output-on-failure --no-tests=error`, repeated with `linux-gcc-release-sim`, using the [Linux build guide](../../development/build-linux.md).
-- Independent Task 1 review: spec compliant and quality approved, with no Critical, Important, or Minor findings. Windows/MSVC CI for this new source SHA remains pending; the earlier green M3 runs do not verify this change.
-- This is local Task 1 completion only. Tasks 2–4, the full viewer, Windows visual/DPI checks, stress runs, and the M4 acceptance record remain outstanding. No Windows 11 installation, hardware, or clinical validation is claimed.
+- Independent Task 1 review: spec compliant and quality approved. The final review's portrait Fit regression-test finding was addressed and independently re-reviewed; no findings remain open.
+- Exact-head PR CI passed both Debug and Release on [Linux/GCC](https://github.com/m4bulmagd/Lumora/actions/runs/34023693471) and [Windows/MSVC](https://github.com/m4bulmagd/Lumora/actions/runs/34023693502). Post-merge CI also passed both configurations at `a6351e374caa308ce55fc1eef5232de14ead461f`: [Linux/GCC](https://github.com/m4bulmagd/Lumora/actions/runs/34024481865), [Windows/MSVC](https://github.com/m4bulmagd/Lumora/actions/runs/34024481932).
+- These CI results verify Task 1 only, not Task 2's later viewport changes. No Windows 11 installation, hardware, or clinical validation is claimed.
+
+## Task 2 execution evidence
+
+- Verified local source: `e82bb840bda762d9bdab8ddeb59a91605b7104cb` (`feat(ui): add safe grayscale image viewport`), based on merged Task 1. The six changed implementation files are the viewport header/source, its unit tests, header-only viewport fixtures, and existing source/test CMake lists. `lumora_ui` now links `lumora::core` publicly; Qt image details stay private.
+- Test-first evidence: a compilable minimal scaffold failed 9 of the initial 10 viewport behavior tests, including retained ownership and completed identity after paint. The implemented `ImageViewport.*` discovers and passes 16 tests using real frames and `QWidget::render`, with no mocks or test-only production seams.
+- Covered behavior: retained buffers, coalesced staging versus completed paint, source ID zero, synchronous observer/repaint behavior, canceled replacement pixels and geometry, clear/destruction release, zero-sized viewport deferral, aspect-preserving letterboxing, padded stride, no repeated orientation, logical 100% at DPR 1.0/1.25/1.5/2.0, typed rejection, same-size transform preservation, zoom, pan, and double-click Fit.
+- Linux/GCC 15.2.0 Debug and Release: complete builds pass with warnings treated as errors. Full CTest passes 20/20 in each configuration (controller runs: Debug 3.41 s, Release 1.12 s). The three filtered UI entries discover 2 smoke, 28 geometry, and 16 viewport tests, preserving configuration-matched `minimal` plugin paths and 60-second timeouts. `git diff --check` passes.
+- Commands use the same build/test presets and pinned installed dependency reuse described for Task 1 above; this is not a fresh vcpkg-bootstrap test. Independent Task 2 review is spec compliant and quality approved with no findings.
+- Task 2 remains local and has not run Windows/MSVC CI. Its viewport is not yet composed into `MainWindow`; the existing evaluation banner remains intact. Tasks 3–4, Windows visual/DPI checks, stress runs, and the separate M4 acceptance record remain outstanding.
 
 ## Next executable task
 
-After the Task 1 integration decision and matching Windows CI, proceed to **Task 2: ImageViewport with safe display-buffer lifetime**. Then add workstation state/controls and the simulator presenter in the existing task order. No later task was implemented as part of Task 1.
+After the Task 2 integration decision and matching Windows CI, proceed to **Task 3: Workstation shell layout and status model**. Task 4 then adds the latest-frame presenter and non-shipping simulator harness. No later task was implemented as part of Task 2.
 
-The earlier preflight self-review checked document authority, task order, current core API names, planned file creation/modification paths, focused Qt test registration, and separation from later milestones. Local Markdown links/anchors passed validation across the PRD, README, and documentation set. All ten C++ excerpts (public contracts, fixtures, and test bodies) passed syntax-only checking together against the existing core/Qt/GoogleTest headers using C++20 and the repository's GCC warning-as-error flags. No M4 implementation was linked or exercised during that preflight; those documentation checks are separate from the Task 1 execution evidence above and are not Windows visual evidence.
+The earlier preflight self-review checked document authority, task order, current core API names, planned file creation/modification paths, focused Qt test registration, and separation from later milestones. Local Markdown links/anchors passed validation across the PRD, README, and documentation set. All ten C++ excerpts (public contracts, fixtures, and test bodies) passed syntax-only checking together against the existing core/Qt/GoogleTest headers using C++20 and the repository's GCC warning-as-error flags. No M4 implementation was linked or exercised during that preflight; those documentation checks are separate from the task execution evidence above and are not Windows visual evidence.
