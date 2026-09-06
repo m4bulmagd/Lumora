@@ -1,6 +1,6 @@
 #include <lumora/ui/MainWindow.hpp>
 
-#include <QApplication>
+#include <QCoreApplication>
 #include <QLabel>
 
 #include <gtest/gtest.h>
@@ -29,9 +29,3 @@ TEST(MainWindowSmoke, ShowsMandatoryEvaluationWarning) {
 }
 
 }  // namespace
-
-int main(int argc, char** argv) {
-    QApplication application(argc, argv);
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

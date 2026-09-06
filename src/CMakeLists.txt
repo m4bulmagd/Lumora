@@ -139,12 +139,14 @@ lumora_enable_warnings(lumora_configuration)
 add_library(
   lumora_ui
   STATIC
+  ui/include/lumora/ui/FramePresenter.hpp
   ui/include/lumora/ui/ImageViewport.hpp
   ui/include/lumora/ui/MainWindow.hpp
   ui/include/lumora/ui/ViewportTransform.hpp
   ui/include/lumora/ui/WorkstationStatus.hpp
   ui/include/lumora/ui/WorkstationView.hpp
   ui/src/ImageViewport.cpp
+  ui/src/FramePresenter.cpp
   ui/src/MainWindow.cpp
   ui/src/ViewportTransform.cpp
   ui/src/WorkstationView.cpp
@@ -185,4 +187,32 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     USES_TERMINAL
     VERBATIM
   )
+endif()
+
+if(LUMORA_BUILD_TESTS)
+  add_library(
+    lumora_viewer_harness_support
+    STATIC
+    "${PROJECT_SOURCE_DIR}/tools/viewer-harness/SimulatorFeed.hpp"
+    "${PROJECT_SOURCE_DIR}/tools/viewer-harness/SimulatorFeed.cpp"
+  )
+  target_include_directories(
+    lumora_viewer_harness_support
+    PUBLIC "${PROJECT_SOURCE_DIR}/tools/viewer-harness"
+  )
+  target_link_libraries(
+    lumora_viewer_harness_support
+    PUBLIC lumora::core lumora::camera_simulator
+  )
+  lumora_enable_warnings(lumora_viewer_harness_support)
+
+  add_executable(
+    lumora_viewer_harness
+    "${PROJECT_SOURCE_DIR}/tools/viewer-harness/main.cpp"
+  )
+  target_link_libraries(
+    lumora_viewer_harness
+    PRIVATE lumora::ui lumora_viewer_harness_support
+  )
+  lumora_enable_warnings(lumora_viewer_harness)
 endif()

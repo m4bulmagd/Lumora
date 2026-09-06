@@ -1,5 +1,7 @@
 add_executable(
   lumora_ui_tests
+  support/QtTestMain.cpp
+  unit/ui/FramePresenterTests.cpp
   unit/ui/ImageViewportTests.cpp
   unit/ui/MainWindowSmokeTests.cpp
   unit/ui/ViewportTransformTests.cpp
@@ -22,6 +24,10 @@ target_link_libraries(
 lumora_enable_warnings(lumora_ui_tests)
 
 add_test(
+  NAME FramePresenter
+  COMMAND lumora_ui_tests --gtest_filter=FramePresenter.*
+)
+add_test(
   NAME MainWindowSmoke
   COMMAND lumora_ui_tests --gtest_filter=MainWindowSmoke.*
 )
@@ -41,11 +47,41 @@ add_test(
 # Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
 # does not make the installed Qt platform plugins discoverable by itself.
 set_tests_properties(
-  MainWindowSmoke ViewportTransform ImageViewport WorkstationView
+  MainWindowSmoke ViewportTransform ImageViewport WorkstationView FramePresenter
   PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
 )
+
+add_executable(
+  lumora_integration_tests
+  support/QtTestMain.cpp
+  integration/SimulatedViewerTests.cpp
+)
+target_include_directories(
+  lumora_integration_tests
+  PRIVATE "${PROJECT_SOURCE_DIR}/tools/viewer-harness"
+)
+target_link_libraries(
+  lumora_integration_tests
+  PRIVATE lumora::ui lumora_viewer_harness_support Qt6::Widgets GTest::gtest
+)
+lumora_enable_warnings(lumora_integration_tests)
+
+add_test(
+  NAME SimulatedViewer
+  COMMAND lumora_integration_tests --gtest_filter=SimulatedViewer.ResponsiveTenSeconds
+)
+set_tests_properties(SimulatedViewer PROPERTIES TIMEOUT 60
+  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+if(LUMORA_ENABLE_STRESS_TESTS)
+  add_test(
+    NAME SimulatedViewer.Stress
+    COMMAND lumora_integration_tests --gtest_filter=SimulatedViewer.StressTenMinutes
+  )
+  set_tests_properties(SimulatedViewer.Stress PROPERTIES LABELS stress TIMEOUT 750
+    ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   option(LUMORA_TEST_LINUX_DESKTOP "Register the smoke test requiring an X11 display" OFF)
