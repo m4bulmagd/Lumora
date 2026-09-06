@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution progress (2026-09-06):** Tasks 1–2 passed independent task/final reviews and were merged in [PR #1](https://github.com/m4bulmagd/Lumora/pull/1) and [PR #2](https://github.com/m4bulmagd/Lumora/pull/2). The current merged source `368cb38ae2cc7f6c610032a41a3872e9d7587fdb` passed Linux/GCC and Windows/MSVC Debug and Release CI, including 16 viewport tests and all 20 CTest entries. Task 3 is implemented locally at `725e2ac9aee1ebc05a3a3762300d7a8fa05a95cb`, including reviewed paused-state fixes: 14 workstation tests and all 21 CTest entries pass in Linux/GCC Debug and Release. Task 3 Windows/MSVC CI and integration are pending; Task 4 is not started. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see the [M4 preflight and execution evidence](../../architecture/milestones/m04-preflight.md). Local task completion is not M4 acceptance.
+**Execution progress (2026-09-06):** Tasks 1–3 passed independent reviews and were merged through [PR #1](https://github.com/m4bulmagd/Lumora/pull/1), [PR #2](https://github.com/m4bulmagd/Lumora/pull/2), and [PR #4](https://github.com/m4bulmagd/Lumora/pull/4). Task 3's source `14eeb1f039457de2d0fbb46fda0561452326cf61` passed Linux/GCC and Windows/MSVC Debug/Release CI and merged as `8f0866d7919d98be85a80f2fbb404e86ce84c2bb` with an identical tree. Task 4 is locally complete through implementation `c4b7e7fb0f434c921d0d5a377ff5ba3cc8fab639`, with all task/final-review findings resolved, 24/24 native-inclusive Linux Debug/Release test groups passing, and the final-source 600-second Linux Release stress passing. Step 5 remains open for matching Windows CI and Windows Release stress. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see [M4 execution evidence and remaining gates](../../architecture/milestones/m04-preflight.md). Local task completion is not M4 acceptance.
 
 ## Global Constraints
 
@@ -370,6 +370,7 @@ git commit -m "feat(ui): add minimal workstation layout"
 - Create: `tools/viewer-harness/main.cpp`
 - Create: `tools/viewer-harness/SimulatorFeed.hpp`
 - Create: `tools/viewer-harness/SimulatorFeed.cpp`
+- Create: `tools/viewer-harness/ViewerHarnessUi.hpp` (tools-only Qt translation boundary added by final review)
 - Modify: `CMakeLists.txt`
 - Modify: `src/CMakeLists.txt`
 - Modify: `tests/CMakeLists.txt`
@@ -400,7 +401,7 @@ public:
 
 `start`/`stop` idempotently control the UI timer, not acquisition or viewer Pause. Destruction stops the timer, disconnects control intents, and clears the viewport observer before the presenter becomes inaccessible. `presentedBundle()` is null until a paint completes; counters reset per source session.
 
-- [ ] **Step 1: Write failing newest-frame and pause tests**
+- [x] **Step 1: Write failing newest-frame and pause tests**
 
 Extend `ViewportTestSupport.hpp` with this Original-only factory. Include `lumora/core/Clock.hpp` and `<optional>`; use the existing Mono8 descriptor contract, factory validation, clock domains, and immutable pixels. No enhancement members are created.
 
@@ -454,13 +455,13 @@ TEST(FramePresenter, ResumeShowsNewestBundleNotBacklog) {
 
 Register `FramePresenterTests.cpp` in `lumora_ui_tests` and the `FramePresenter` CTest entry with the common Qt plugin environment. Keep these unit tests independent of the simulator worker and real-time sleeps.
 
-- [ ] **Step 2: Verify presenter is missing**
+- [x] **Step 2: Verify presenter is missing**
 
 Run: `cmake --build --preset linux-gcc-debug-sim --target lumora_ui_tests`
 
 Expected: FAIL for the missing presenter contract. After minimal construction exists, observe a failing newest-frame/paint assertion before implementing delivery.
 
-- [ ] **Step 3: Implement polling presentation**
+- [x] **Step 3: Implement polling presentation**
 
 Use a 17 ms `QTimer` with a monotonic cadence guard so early timer delivery cannot exceed 60 Hz. `refresh` performs a non-waiting latest-slot read, stages only a newer source ID within this session, and always updates status/age even when no frame is accepted. It must never wait for publication, process pixels, or access a camera. Read counters through the API; any outward Qt counter notification is low-frequency, not one per frame.
 
@@ -468,17 +469,19 @@ Track the examined slot revision separately from source IDs and retain at most o
 
 Pause discards any unpainted replacement and freezes the last completed bundle, UTC timestamp, and viewport pixels. Acquisition and slot replacement continue. Resume resets the pending-ID watermark to the completed frame and performs a fresh read with `consumeAfter(0)` before returning to normal revision tracking; this can recover a previously consumed but never painted candidate even when no newer publication occurred during Pause. Do not drain a backlog or require an extra camera frame to resume.
 
-Derive the expected period from the completed bundle's `raw->metadata.acquisitionSettings.actualFps`; use the existing positive, finite metadata contract. In Live, stale is true at `>= max(500 ms, 3 / actualFps seconds)` since the last new completed paint, or when the completed frame's `hostReceiptTime` age reaches that deadline. Thus painting a delayed old bundle cannot make it Current. Use `steadyNow` for elapsed time and `acquisitionUtcTime` only for the displayed timestamp; wall-clock changes must not reset age. With no completed frame, show WaitingForFrame. In Paused, always show the paused timestamp/age; Resume reevaluates stale before an old image could be labeled Current.
+Derive the expected period from the completed bundle's `raw->metadata.acquisitionSettings.actualFps`. Validate that FPS is positive and finite at the presenter input boundary before staging: current core factories do not enforce this assumption. Reject invalid FPS without replacing a valid pending/completed presentation, and compute/compare the deadline safely for very small positive FPS without overflowing a duration conversion. In Live, stale is true at `>= max(500 ms, 3 / actualFps seconds)` since the last new completed paint, or when the completed frame's `hostReceiptTime` age reaches that deadline. Thus painting a delayed old bundle cannot make it Current. Use `steadyNow` for elapsed time and `acquisitionUtcTime` only for the displayed timestamp; wall-clock changes must not reset age. With no completed frame, show WaitingForFrame. In Paused, always show the paused timestamp/age; Resume reevaluates stale before an old image could be labeled Current.
 
 `resetSource` requires a slot containing only the new session and an old publisher already stopped/quiescent. Clear the viewport, pending/completed owners, slot revision, ID watermarks, freshness timestamps, and session counters; bind the fresh slot in Live/WaitingForFrame. Preserve whether timer polling was enabled. Do not reuse a slot that can still receive old-session values. The controller in M5 owns this handoff; no new session field is added to core frames in M4.
 
 Add focused tests for paint-not-yet-completed, unsupported-frame rejection, repeated/out-of-order IDs, ID zero, pause between staging and paint, resume without another publication, 499/500 ms at 30 FPS, 3 seconds at 1 FPS, delayed-frame Resume, wall-clock jumps, new-session ID 1 after old-session ID 100, and old-owner release. Manually advance `ManualClock` and drive rendering to keep deadline tests deterministic.
 
-- [ ] **Step 4: Build a test-only simulator harness**
+- [x] **Step 4: Build a test-only simulator harness**
 
 Before writing the feed, register a failing `SimulatedViewer.ResponsiveTenSeconds` integration test that requires actual worker publications and completed paints. Move the existing `QApplication`/GoogleTest `main` unchanged from `MainWindowSmokeTests.cpp` into `tests/support/QtTestMain.cpp`; compile it exactly once into each Qt test executable. Create `lumora_integration_tests` with that main and `SimulatedViewerTests.cpp`, linking `lumora::ui`, `GTest::gtest`, and the non-shipping feed support. Neither Qt executable links `gtest_main`.
 
 Implement `SimulatorFeed` in `tools/viewer-harness/SimulatorFeed.{hpp,cpp}` and reuse it from the integration test and `main.cpp`. Its constructor takes `LatestValueSlot<FrameBundle>&` and `IClock&`; `start()` launches one worker, `stop() noexcept` requests stop and joins idempotently, and `result() const -> Result<void>` returns a synchronized snapshot of any startup/retrieval/publication failure. Its destructor stops/joins. Pools, provider, device creation, open/configure/retrieve/stop/close/destruction all occur on that worker, not the UI thread.
+
+The exact recoverable `Acquisition/acquisition_timeout` result may be retried by this non-shipping feed: the 50 ms whole-retrieval budget can expire under shared-runner or Debug load. Retain that timeout in the synchronized result until restart and expose a bounded timeout counter; a later terminal error replaces a retained timeout so it cannot be masked. Integration tests may tolerate only that exact transient result while proving continued publication/painting and clean shutdown, and must report the count. Deterministic injected-clock coverage verifies timeout observability and recovery. The manual harness reports the timeout visibly and to stderr without repeated/modal popups or per-frame logging, and continues checking for terminal errors. This does not change the production reconnection policy reserved for later milestones.
 
 Use a generated MovingBar, full-range Mono8, 640x480, 30 FPS, RealTime pacing, a fixed ten-buffer raw pool, and a cancellation-aware 50 ms retrieve timeout. The test-only full-range Mono8 identity display mapping may share the sealed immutable raw buffer; it must not copy/normalize/enhance on the UI thread or pretend to support high-bit-depth rendering. Build Original-only bundles with matching IDs, identity orientation, `DisplayMapping{0, 255, 255, 1}`, and null enhancement members. Failed pool acquisition/publication is observable and never triggers unbounded allocation. Stop the producer before closing its slot; test owners outlive all workers and presenters.
 
@@ -510,7 +513,7 @@ endif()
 
 Run the red/green unit and integration targets, then the full Linux Debug/Release simulator suites and matching Windows CI. For the long run, configure a Release simulator build with `-DLUMORA_ENABLE_STRESS_TESTS=ON`, build, and run `ctest --preset linux-gcc-release-sim --output-on-failure --no-tests=error -L stress`; repeat the opt-in stress run with the Windows Release preset. Restore the option to OFF afterward so ordinary local runs stay short. Record stress duration, platform, test results, and manual Windows checks in the eventual M4 acceptance record; no stress or visual result is implied by this plan.
 
-- [ ] **Step 6: Commit presentation boundary**
+- [x] **Step 6: Commit presentation boundary**
 
 ```powershell
 git add src/ui tests/unit/ui tests/integration/SimulatedViewerTests.cpp tests/support tools/viewer-harness CMakeLists.txt src/CMakeLists.txt tests/CMakeLists.txt
@@ -518,6 +521,8 @@ git commit -m "feat(ui): present latest simulated frame without event backlog"
 ```
 
 ## Milestone 4 acceptance gate
+
+The checklist remains open until the recorded source passes all required platforms and manual gates. Local implementation/tests are documented above; unchecked cross-platform criteria must not be inferred from Linux results alone.
 
 - [ ] Static and simulated display frames render with preserved aspect ratio.
 - [ ] Pause freezes the shown frame and Resume jumps directly to newest.

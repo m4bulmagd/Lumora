@@ -53,6 +53,34 @@ CTest sets the smoke test's `QT_QPA_PLATFORM_PLUGIN_PATH` from the imported `Qt6
 
 Basler presets are reserved for the later camera-adapter milestone. Machine-specific pylon paths belong in ignored `CMakeUserPresets.json`, never in the shared presets.
 
+## M4 synthetic viewer and remaining Windows checks
+
+The normal `lumora_app` still opens in `Waiting for image`; production live-pipeline composition remains M5. Test-enabled builds also produce a non-shipping synthetic viewer harness. From the repository root, after the Release build above:
+
+```powershell
+cmake --build --preset windows-msvc-release-sim --target lumora_viewer_harness --parallel
+cmake -E env QT_QPA_PLATFORM=windows `
+  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_installed/x64-windows/Qt6/plugins/platforms" `
+  out/build/windows-msvc-release-sim/src/Release/lumora_viewer_harness.exe --start
+```
+
+For Debug, use `windows-msvc-debug-sim`, `src/Debug/`, and `x64-windows/debug/Qt6/plugins/platforms`. Use the matching installed plugin directory if the dependency prefix differs. These are developer-build launch instructions, not installer deployment. They require native Windows verification; Linux runs cannot establish Windows appearance or compatibility.
+
+The harness starts a synthetic 640x480 Mono8 moving bar only with `--start`. Without it the view waits. Close the window to stop/join the worker. Exercise Pause/Live, Fit, 100%, zoom, pan, and resize, and confirm the persistent evaluation banner and paused/stale indications. Recoverable 50 ms retrieval timeouts are visibly reported and counted; configured 30 FPS is not a measured throughput guarantee. No real patient data or physical camera is permitted in this evaluation harness.
+
+The separate 600-second Release stress gate is opt-in:
+
+```powershell
+cmake --preset windows-msvc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=ON
+cmake --build --preset windows-msvc-release-sim --parallel
+ctest --preset windows-msvc-release-sim --output-on-failure --no-tests=error -L stress
+cmake --preset windows-msvc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=OFF
+```
+
+Restore OFF even after failure/interruption. Save the source SHA, duration, platform, result, publication/paint counts, and timeout count from `out/build/windows-msvc-release-sim/Testing/Temporary/LastTest.log`. Normal CI does not implicitly run this stress case.
+
+Before M4 acceptance, record native Windows 11 visual checks at logical client sizes 1280x720 and 1920x1080 with 100%, 125%, 150%, and 200% display scaling on a sufficiently large screen. Record physical and effective logical geometry, screenshots, keyboard controls, exact logical-pixel 100% behavior, and safety-text visibility. Record insufficient-workspace cases without silently clipping safety indications. The headless tests and stress run do not replace these manual checks. Installation/upgrade validation remains M13; hardware acceptance remains M14.
+
 ## Clean generated builds
 
 This command removes only generated CMake build trees:
