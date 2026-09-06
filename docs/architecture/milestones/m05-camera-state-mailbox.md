@@ -2,7 +2,9 @@
 
 **Date:** 2026-09-07
 
-**Implementation source:** `51cdc04b8f7b8d19ffbd536892d5849cd6e403a2`
+**Initial implementation source:** `51cdc04b8f7b8d19ffbd536892d5849cd6e403a2`
+
+**Reviewed follow-up source:** `dca908e796e51767bafe45f50e279038d1b27090`
 
 **Status:** Task 1 implemented and task-reviewed locally; Windows CI and full M5 acceptance pending. Not a milestone acceptance record.
 
@@ -33,7 +35,7 @@ The independent task reviewer inspected the complete implementation diff against
 
 ## Independent Linux verification
 
-Linux/GCC 15.2.0, CMake 4.2.3, C++20 with warnings treated as errors. Existing pinned Qt/OpenCV dependency installations were reused; this is not fresh vcpkg-bootstrap evidence. Native desktop smoke used authorized Xvfb; no Qt plugin/dependency was substituted to bypass sandbox display restrictions.
+Initial source `51cdc04`: Linux/GCC 15.2.0, CMake 4.2.3, C++20 with warnings treated as errors. Existing pinned Qt/OpenCV dependency installations were reused; this is not fresh vcpkg-bootstrap evidence. Native desktop smoke used authorized Xvfb; no Qt plugin/dependency was substituted to bypass sandbox display restrictions.
 
 Commands from the implementation checkout:
 
@@ -50,6 +52,12 @@ git diff --check
 Both builds passed. Full native-inclusive CTest passed **27/27 Debug (15.17 s)** and **27/27 Release (12.49 s)**. The direct application run passed **26/26 tests**; listing found exactly the two required entries, both with 60-second CTest watchdogs. Whitespace checks passed. An earlier GCC Release warning in test variant construction was fixed without suppressions before these final runs.
 
 A fresh local build directory `out/build/m05-tests-disabled` was configured with Ninja, Release, the same pinned dependency prefix, `LUMORA_BUILD_TESTS=OFF`, `BUILD_TESTING=OFF`, and `LUMORA_ENABLE_BASLER=OFF`. Building `lumora_application` and `lumora_app` passed. This checks Task 1's build independence; it is not evidence for Task 5's still-unimplemented production composition.
+
+## Final whole-branch review and follow-up
+
+The final Spec review of `6c054a7...2720679` found zero issues. Standards review found no documented-standard violation or blocking issue, and suggested one optional cleanup: share the identical pending-command cancellation loop used by Shutdown and close. Follow-up `dca908e` extracts that private helper without changing locks, accounting, sealing or notifications. It also replaces five Markdown hard-break trailing spaces with blank metadata separators. Independent scoped re-review confirmed both corrections and no new breakage; no findings remain open in either review axis.
+
+At the exact follow-up source, the controller independently rebuilt and reran the same full commands: **27/27 Debug (15.16 s)** and **27/27 Release (12.51 s)** passed, including desktop smoke. The tests-disabled/Basler-disabled application/library rebuild also passed. `git diff --check 6c054a7...HEAD` passed for the complete committed branch, in addition to working-tree checks. These results supersede the initial-source timing figures for the final code; Windows CI for this follow-up still has not run.
 
 ## Decisions and remaining gates
 
