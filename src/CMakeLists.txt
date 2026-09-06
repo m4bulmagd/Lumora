@@ -140,7 +140,9 @@ add_library(
   lumora_ui
   STATIC
   ui/include/lumora/ui/MainWindow.hpp
+  ui/include/lumora/ui/ViewportTransform.hpp
   ui/src/MainWindow.cpp
+  ui/src/ViewportTransform.cpp
   ui/resources/lumora.qrc
 )
 

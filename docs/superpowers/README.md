@@ -49,3 +49,9 @@ These are intentional deferred inputs, not contradictions and not permission to 
 | Clinical release | Before enabling a clinical build class | Separately approved Egypt-specific regulatory and clinical program with traceability and release authority. |
 
 M1-M5 may proceed without a selected physical camera. Simulator implementation may continue if a later hardware gate is unresolved, but the gated milestone cannot be accepted.
+
+## M4 preflight clarification (2026-09-06)
+
+The [M3 acceptance record](../architecture/milestones/m03-camera-api-simulator.md) now records passing Linux/GCC and Windows/MSVC Debug/Release CI at the exact merged source commit. M4 code has not started.
+
+The [M4 preflight](../architecture/milestones/m04-preflight.md) and [M4 plan](plans/2026-04-25-m04-minimal-live-viewer.md) carry forward the reviewed implementation details: exact whole-image Fit outside manual zoom limits, logical-pixel 100%, the installed `minimal` Qt headless plugin, source-session reset, and paint-completion-based freshness. Product semantics are recorded first in PRD §19.7–19.8 and design §7/§8.2/§11.2. These clarifications do not change the milestone order or waive Windows visual, installer, or hardware acceptance.
