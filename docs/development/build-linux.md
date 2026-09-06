@@ -84,7 +84,7 @@ cmake --build --preset linux-gcc-debug-sim --target run-lumora
 
 Use `linux-gcc-release-sim` for Release. This development-only target selects `xcb` and the matching Debug/Release Qt plugin directory for this process; it does not require a global Qt environment setting. It runs until you close the window. Launching the binary directly may require an explicit platform-plugin path with a vcpkg build.
 
-At this stage the workstation layout displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls disabled until a presenter supplies a frame. Moving simulated video is the next M4 task; a successful desktop launch does not mean the live viewer is complete or clinically validated.
+The normal application displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls disabled until a presenter supplies a frame. Production live-pipeline composition remains M5. The separate M4 harness below can show synthetic moving video; a successful launch does not establish milestone acceptance or clinical validation.
 
 If Qt reports that `xcb` cannot be found, reconfigure with the pinned vcpkg toolchain after installing the prerequisites above. Existing `widgets`-only dependency installations must be rebuilt; pointing `CMAKE_PREFIX_PATH` at an older headless Qt installation is not sufficient. If `xcb` is found but cannot connect to a display, run inside your graphical session and check `DISPLAY` and XWayland availability. Do not use `QT_QPA_PLATFORM=minimal` to assess desktop visibility.
 
@@ -102,6 +102,36 @@ xvfb-run -a ctest --preset linux-gcc-debug-sim --output-on-failure -L desktop --
 ```
 
 Repeat with `linux-gcc-release-sim` for Release. Linux CI performs both checks in each configuration. Xvfb verifies desktop-plugin loading and window exposure, not appearance on a physical monitor; use `run-lumora` for the manual visual check.
+
+## M4 synthetic live-viewer harness
+
+With the normal test-enabled build, launch the non-shipping harness from the repository root in a graphical session:
+
+```bash
+cmake --build --preset linux-gcc-debug-sim --target lumora_viewer_harness --parallel 3
+cmake -E env QT_QPA_PLATFORM=xcb \
+  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_installed/x64-linux-dynamic/debug/Qt6/plugins/platforms" \
+  out/build/linux-gcc-debug-sim/src/lumora_viewer_harness --start
+```
+
+For Release, use `linux-gcc-release-sim` and remove `debug/` from the plugin path. If reusing an existing pinned installation through `CMAKE_PREFIX_PATH`, use that installation's matching plugin directory instead. Omitting `--start` leaves the viewer waiting; no acquisition begins automatically. Close the window to stop and join the simulator worker.
+
+The feed is a synthetic 640x480 Mono8 moving bar, configured for 30 FPS. Try Pause/Live, Fit, 100%, zoom, pan, and resize. Pause freezes the displayed image while acquisition continues. The evaluation banner must stay visible. This harness is built only with `LUMORA_BUILD_TESTS=ON`, is not installed, and is not linked into `lumora_app`. It does not access a physical X-ray system or patient data.
+
+The 50 ms whole-retrieval budget can produce recoverable timeouts under load, especially in Debug. Those exact typed timeouts are retained and counted, reported in the title and stderr, and retried; terminal errors remain failures. A timeout count is not evidence of achieving 30 FPS or the later latency/performance targets.
+
+## Opt-in M4 Release stress test
+
+Normal CTest runs include the short integration case, not the ten-minute run. After configuring the Release build above:
+
+```bash
+cmake --preset linux-gcc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=ON
+cmake --build --preset linux-gcc-release-sim --parallel 3
+ctest --preset linux-gcc-release-sim --output-on-failure --no-tests=error -L stress
+cmake --preset linux-gcc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=OFF
+```
+
+Restore the option to OFF even if the test fails or is interrupted. Record the source SHA, platform, duration, publication/paint counts, timeout count, and result from `out/build/linux-gcc-release-sim/Testing/Temporary/LastTest.log`. The test exercises 600 seconds of simulator/viewer interaction under `minimal`; it does not verify physical scan-out, Windows DPI, hardware throughput, or clinical suitability. M4 also requires matching Windows CI, Windows Release stress, and native Windows 11 visual/scaling evidence.
 
 ## Clean generated builds
 
