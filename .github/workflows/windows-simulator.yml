@@ -3,12 +3,15 @@ name: Windows Simulator
 on:
   push:
   pull_request:
+  # Manual runs additionally execute the opt-in ten-minute Release stress test.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-simulator-${{ github.ref }}
+  # A push/PR must not cancel an explicitly requested stress run on the same ref.
+  group: windows-simulator-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && '-stress' || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -59,6 +62,7 @@ jobs:
         run: ctest --preset windows-msvc-debug-sim --output-on-failure -LE hardware
 
       - name: Configure Release simulator without pylon
+        id: configure-release
         shell: pwsh
         run: cmake --preset windows-msvc-release-sim --fresh "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 
@@ -70,6 +74,34 @@ jobs:
           QT_DEBUG_PLUGINS: '1'
           QT_FORCE_STDERR_LOGGING: '1'
         run: ctest --preset windows-msvc-release-sim --output-on-failure -LE hardware
+
+      - name: Enable opt-in Release stress test
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: cmake --preset windows-msvc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=ON
+
+      - name: Build Release stress target
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: cmake --build --preset windows-msvc-release-sim --target lumora_integration_tests --parallel
+
+      - name: Run ten-minute Release stress test and collect evidence
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: >-
+          cmake -DLUMORA_STRESS_PRESET=windows-msvc-release-sim
+          -DLUMORA_STRESS_OUTPUT_DIR=out/windows-stress-evidence
+          -P cmake/RunStress.cmake
+
+      - name: Restore short-test registration
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.configure-release.outcome == 'success' }}
+        run: cmake --preset windows-msvc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=OFF
+
+      - name: Upload Windows stress evidence
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-stress-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/windows-stress-evidence/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Save completed vcpkg binary archives
         if: ${{ !cancelled() && steps.vcpkg-cache.outcome == 'success' }}

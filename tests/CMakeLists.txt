@@ -85,6 +85,13 @@ if(LUMORA_ENABLE_STRESS_TESTS)
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
 endif()
 
+add_test(NAME CMake.StressEvidence
+  COMMAND "${CMAKE_COMMAND}"
+    "-DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+    "-DTEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StressEvidenceTests.cmake")
+set_tests_properties(CMake.StressEvidence PROPERTIES TIMEOUT 30)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   option(LUMORA_TEST_LINUX_DESKTOP "Register the smoke test requiring an X11 display" OFF)
   if(LUMORA_TEST_LINUX_DESKTOP)

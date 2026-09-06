@@ -79,6 +79,38 @@ cmake --preset windows-msvc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=OFF
 
 Restore OFF even after failure/interruption. Save the source SHA, duration, platform, result, publication/paint counts, and timeout count from `out/build/windows-msvc-release-sim/Testing/Temporary/LastTest.log`. Normal CI does not implicitly run this stress case.
 
+### Run Windows stress from Linux through GitHub Actions
+
+The **Windows Simulator** workflow adds the 600-second Release stress test only on an explicit manual dispatch. Push and pull-request runs keep their short Debug/Release suites; `LUMORA_ENABLE_STRESS_TESTS` still defaults OFF. A manual run first passes those same suites, enables stress, builds the integration target, and invokes `cmake/RunStress.cmake`. Cleanup attempts to restore OFF even after a failed stress run. Cancellation or runner loss can prevent cleanup/upload; a later run uses a fresh hosted workspace.
+
+After the workflow change is merged into `main`, run from Linux with GitHub CLI repository write access:
+
+```bash
+gh workflow run windows-simulator.yml --repo m4bulmagd/Lumora --ref main
+gh run list --repo m4bulmagd/Lumora --workflow windows-simulator.yml --event workflow_dispatch --limit 5
+```
+
+Select the new run ID from that list, inspect its source SHA, and download its evidence after completion (replace `RUN_ID` below with that ID):
+
+```bash
+gh run view RUN_ID --repo m4bulmagd/Lumora
+gh run download RUN_ID --repo m4bulmagd/Lumora --dir out/windows-stress-RUN_ID
+```
+
+The workflow must exist on the default branch before it can be manually dispatched; see [GitHub's manual workflow instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow). Manual runs have a separate concurrency group, so routine push/PR runs do not cancel them. A second manual run on the same ref supersedes the first.
+
+The artifact `windows-stress-<SHA>-<run ID>-<attempt>` is retained for 30 days and includes:
+
+- `metadata.txt`: checked-out source SHA, test preset, host OS, CMake/runner image versions, run/attempt IDs, UTC start/end, and CTest exit code.
+- `ctest.log`: verbose CTest output, including successful-test publication/paint counts, maximum retained bundles, timeout count, and elapsed time.
+- `results.xml`: JUnit test identities, outcomes, output, and durations.
+
+Failure still fails the job; available evidence uploads even on failure. An early configure/build failure may have no stress artifact: inspect the job log and do not treat it as a completed stress run. Missing stress registration is an error, never a pass. The local collector requires a new output directory so an earlier evidence set cannot be overwritten. Preserve downloaded acceptance evidence before the artifact expires.
+
+The hosted runner is `windows-2022` (Windows Server), not a Windows 11 desktop. This workflow can supply the Windows/MSVC automated stress evidence, but **does not satisfy native Windows 11 visual/DPI, installer, hardware, or clinical acceptance**. Creating the workflow is not evidence that its Windows stress run passed.
+
+### Native Windows 11 visual checks
+
 Before M4 acceptance, record native Windows 11 visual checks at logical client sizes 1280x720 and 1920x1080 with 100%, 125%, 150%, and 200% display scaling on a sufficiently large screen. Record physical and effective logical geometry, screenshots, keyboard controls, exact logical-pixel 100% behavior, and safety-text visibility. Record insufficient-workspace cases without silently clipping safety indications. The headless tests and stress run do not replace these manual checks. Installation/upgrade validation remains M13; hardware acceptance remains M14.
 
 ## Clean generated builds
