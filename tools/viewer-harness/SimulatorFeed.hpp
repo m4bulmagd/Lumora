@@ -16,6 +16,13 @@ class IClock;
 
 namespace lumora::tools {
 
+namespace detail {
+
+[[nodiscard]] bool isRecoverableAcquisitionTimeout(
+    const core::Error& error) noexcept;
+
+}  // namespace detail
+
 class SimulatorFeed final {
 public:
     SimulatorFeed(core::LatestValueSlot<core::FrameBundle>& slot,

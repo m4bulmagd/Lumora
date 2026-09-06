@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
         if (result.hasValue()) {
             return;
         }
-        if (result.error().code == "acquisition_timeout") {
+        if (lumora::tools::detail::isRecoverableAcquisitionTimeout(result.error())) {
             if (!timeoutReported) {
                 timeoutReported = true;
                 view.setWindowTitle(QStringLiteral(
@@ -70,11 +70,11 @@ int main(int argc, char** argv) {
     const auto result = feed.result();
     if (!result.hasValue()) {
         std::cerr << result.error().code;
-        if (result.error().code == "acquisition_timeout") {
+        if (lumora::tools::detail::isRecoverableAcquisitionTimeout(result.error())) {
             std::cerr << " count=" << feed.timeoutCount();
         }
         std::cerr << ": " << result.error().diagnosticDetail << '\n';
-        if (result.error().code != "acquisition_timeout") {
+        if (!lumora::tools::detail::isRecoverableAcquisitionTimeout(result.error())) {
             return 1;
         }
     }

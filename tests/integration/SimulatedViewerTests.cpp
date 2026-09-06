@@ -25,6 +25,29 @@ namespace {
 
 using namespace std::chrono_literals;
 
+void verifyTimeoutPredicateRequiresExactTypedRecoverableError() {
+    const lumora::core::Error exact{
+        lumora::core::ErrorCategory::Acquisition,
+        "acquisition_timeout", "timeout", "exact transient", true};
+    const lumora::core::Error wrongCategory{
+        lumora::core::ErrorCategory::Internal,
+        "acquisition_timeout", "timeout", "wrong category", true};
+    const lumora::core::Error nonrecoverable{
+        lumora::core::ErrorCategory::Acquisition,
+        "acquisition_timeout", "timeout", "not recoverable", false};
+    const lumora::core::Error wrongCode{
+        lumora::core::ErrorCategory::Acquisition,
+        "other", "timeout", "wrong code", true};
+
+    EXPECT_TRUE(lumora::tools::detail::isRecoverableAcquisitionTimeout(exact));
+    EXPECT_FALSE(
+        lumora::tools::detail::isRecoverableAcquisitionTimeout(wrongCategory));
+    EXPECT_FALSE(
+        lumora::tools::detail::isRecoverableAcquisitionTimeout(nonrecoverable));
+    EXPECT_FALSE(
+        lumora::tools::detail::isRecoverableAcquisitionTimeout(wrongCode));
+}
+
 class OneTimeoutClock final : public lumora::core::IClock {
 public:
     std::chrono::steady_clock::time_point steadyNow() const noexcept override {
@@ -70,9 +93,8 @@ void verifyTimeoutIsObservableAndRecovers() {
         }
         const auto snapshot = feed.result();
         if (!snapshot.hasValue() &&
-            snapshot.error().category == lumora::core::ErrorCategory::Acquisition &&
-            snapshot.error().code == "acquisition_timeout" &&
-            snapshot.error().recoverable) {
+            lumora::tools::detail::isRecoverableAcquisitionTimeout(
+                snapshot.error())) {
             if (!sawTimeout) {
                 revisionAtTimeout = revision;
             }
@@ -86,13 +108,15 @@ void verifyTimeoutIsObservableAndRecovers() {
     EXPECT_TRUE(recovered);
     const auto transientSnapshot = feed.result();
     ASSERT_FALSE(transientSnapshot.hasValue());
-    EXPECT_EQ(transientSnapshot.error().code, "acquisition_timeout");
+    EXPECT_TRUE(lumora::tools::detail::isRecoverableAcquisitionTimeout(
+        transientSnapshot.error()));
     EXPECT_GE(feed.timeoutCount(), 1U);
 
     slot.close();
     const auto terminalDeadline = std::chrono::steady_clock::now() + 2s;
     while (std::chrono::steady_clock::now() < terminalDeadline &&
-           feed.result().error().code == "acquisition_timeout") {
+           lumora::tools::detail::isRecoverableAcquisitionTimeout(
+               feed.result().error())) {
         std::this_thread::sleep_for(2ms);
     }
     feed.stop();
@@ -214,9 +238,8 @@ void runResponsiveViewer(std::chrono::milliseconds duration) {
     EXPECT_LE(maximumRetainedBundles, 3U);
     const auto feedResult = feed.result();
     if (!feedResult.hasValue()) {
-        EXPECT_EQ(feedResult.error().category, lumora::core::ErrorCategory::Acquisition);
-        EXPECT_EQ(feedResult.error().code, "acquisition_timeout");
-        EXPECT_TRUE(feedResult.error().recoverable);
+        EXPECT_TRUE(lumora::tools::detail::isRecoverableAcquisitionTimeout(
+            feedResult.error()));
         EXPECT_GT(feed.timeoutCount(), 0U);
     }
     const auto stoppedRevision = latest->revision;
@@ -277,9 +300,14 @@ void verifySuppressedPreparedPublicationKeepsAcquiringAndBecomesStale() {
 }
 
 TEST(SimulatedViewer, ResponsiveTenSeconds) {
+    verifyTimeoutPredicateRequiresExactTypedRecoverableError();
     runResponsiveViewer(10s);
     verifyTimeoutIsObservableAndRecovers();
     verifySuppressedPreparedPublicationKeepsAcquiringAndBecomesStale();
+}
+
+TEST(SimulatedViewer, TimeoutPredicateRequiresExactTypedRecoverableError) {
+    verifyTimeoutPredicateRequiresExactTypedRecoverableError();
 }
 
 TEST(SimulatedViewer, TimeoutIsObservableAndRecovers) {
@@ -306,9 +334,12 @@ TEST(SimulatedViewer, StoppedProducerDoesNotPublish) {
     ASSERT_GT(revision, 0U);
 
     feed.stop();
+    const auto stoppedValue = slot.consumeAfter(0U);
+    ASSERT_TRUE(stoppedValue.has_value());
+    const auto stoppedRevision = stoppedValue->revision;
     std::this_thread::sleep_for(100ms);
 
-    EXPECT_FALSE(slot.consumeAfter(revision).has_value());
+    EXPECT_FALSE(slot.consumeAfter(stoppedRevision).has_value());
     slot.close();
 }
 

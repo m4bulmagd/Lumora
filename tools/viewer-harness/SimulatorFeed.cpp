@@ -17,6 +17,13 @@
 #include <utility>
 
 namespace lumora::tools {
+
+bool detail::isRecoverableAcquisitionTimeout(
+    const core::Error& error) noexcept {
+    return error.category == core::ErrorCategory::Acquisition &&
+           error.code == "acquisition_timeout" && error.recoverable;
+}
+
 namespace {
 
 using namespace std::chrono_literals;
@@ -130,7 +137,7 @@ std::uint64_t SimulatorFeed::timeoutCount() const noexcept {
 void SimulatorFeed::recordFailure(core::Error error) noexcept {
     try {
         std::lock_guard lock(mutex_);
-        if (!failure_ || failure_->code == "acquisition_timeout") {
+        if (!failure_ || detail::isRecoverableAcquisitionTimeout(*failure_)) {
             failure_ = std::move(error);
         }
     } catch (...) {
@@ -145,7 +152,7 @@ void SimulatorFeed::recordTimeout(core::Error error) noexcept {
                !timeoutCount_.compare_exchange_weak(
                    count, count + 1U, std::memory_order_relaxed)) {}
         std::lock_guard lock(mutex_);
-        if (failure_ && failure_->code != "acquisition_timeout") {
+        if (failure_ && !detail::isRecoverableAcquisitionTimeout(*failure_)) {
             return;
         }
         failure_ = std::move(error);
@@ -210,7 +217,7 @@ void SimulatorFeed::run(std::stop_token stopToken) noexcept {
                     error.category == core::ErrorCategory::Cancelled) {
                     break;
                 }
-                if (error.code == "acquisition_timeout") {
+                if (detail::isRecoverableAcquisitionTimeout(error)) {
                     recordTimeout(std::move(error));
                     continue;
                 }
