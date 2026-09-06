@@ -7,7 +7,11 @@
     {
       "name": "qtbase",
       "default-features": false,
-      "features": ["widgets"]
+      "features": [
+        "widgets",
+        { "name": "xcb", "platform": "linux" },
+        { "name": "fontconfig", "platform": "linux" }
+      ]
     },
     {
       "name": "opencv4",
