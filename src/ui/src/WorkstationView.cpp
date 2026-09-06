@@ -230,9 +230,10 @@ void WorkstationView::updateStatusPresentation() {
         findChild<QLabel*>(QStringLiteral("frameStateOverlay"));
     const bool frameAvailable =
         status_.freshness != FrameFreshness::WaitingForFrame;
+    const bool paused = status_.viewerState == ViewerState::Paused;
 
-    pauseLiveButton->setEnabled(frameAvailable);
-    if (status_.viewerState == ViewerState::Paused) {
+    pauseLiveButton->setEnabled(frameAvailable || paused);
+    if (paused) {
         pauseLiveButton->setText(tr("Live"));
         pauseLiveButton->setAccessibleName(tr("Resume live viewer"));
     } else {
@@ -245,15 +246,18 @@ void WorkstationView::updateStatusPresentation() {
              "actualPixelsAction",
              "zoomInAction",
              "zoomOutAction",
-             "pauseLiveShortcut",
          }) {
         findChild<QAction*>(QString::fromLatin1(objectName))
             ->setEnabled(frameAvailable);
     }
+    findChild<QAction*>(QStringLiteral("pauseLiveShortcut"))
+        ->setEnabled(frameAvailable || paused);
 
-    if (status_.viewerState == ViewerState::Paused) {
+    if (paused) {
         QString text = tr("PAUSED");
-        if (status_.frameUtc) {
+        if (status_.freshness == FrameFreshness::WaitingForFrame) {
+            text += tr("\nWaiting for image");
+        } else if (status_.frameUtc) {
             const auto epochMilliseconds =
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     status_.frameUtc->time_since_epoch())
@@ -264,6 +268,8 @@ void WorkstationView::updateStatusPresentation() {
             text += tr("\nFrame: %1\nAge: %2 ms")
                         .arg(timestamp)
                         .arg(static_cast<qlonglong>(status_.frameAge.count()));
+        } else {
+            text += tr("\nFrame UTC: unavailable\nAge: unavailable");
         }
         frameStateOverlay->setText(text);
         frameStateOverlay->show();

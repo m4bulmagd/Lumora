@@ -185,6 +185,80 @@ TEST(WorkstationView, PausedStatusShowsFrozenUtcTimestampAndSuppliedAge) {
             "PAUSED\nFrame: 2026-04-25T12:34:56.789Z\nAge: 2345 ms"));
 }
 
+TEST(WorkstationView, PausedStatusWithoutMetadataIsExplicitlyUnavailable) {
+    WorkstationView view;
+    view.show();
+    QCoreApplication::processEvents();
+    auto* overlay =
+        view.findChild<QLabel*>(QStringLiteral("frameStateOverlay"));
+    ASSERT_NE(overlay, nullptr);
+
+    view.setStatus({
+        ViewerState::Paused,
+        FrameFreshness::Current,
+        std::nullopt,
+        std::chrono::milliseconds{0},
+    });
+
+    EXPECT_TRUE(overlay->isVisible());
+    EXPECT_EQ(
+        overlay->text(),
+        QStringLiteral(
+            "PAUSED\nFrame UTC: unavailable\nAge: unavailable"));
+}
+
+TEST(WorkstationView, PausedWaitingAllowsResumeButNotImageActions) {
+    using namespace std::chrono;
+    WorkstationView view;
+    view.resize(900, 600);
+    view.show();
+    view.activateWindow();
+    QCoreApplication::processEvents();
+    auto* pauseLive =
+        view.findChild<QPushButton*>(QStringLiteral("pauseLiveButton"));
+    ASSERT_NE(pauseLive, nullptr);
+    int resumeRequests = 0;
+    QObject::connect(
+        &view, &WorkstationView::resumeRequested,
+        [&resumeRequests] { ++resumeRequests; });
+
+    view.setStatus({
+        ViewerState::Paused,
+        FrameFreshness::WaitingForFrame,
+        sys_days{year{2026} / April / 25},
+        9876ms,
+    });
+
+    EXPECT_TRUE(pauseLive->isEnabled());
+    EXPECT_EQ(pauseLive->text(), QStringLiteral("Live"));
+    for (const auto* objectName : {
+             "fitAction",
+             "actualPixelsAction",
+             "zoomInAction",
+             "zoomOutAction",
+         }) {
+        const auto* action =
+            view.findChild<QAction*>(QString::fromLatin1(objectName));
+        ASSERT_NE(action, nullptr) << objectName;
+        EXPECT_FALSE(action->isEnabled()) << objectName;
+    }
+    const auto* overlay =
+        view.findChild<QLabel*>(QStringLiteral("frameStateOverlay"));
+    ASSERT_NE(overlay, nullptr);
+    EXPECT_EQ(
+        overlay->text(), QStringLiteral("PAUSED\nWaiting for image"));
+    EXPECT_FALSE(overlay->text().contains(QStringLiteral("2026")));
+    EXPECT_FALSE(overlay->text().contains(QStringLiteral("9876")));
+
+    pauseLive->click();
+    EXPECT_EQ(resumeRequests, 1);
+
+    view.imageViewport()->setFocus();
+    ASSERT_TRUE(view.imageViewport()->hasFocus());
+    sendKey(*view.imageViewport(), Qt::Key_Space, QStringLiteral(" "));
+    EXPECT_EQ(resumeRequests, 2);
+}
+
 TEST(WorkstationView, LiveFreshnessTransitionsUpdatePersistentOverlay) {
     WorkstationView view;
     view.show();
