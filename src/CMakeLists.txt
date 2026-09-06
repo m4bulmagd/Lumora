@@ -142,9 +142,12 @@ add_library(
   ui/include/lumora/ui/ImageViewport.hpp
   ui/include/lumora/ui/MainWindow.hpp
   ui/include/lumora/ui/ViewportTransform.hpp
+  ui/include/lumora/ui/WorkstationStatus.hpp
+  ui/include/lumora/ui/WorkstationView.hpp
   ui/src/ImageViewport.cpp
   ui/src/MainWindow.cpp
   ui/src/ViewportTransform.cpp
+  ui/src/WorkstationView.cpp
   ui/resources/lumora.qrc
 )
 
