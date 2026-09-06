@@ -47,6 +47,24 @@ set_tests_properties(
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
 )
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  option(LUMORA_TEST_LINUX_DESKTOP "Register the smoke test requiring an X11 display" OFF)
+  if(LUMORA_TEST_LINUX_DESKTOP)
+    add_executable(lumora_linux_desktop_tests unit/ui/LinuxDesktopSmokeTests.cpp)
+    target_link_libraries(lumora_linux_desktop_tests PRIVATE lumora::ui GTest::gtest)
+    lumora_enable_warnings(lumora_linux_desktop_tests)
+
+    add_test(NAME LinuxDesktopSmoke COMMAND lumora_linux_desktop_tests)
+    # All QPA plugins share this configuration-specific directory. Using the
+    # minimal plugin's location lets this test detect a missing xcb plugin too.
+    set_tests_properties(LinuxDesktopSmoke PROPERTIES
+      LABELS desktop
+      TIMEOUT 15
+      ENVIRONMENT "QT_QPA_PLATFORM=xcb;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
+    )
+  endif()
+endif()
+
 add_executable(
   lumora_core_tests
   unit/core/ResultSmokeTests.cpp

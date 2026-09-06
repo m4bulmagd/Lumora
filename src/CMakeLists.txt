@@ -172,3 +172,17 @@ target_link_libraries(
     lumora::ui
 )
 lumora_enable_warnings(lumora_app)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # QPA plugins share a directory; resolve the matching Debug/Release location
+  # from Qt rather than depending on its build-time prefix or a global setting.
+  add_custom_target(run-lumora
+    COMMAND "${CMAKE_COMMAND}" -E env
+      "QT_QPA_PLATFORM=xcb"
+      "QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
+      $<TARGET_FILE:lumora_app>
+    DEPENDS lumora_app
+    USES_TERMINAL
+    VERBATIM
+  )
+endif()
