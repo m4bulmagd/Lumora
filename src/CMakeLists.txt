@@ -139,8 +139,10 @@ lumora_enable_warnings(lumora_configuration)
 add_library(
   lumora_ui
   STATIC
+  ui/include/lumora/ui/ImageViewport.hpp
   ui/include/lumora/ui/MainWindow.hpp
   ui/include/lumora/ui/ViewportTransform.hpp
+  ui/src/ImageViewport.cpp
   ui/src/MainWindow.cpp
   ui/src/ViewportTransform.cpp
   ui/resources/lumora.qrc
@@ -154,7 +156,7 @@ target_include_directories(
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/ui/include>
 )
 
-target_link_libraries(lumora_ui PUBLIC Qt6::Widgets)
+target_link_libraries(lumora_ui PUBLIC lumora::core Qt6::Widgets)
 target_compile_definitions(lumora_ui PUBLIC LUMORA_RELEASE_CLASS_EVALUATION=1)
 set_target_properties(lumora_ui PROPERTIES AUTOMOC ON AUTORCC ON AUTOUIC ON)
 lumora_enable_warnings(lumora_ui)

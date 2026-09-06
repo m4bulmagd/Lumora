@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution progress (2026-09-06):** Task 1 is implemented locally at `9c2dfdde300c43aaaa7147f52fe107467da5da6a` and passed its independent spec/quality review. All 28 geometry tests and all 19 CTest entries pass in Linux/GCC Debug and Release; Windows/MSVC CI for this new source SHA remains pending. Tasks 2–4 are not started. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see the [M4 preflight and Task 1 evidence](../../architecture/milestones/m04-preflight.md). Task 1 completion is not M4 acceptance.
+**Execution progress (2026-09-06):** Task 1 passed independent task/final reviews and was merged in [PR #1](https://github.com/m4bulmagd/Lumora/pull/1) as `a6351e374caa308ce55fc1eef5232de14ead461f`, with Linux/GCC and Windows/MSVC Debug and Release CI passing. Task 2 is implemented locally at `e638caa0f18c2497f955fdb5eaec67e1131305de`, including the final-review rendering regression tests, and passed its independent task review: 16 viewport tests and all 20 CTest entries pass in Linux/GCC Debug and Release. Task 2 Windows/MSVC CI and integration remain pending; Tasks 3–4 are not started. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see the [M4 preflight and execution evidence](../../architecture/milestones/m04-preflight.md). Local task completion is not M4 acceptance.
 
 ## Global Constraints
 
@@ -152,7 +152,7 @@ git commit -m "feat(ui): add deterministic viewport transforms"
 - Consumes: `std::shared_ptr<const core::DisplayFrame>` and Task 1's transform; no raw frame, clock, camera, or processing dependency.
 - Produces: validated staging, completed-paint identity, a synchronous UI-thread paint observer, and view-only controls. All methods are UI-thread confined.
 
-- [ ] **Step 1: Write failing buffer-lifetime and aspect tests**
+- [x] **Step 1: Write failing buffer-lifetime and aspect tests**
 
 Add header-only fixtures in `namespace lumora::test` and a private `tests/support` include path for `lumora_ui_tests`. Include `lumora/core/BufferPool.hpp`, `lumora/core/Frame.hpp`, `QImage`, `QWidget`, `<algorithm>`, `<cmath>`, `<cstddef>`, `<cstdint>`, `<memory>`, and `<utility>`.
 
@@ -208,13 +208,13 @@ TEST(ImageViewport, RetainsPixelsUntilReplacement) {
 
 Add `ImageViewport`'s source/header to `lumora_ui`, link `lumora::core` publicly because it appears in the UI API, add the unit test source, and register `ImageViewport` with the shared headless test properties. No resource edit is required unless an actual resource is added.
 
-- [ ] **Step 2: Verify missing viewport behavior fails**
+- [x] **Step 2: Verify missing viewport behavior fails**
 
 Run: `cmake --build --preset linux-gcc-debug-sim --target lumora_ui_tests`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement presentation and paint**
+- [x] **Step 3: Implement presentation and paint**
 
 Recheck the core layout/payload contract and Qt's representable dimensions/stride before narrowing to `int`/`qsizetype`. Null input, non-Gray8 storage, or a failed `QImage` wrapper returns a typed error without replacing either the pending or completed image. Core factories already prevent malformed core layouts; tests must not bypass their private constructors.
 
@@ -244,17 +244,17 @@ public:
 
 `discardPendingPresentation` drops an unpainted replacement while retaining the completed image (needed for Pause). `clear` drops both images, clears completed identity, and returns to empty Fit mode (needed for source replacement). Empty or zero-sized viewports paint only their background and do not report frame completion. Paint letterbox regions with `#16181c`; enable smooth image scaling only when the logical transform scale differs from `1.0`.
 
-- [ ] **Step 4: Implement interactions**
+- [x] **Step 4: Implement interactions**
 
 Wheel zooms around the logical pointer position; use a factor of `pow(1.2, angleDeltaY / 120.0)`. Buttons use factors `1.2` and `1.0 / 1.2` at viewport center. Left drag pans oversized axes; double-click enters Fit. Task 3 adds keyboard actions. A same-size frame preserves the transform; a size change uses Task 1's `resize` rules. Do not apply `presentationOrientation` again: the incoming display pixels already include it.
 
-- [ ] **Step 5: Verify deterministic headless rendering and presentation state**
+- [x] **Step 5: Verify deterministic headless rendering and presentation state**
 
 Render a 2:1 fixture into square, portrait, and wide targets via `paintWidget`; compare image bounds and neutral bars rather than platform-specific text pixels. Repeat at DPR 1.0/1.25/1.5/2.0 with `setActualPixels()` and assert `transform().scale() == 1.0`; the render target's physical bounds change but the logical transform does not. Use padded rows and distinguishable row values to catch stride errors. Test null/Gray16 rejection, no completion before paint, coalesced replacements, observer count on repaints, ID zero, cancellation of a pending image, and complete owner release on `clear`/destruction.
 
 Run: `ctest --preset linux-gcc-debug-sim --output-on-failure --no-tests=error -R '^(ImageViewport|ViewportTransform|MainWindowSmoke)$'`
 
-- [ ] **Step 6: Commit viewport**
+- [x] **Step 6: Commit viewport**
 
 ```powershell
 git add src/ui tests/unit/ui/ImageViewportTests.cpp tests/support/ViewportTestSupport.hpp src/CMakeLists.txt tests/CMakeLists.txt
