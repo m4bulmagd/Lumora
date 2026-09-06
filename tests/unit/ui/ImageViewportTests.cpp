@@ -143,7 +143,7 @@ TEST(ImageViewport, DoesNotApplyPresentationOrientationToDisplayPixelsAgain) {
         2,
         {std::byte{40}, std::byte{40}, std::byte{40}, std::byte{250},
          std::byte{210}, std::byte{210}, std::byte{210}, std::byte{5}},
-        {true, true, lumora::core::Rotation::Degrees180});
+        {false, true, lumora::core::Rotation::Degrees0});
     ImageViewport viewport;
     viewport.resize(3, 2);
     viewport.setActualPixels();
@@ -168,9 +168,21 @@ TEST(ImageViewport, ActualPixelsStaysLogicalAtEveryDevicePixelRatio) {
         EXPECT_DOUBLE_EQ(viewport.transform().scale(), 1.0);
         EXPECT_EQ(painted.width(), static_cast<int>(std::ceil(40.0 * dpr)));
         EXPECT_EQ(painted.height(), static_cast<int>(std::ceil(24.0 * dpr)));
-        const auto centerX = static_cast<int>(20.0 * dpr);
-        const auto centerY = static_cast<int>(12.0 * dpr);
-        expectGray(painted, centerX, centerY, 128);
+        const auto imageX = static_cast<int>(12.0 * dpr);
+        const auto imageY = static_cast<int>(8.0 * dpr);
+        const auto imageWidth = static_cast<int>(16.0 * dpr);
+        const auto imageHeight = static_cast<int>(8.0 * dpr);
+        const auto imageCenterY = imageY + imageHeight / 2;
+        const auto imageCenterX = imageX + imageWidth / 2;
+
+        EXPECT_EQ(painted.pixel(imageX - 1, imageCenterY), background);
+        expectGray(painted, imageX, imageCenterY, 128);
+        expectGray(painted, imageX + imageWidth - 1, imageCenterY, 128);
+        EXPECT_EQ(painted.pixel(imageX + imageWidth, imageCenterY), background);
+        EXPECT_EQ(painted.pixel(imageCenterX, imageY - 1), background);
+        expectGray(painted, imageCenterX, imageY, 128);
+        expectGray(painted, imageCenterX, imageY + imageHeight - 1, 128);
+        EXPECT_EQ(painted.pixel(imageCenterX, imageY + imageHeight), background);
     }
 }
 
