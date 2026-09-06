@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution progress (2026-09-06):** Task 1 passed independent task/final reviews and was merged in [PR #1](https://github.com/m4bulmagd/Lumora/pull/1) as `a6351e374caa308ce55fc1eef5232de14ead461f`, with Linux/GCC and Windows/MSVC Debug and Release CI passing. Task 2 is implemented locally at `e82bb840bda762d9bdab8ddeb59a91605b7104cb` and passed its independent task review: 16 viewport tests and all 20 CTest entries pass in Linux/GCC Debug and Release. Task 2 Windows/MSVC CI and integration remain pending; Tasks 3–4 are not started. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see the [M4 preflight and execution evidence](../../architecture/milestones/m04-preflight.md). Local task completion is not M4 acceptance.
+**Execution progress (2026-09-06):** Task 1 passed independent task/final reviews and was merged in [PR #1](https://github.com/m4bulmagd/Lumora/pull/1) as `a6351e374caa308ce55fc1eef5232de14ead461f`, with Linux/GCC and Windows/MSVC Debug and Release CI passing. Task 2 is implemented locally at `e638caa0f18c2497f955fdb5eaec67e1131305de`, including the final-review rendering regression tests, and passed its independent task review: 16 viewport tests and all 20 CTest entries pass in Linux/GCC Debug and Release. Task 2 Windows/MSVC CI and integration remain pending; Tasks 3–4 are not started. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see the [M4 preflight and execution evidence](../../architecture/milestones/m04-preflight.md). Local task completion is not M4 acceptance.
 
 ## Global Constraints
 
