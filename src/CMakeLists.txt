@@ -51,6 +51,22 @@ target_include_directories(
 target_link_libraries(lumora_camera_api PUBLIC lumora::core)
 lumora_enable_warnings(lumora_camera_api)
 
+add_library(
+  lumora_application
+  STATIC
+  application/include/lumora/application/ApplicationState.hpp
+  application/include/lumora/application/CameraCommand.hpp
+  application/include/lumora/application/CameraCommandMailbox.hpp
+  application/include/lumora/application/CameraSessionStateMachine.hpp
+  application/src/CameraCommandMailbox.cpp
+  application/src/CameraSessionStateMachine.cpp
+)
+add_library(lumora::application ALIAS lumora_application)
+target_include_directories(lumora_application PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/application/include>)
+target_link_libraries(lumora_application PUBLIC lumora::core lumora::camera_api)
+lumora_enable_warnings(lumora_application)
+
 # The generated simulator remains hardware- and UI-independent.
 add_library(
   lumora_camera_simulator
