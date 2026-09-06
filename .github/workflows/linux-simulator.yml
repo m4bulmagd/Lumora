@@ -29,7 +29,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             build-essential cmake ninja-build git curl zip unzip tar pkg-config \
-            autoconf autoconf-archive automake libtool
+            autoconf autoconf-archive automake libtool \
+            libgl1-mesa-dev libglu1-mesa-dev libegl1-mesa-dev \
+            libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev libxi-dev libxrender-dev \
+            libxcb1-dev libxcb-cursor-dev libxcb-glx0-dev libxcb-icccm4-dev libxcb-image0-dev \
+            libxcb-keysyms1-dev libxcb-randr0-dev libxcb-render0-dev \
+            libxcb-render-util0-dev libxcb-shape0-dev libxcb-shm0-dev \
+            libxcb-sync-dev libxcb-util-dev libxcb-xfixes0-dev libxcb-xinput-dev libxcb-xkb-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev xvfb xauth fonts-dejavu-core
 
       - name: Restore vcpkg binary archives
         id: vcpkg-cache
@@ -53,22 +60,28 @@ jobs:
           doNotCache: false
 
       - name: Configure Debug simulator without pylon
-        run: cmake --preset linux-gcc-debug-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+        run: cmake --preset linux-gcc-debug-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_TEST_LINUX_DESKTOP=ON
 
       - name: Build Debug targets
         run: cmake --build --preset linux-gcc-debug-sim --parallel
 
       - name: Test Debug without hardware
-        run: ctest --preset linux-gcc-debug-sim --output-on-failure -LE hardware
+        run: ctest --preset linux-gcc-debug-sim --output-on-failure -LE 'hardware|desktop'
+
+      - name: Test Debug desktop window on X11
+        run: xvfb-run -a ctest --preset linux-gcc-debug-sim --output-on-failure -L desktop --no-tests=error
 
       - name: Configure Release simulator without pylon
-        run: cmake --preset linux-gcc-release-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+        run: cmake --preset linux-gcc-release-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_TEST_LINUX_DESKTOP=ON
 
       - name: Build Release targets
         run: cmake --build --preset linux-gcc-release-sim --parallel
 
       - name: Test Release without hardware
-        run: ctest --preset linux-gcc-release-sim --output-on-failure -LE hardware
+        run: ctest --preset linux-gcc-release-sim --output-on-failure -LE 'hardware|desktop'
+
+      - name: Test Release desktop window on X11
+        run: xvfb-run -a ctest --preset linux-gcc-release-sim --output-on-failure -L desktop --no-tests=error
 
       - name: Save completed vcpkg binary archives
         if: ${{ !cancelled() && steps.vcpkg-cache.outcome == 'success' }}
