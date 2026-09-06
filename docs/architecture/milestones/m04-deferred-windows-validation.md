@@ -1,6 +1,7 @@
 # M4 automated evidence and deferred Windows 11 validation
 
-**Decision date:** 2026-09-07  
+**Decision date:** 2026-09-07
+
 **Status:** Development-only exception; M4 implementation and automated verification complete, native manual acceptance pending. This is not an M4 acceptance record.
 
 ## Authorization and limits

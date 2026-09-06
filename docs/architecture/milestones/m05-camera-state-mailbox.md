@@ -1,7 +1,9 @@
 # M5 Task 1: camera state machine and command mailbox
 
-**Date:** 2026-09-07  
-**Implementation source:** `51cdc04b8f7b8d19ffbd536892d5849cd6e403a2`  
+**Date:** 2026-09-07
+
+**Implementation source:** `51cdc04b8f7b8d19ffbd536892d5849cd6e403a2`
+
 **Status:** Task 1 implemented and task-reviewed locally; Windows CI and full M5 acceptance pending. Not a milestone acceptance record.
 
 The [M5 plan](../../superpowers/plans/2026-04-25-m05-independent-live-pipeline.md) and [preflight contracts](m05-preflight.md) define the work. Development proceeds under the [M4 native Windows 11 validation deferral](m04-deferred-windows-validation.md); those checks remain pending, not passed. No new source was pushed for this checkpoint.

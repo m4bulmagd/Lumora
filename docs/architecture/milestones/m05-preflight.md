@@ -1,7 +1,9 @@
 # M5 independent live pipeline preflight
 
-**Date:** 2026-09-06  
-**Inspected source:** `6c054a7404c32a9be61c0922e6aa115e21eefe73`  
+**Date:** 2026-09-06
+
+**Inspected source:** `6c054a7404c32a9be61c0922e6aa115e21eefe73`
+
 **Status:** Approved implementation contracts; [Task 1 is implemented and task-reviewed locally](m05-camera-state-mailbox.md) under the scoped M4 manual-validation deferral. Full M5 acceptance remains pending.
 
 This record clarifies the [M5 plan](../../superpowers/plans/2026-04-25-m05-independent-live-pipeline.md) against the implemented M2–M4 interfaces. Read it with the [design](../../superpowers/specs/2026-04-25-xray-imaging-workstation-design.md) and [roadmap](../../superpowers/plans/2026-04-25-xray-imaging-workstation-roadmap.md). It is not implementation, test, or milestone-acceptance evidence.

@@ -39,6 +39,7 @@ private:
         bool disconnect;
     };
     void erase(std::size_t index) noexcept;
+    void cancelPendingLocked() noexcept;
     [[nodiscard]] std::optional<CameraCommand> popLocked();
     std::array<std::optional<Entry>, 32U> entries_;
     std::size_t size_{0U};

@@ -37,6 +37,13 @@ void CameraCommandMailbox::erase(std::size_t index) noexcept {
     entries_[--size_].reset();
 }
 
+void CameraCommandMailbox::cancelPendingLocked() noexcept {
+    while (size_ > 0U) {
+        erase(size_ - 1U);
+        increment(stats_.cancelled);
+    }
+}
+
 core::Result<void> CameraCommandMailbox::post(CameraCommand command) {
     std::unique_lock lock(mutex_);
     if (closed_) { return cancelled(); }
@@ -48,10 +55,7 @@ core::Result<void> CameraCommandMailbox::post(CameraCommand command) {
         return cancelled();
     }
     if (is<Shutdown>(command)) {
-        while (size_ > 0U) {
-            erase(size_ - 1U);
-            increment(stats_.cancelled);
-        }
+        cancelPendingLocked();
         sealed_ = true;
     } else {
         bool stopFence = inFlightBarrier_.has_value();
@@ -181,10 +185,7 @@ void CameraCommandMailbox::close() noexcept {
     {
         std::lock_guard lock(mutex_);
         closed_ = true;
-        while (size_ > 0U) {
-            erase(size_ - 1U);
-            increment(stats_.cancelled);
-        }
+        cancelPendingLocked();
     }
     condition_.notify_all();
 }
