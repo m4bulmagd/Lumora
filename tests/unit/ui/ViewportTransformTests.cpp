@@ -17,6 +17,16 @@ TEST(ViewportTransform, FitPreservesAspectRatio) {
     EXPECT_NEAR(view.imageCenterInViewport().y, 400.0, 1e-9);
 }
 
+TEST(ViewportTransform, FitUsesHeightWhenItIsTheLimitingDimension) {
+    auto view = ViewportTransform::fit({100, 200}, {200, 100});
+
+    EXPECT_DOUBLE_EQ(view.scale(), 0.5);
+    EXPECT_DOUBLE_EQ(view.imageToViewport({0, 0}).x, 75.0);
+    EXPECT_DOUBLE_EQ(view.imageToViewport({0, 0}).y, 0.0);
+    EXPECT_DOUBLE_EQ(view.imageCenterInViewport().x, 100.0);
+    EXPECT_DOUBLE_EQ(view.imageCenterInViewport().y, 50.0);
+}
+
 TEST(ViewportTransform, FitCanBeSmallerThanManualMinimum) {
     auto view = ViewportTransform::fit({4096, 2048}, {100, 100});
 
