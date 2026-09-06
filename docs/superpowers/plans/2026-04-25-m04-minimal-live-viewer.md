@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution progress (2026-09-06):** Task 1 is implemented locally at `edee9d30b07986fa17237ad85e7bd379aaa36cdf` and passed its independent spec/quality review. All 27 geometry tests and all 19 CTest entries pass in Linux/GCC Debug and Release; Windows/MSVC CI for this new source SHA remains pending. Tasks 2–4 are not started. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see the [M4 preflight and Task 1 evidence](../../architecture/milestones/m04-preflight.md). Task 1 completion is not M4 acceptance.
+**Execution progress (2026-09-06):** Task 1 is implemented locally at `9c2dfdde300c43aaaa7147f52fe107467da5da6a` and passed its independent spec/quality review. All 28 geometry tests and all 19 CTest entries pass in Linux/GCC Debug and Release; Windows/MSVC CI for this new source SHA remains pending. Tasks 2–4 are not started. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see the [M4 preflight and Task 1 evidence](../../architecture/milestones/m04-preflight.md). Task 1 completion is not M4 acceptance.
 
 ## Global Constraints
 
