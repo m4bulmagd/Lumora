@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution progress (2026-09-06):** Task 1 passed independent task/final reviews and was merged in [PR #1](https://github.com/m4bulmagd/Lumora/pull/1) as `a6351e374caa308ce55fc1eef5232de14ead461f`, with Linux/GCC and Windows/MSVC Debug and Release CI passing. Task 2 is implemented locally at `e638caa0f18c2497f955fdb5eaec67e1131305de`, including the final-review rendering regression tests, and passed its independent task review: 16 viewport tests and all 20 CTest entries pass in Linux/GCC Debug and Release. Task 2 Windows/MSVC CI and integration remain pending; Tasks 3–4 are not started. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see the [M4 preflight and execution evidence](../../architecture/milestones/m04-preflight.md). Local task completion is not M4 acceptance.
+**Execution progress (2026-09-06):** Tasks 1–2 passed independent task/final reviews and were merged in [PR #1](https://github.com/m4bulmagd/Lumora/pull/1) and [PR #2](https://github.com/m4bulmagd/Lumora/pull/2). The current merged source `368cb38ae2cc7f6c610032a41a3872e9d7587fdb` passed Linux/GCC and Windows/MSVC Debug and Release CI, including 16 viewport tests and all 20 CTest entries. Task 3 is implemented locally at `725e2ac9aee1ebc05a3a3762300d7a8fa05a95cb`, including reviewed paused-state fixes: 14 workstation tests and all 21 CTest entries pass in Linux/GCC Debug and Release. Task 3 Windows/MSVC CI and integration are pending; Task 4 is not started. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see the [M4 preflight and execution evidence](../../architecture/milestones/m04-preflight.md). Local task completion is not M4 acceptance.
 
 ## Global Constraints
 
@@ -305,7 +305,7 @@ signals:
 
 `setStatus` is the state setter; controls emit intent rather than guessing which bundle has finished painting. Task 4 supplies that state. With no bound presenter/frame, show `Waiting for image`, disable Pause and image-only actions, and never fabricate a timestamp or camera connection state.
 
-- [ ] **Step 1: Write a failing widget-structure test**
+- [x] **Step 1: Write a failing widget-structure test**
 
 ```cpp
 TEST(WorkstationView, ImageAreaDominatesInitialLayout) {
@@ -321,25 +321,25 @@ TEST(WorkstationView, ImageAreaDominatesInitialLayout) {
 
 Register the new library/test files and the `WorkstationView` CTest suite with the same Qt plugin properties before running the red test.
 
-- [ ] **Step 2: Verify missing view fails**
+- [x] **Step 2: Verify missing view fails**
 
 Run: `cmake --build --preset linux-gcc-debug-sim --target lumora_ui_tests`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement clean initial layout**
+- [x] **Step 3: Implement clean initial layout**
 
 Create a header, fixed-width left sidebar, expanding viewer, and compact footer. The sidebar identifies Original display and contains Pause/Live; the footer contains Fit, 100%, and zoom controls, matching design §11.1. Enhanced/Compare, processing, capture, orientation editing, diagnostics, and full fullscreen interaction arrive in their numbered milestones. No Record control is present.
 
 Replace `MainWindow`'s placeholder central widget with `WorkstationView`, preserving the `mainWindow` identity and exactly one `releaseClassBanner` carrying `EVALUATION — NOT FOR CLINICAL USE`. Keep the banner and image-local paused/stale overlay in the normal and fullscreen-capable composition. The compile-time evaluation flag must not become a user-dismissable preference. Use `tr()` for English text, accessible names, and stable names `imageViewport`, `sidebar`, `pauseLiveButton`, `fitAction`, `actualPixelsAction`, `zoomInAction`, `zoomOutAction`, and `frameStateOverlay`.
 
-- [ ] **Step 4: Wire viewer controls without camera calls**
+- [x] **Step 4: Wire viewer controls without camera calls**
 
 Fit/100%/zoom actions invoke the viewport methods. Pause/Live emits the corresponding intent; tests use `setStatus` to exercise each state until Task 4 binds the presenter. Paused state shows persistent high-contrast `PAUSED`, the completed frame's UTC timestamp, and age supplied by the presenter. Stale Live state shows `STALE IMAGE / NOT LIVE`; waiting state has no fabricated image or age. Paused is visibly non-live regardless of freshness and remains distinct from an acquisition Stop command.
 
 Support keyboard activation of all buttons/actions, with viewer-focused shortcuts F (Fit), 1 (100%), Space (Pause/Live), and +/- (zoom). Scope shortcuts to the viewer so future editable controls do not lose ordinary text input. No view includes a camera adapter header or calls `ICameraDevice`.
 
-- [ ] **Step 5: Run UI tests and manual visual check**
+- [x] **Step 5: Run UI tests and manual visual check**
 
 Test action routing, keyboard activation, resize, unavailable/no-frame controls, exact banner text, non-dismissible textual paused/stale states, and transitions back to Current. Feed fixed timestamps/ages via `setStatus`; verify text/state rather than platform-dependent glyph pixels. Reparent/show the shell fullscreen in a UI test and check banner/overlay visibility without implementing M9's full fullscreen UX.
 
@@ -347,7 +347,9 @@ Run: `ctest --preset linux-gcc-debug-sim --output-on-failure --no-tests=error -R
 
 Before M4 acceptance, manually check a native Windows 11 window at logical client sizes 1280x720 and 1920x1080 and exercise 100%, 125%, 150%, and 200% scaling on a screen large enough for each checked layout. Record physical and effective logical size, screenshot, banner/overlay readability, keyboard controls, and exact 100% semantics; these are not claims that every physical-resolution/scaling combination can fit the same window. Any insufficient-workspace case must be recorded and must not silently clip safety indications. Headless CI is not evidence that this manual check occurred.
 
-- [ ] **Step 6: Commit workstation shell**
+Local execution note: all four focused UI suites pass. Direct widget renders using native XCB under Xvfb were visually inspected for waiting, paused, stale, and unavailable-metadata states at 1280x800, 1280x720, and 900x600; safety text remained readable. Physical desktop capture was unusable, so these are widget-render checks, not screenshots of the user's display. The Windows 11 manual checks above remain a separate, unfulfilled M4 acceptance gate.
+
+- [x] **Step 6: Commit workstation shell**
 
 ```powershell
 git add src/ui tests/unit/ui/WorkstationViewTests.cpp src/CMakeLists.txt tests/CMakeLists.txt

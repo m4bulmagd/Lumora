@@ -3,6 +3,7 @@ add_executable(
   unit/ui/ImageViewportTests.cpp
   unit/ui/MainWindowSmokeTests.cpp
   unit/ui/ViewportTransformTests.cpp
+  unit/ui/WorkstationViewTests.cpp
 )
 
 target_include_directories(
@@ -32,11 +33,15 @@ add_test(
   NAME ImageViewport
   COMMAND lumora_ui_tests --gtest_filter=ImageViewport.*
 )
+add_test(
+  NAME WorkstationView
+  COMMAND lumora_ui_tests --gtest_filter=WorkstationView.*
+)
 # Surface stalled Qt startup promptly on unattended CI runners.
 # Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
 # does not make the installed Qt platform plugins discoverable by itself.
 set_tests_properties(
-  MainWindowSmoke ViewportTransform ImageViewport
+  MainWindowSmoke ViewportTransform ImageViewport WorkstationView
   PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"

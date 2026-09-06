@@ -84,7 +84,7 @@ cmake --build --preset linux-gcc-debug-sim --target run-lumora
 
 Use `linux-gcc-release-sim` for Release. This development-only target selects `xcb` and the matching Debug/Release Qt plugin directory for this process; it does not require a global Qt environment setting. It runs until you close the window. Launching the binary directly may require an explicit platform-plugin path with a vcpkg build.
 
-At this stage the shell displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner. The workstation layout and moving simulated video are separate M4 tasks; a successful desktop launch does not mean the live viewer is complete or clinically validated.
+At this stage the workstation layout displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls disabled until a presenter supplies a frame. Moving simulated video is the next M4 task; a successful desktop launch does not mean the live viewer is complete or clinically validated.
 
 If Qt reports that `xcb` cannot be found, reconfigure with the pinned vcpkg toolchain after installing the prerequisites above. Existing `widgets`-only dependency installations must be rebuilt; pointing `CMAKE_PREFIX_PATH` at an older headless Qt installation is not sufficient. If `xcb` is found but cannot connect to a display, run inside your graphical session and check `DISPLAY` and XWayland availability. Do not use `QT_QPA_PLATFORM=minimal` to assess desktop visibility.
 

@@ -1,6 +1,6 @@
 # Lumora
 
-Lumora is an open-source real-time X-ray camera imaging workstation. The repository includes the M1 native C++/Qt foundation, M2 immutable frames and bounded buffers, and M3 camera API and simulator alongside the reviewed product requirements, architecture, roadmap, and implementation plans.
+Lumora is an open-source real-time X-ray camera imaging workstation. The repository includes the M1 native C++/Qt foundation, M2 immutable frames and bounded buffers, M3 camera API and simulator, and the first three M4 viewer tasks alongside the reviewed product requirements, architecture, roadmap, and implementation plans.
 
 The numbered milestones target an engineering/evaluation release that is **not for clinical use** and must not acquire or store real patient data. A future clinical diagnostic release for Egypt is a separate gated program.
 
@@ -25,7 +25,9 @@ Milestones 1–3 provide:
 - a vendor-neutral camera API, deterministic generated patterns, strict PGM sequence replay, pacing, and scripted faults;
 - headless unit and UI smoke tests.
 
-M3 is accepted for engineering/evaluation: Linux/GCC and Windows/MSVC CI each passed all 18 CTest entries in both Debug and Release at the exact merged source commit. Run links and platform details are in the [M3 verification record](docs/architecture/milestones/m03-camera-api-simulator.md). The application still opens the foundation shell; the simulated live viewer is M4, not yet implemented. See the [M4 preflight](docs/architecture/milestones/m04-preflight.md) for the next implementation boundary. Windows 11 installation and hardware acceptance remain later milestones.
+M3 is accepted for engineering/evaluation: Linux/GCC and Windows/MSVC CI each passed all 18 CTest entries in both Debug and Release at the exact merged source commit. Run links and platform details are in the [M3 verification record](docs/architecture/milestones/m03-camera-api-simulator.md).
+
+M4 Tasks 1–2 (viewport geometry and grayscale rendering) are merged with passing cross-platform CI. Task 3 adds the workstation layout, image controls, and explicit waiting/paused/stale indications; its full Linux Debug and Release suites pass locally, while its Windows CI and integration are pending. The application now opens this layout in `Waiting for image`: there is no connected simulator or live video yet. Task 4 adds the presenter and a non-shipping simulator harness. See the [M4 preflight and execution evidence](docs/architecture/milestones/m04-preflight.md). M4 acceptance, Windows 11 installation, and hardware acceptance remain outstanding.
 
 The software is still an engineering/evaluation build. It is **not for clinical use**, must not be used for diagnosis, and must not acquire or store real patient data.
 
