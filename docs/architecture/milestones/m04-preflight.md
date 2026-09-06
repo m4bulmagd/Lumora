@@ -1,6 +1,6 @@
 # M4 minimal live viewer preflight
 
-Prepared: 2026-09-05. Updated: 2026-09-06. Status: **preflight complete; implementation not started**.
+Prepared: 2026-09-05. Updated: 2026-09-06. Status: **preflight complete; Task 1 implemented locally; M4 acceptance pending**.
 
 The [M4 plan](../../superpowers/plans/2026-04-25-m04-minimal-live-viewer.md) remains the task plan. Its [M3 entry gate is accepted](m03-camera-api-simulator.md): the exact merged source commit `2c88ec90ab58e3e6719be5e236dc49388dbc72dd` passed all 18 CTest entries in Linux/GCC and Windows/MSVC Debug and Release CI. The reviewed clarifications below are propagated into PRD §19.7–19.8, design §7/§8.2/§11.2, and the M4 plan. Planning completion is not M4 implementation or acceptance.
 
@@ -34,8 +34,17 @@ The [M4 plan](../../superpowers/plans/2026-04-25-m04-minimal-live-viewer.md) rem
 - Native Windows 11 visual checks at logical client sizes 1280x720/1920x1080 and 100%/125%/150%/200% display scaling on a sufficiently large screen. Record physical/effective logical geometry, insufficient-workspace cases, and safety-indication visibility; synthetic headless images are not a substitute for this check.
 - Updated requirements traceability and a separate M4 acceptance commit before M5. Windows installation/upgrade remains M13, real camera/NIC acceptance remains M14, and any clinical release remains a separate program.
 
+## Task 1 execution evidence
+
+- Implementation source: `edee9d30b07986fa17237ad85e7bd379aaa36cdf` (`feat(ui): add deterministic viewport transforms`). Changes are limited to the Qt-independent transform header/source, its unit tests, and the existing source/test CMake lists.
+- Test-first evidence: missing-model compile failure, then behavioral Fit failures against a compilable scaffold, followed by focused zoom, pan, and resize RED/GREEN cycles. `ViewportTransform.*` now discovers and passes 27 real geometry tests, including invalid and extreme finite inputs; `MainWindowSmoke.*` remains separately filtered.
+- Linux/GCC 15.2.0 Debug and Release: complete builds pass under the existing C++20 warning-as-error settings. Full CTest passes 19/19 in each configuration (controller runs: Debug 3.40 s, Release 1.15 s). Configuration-matched Qt `minimal` plugin paths and the 60-second UI-test timeout are preserved. `git diff --check` passes.
+- Local configuration reused the pinned installed dependencies through `CMAKE_PREFIX_PATH`; it is not fresh vcpkg-bootstrap evidence. Commands are `cmake --build --preset linux-gcc-debug-sim --parallel 4` and `ctest --preset linux-gcc-debug-sim --output-on-failure --no-tests=error`, repeated with `linux-gcc-release-sim`, using the [Linux build guide](../../development/build-linux.md).
+- Independent Task 1 review: spec compliant and quality approved, with no Critical, Important, or Minor findings. Windows/MSVC CI for this new source SHA remains pending; the earlier green M3 runs do not verify this change.
+- This is local Task 1 completion only. Tasks 2–4, the full viewer, Windows visual/DPI checks, stress runs, and the M4 acceptance record remain outstanding. No Windows 11 installation, hardware, or clinical validation is claimed.
+
 ## Next executable task
 
-After review of the updated plan, begin **Task 1: Viewport transform model**, with focused geometry tests first. Then add safe Gray8 rendering, workstation state/controls, and the simulator presenter in the existing task order. No remaining product choice blocks Task 1; no M4 source code, build targets, or tests have been added by this documentation update.
+After the Task 1 integration decision and matching Windows CI, proceed to **Task 2: ImageViewport with safe display-buffer lifetime**. Then add workstation state/controls and the simulator presenter in the existing task order. No later task was implemented as part of Task 1.
 
-Preflight self-review checked document authority, task order, current core API names, planned file creation/modification paths, focused Qt test registration, and separation from later milestones. Local Markdown links/anchors passed validation across the PRD, README, and documentation set. All ten C++ excerpts (public contracts, fixtures, and test bodies) passed syntax-only checking together against the existing core/Qt/GoogleTest headers using C++20 and the repository's GCC warning-as-error flags. No M4 implementation was linked or exercised; these are documentation checks, not passing viewport tests or Windows visual evidence.
+The earlier preflight self-review checked document authority, task order, current core API names, planned file creation/modification paths, focused Qt test registration, and separation from later milestones. Local Markdown links/anchors passed validation across the PRD, README, and documentation set. All ten C++ excerpts (public contracts, fixtures, and test bodies) passed syntax-only checking together against the existing core/Qt/GoogleTest headers using C++20 and the repository's GCC warning-as-error flags. No M4 implementation was linked or exercised during that preflight; those documentation checks are separate from the Task 1 execution evidence above and are not Windows visual evidence.

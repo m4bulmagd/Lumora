@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution readiness (2026-09-06):** Implementation not started. [M3 is accepted](../../architecture/milestones/m03-camera-api-simulator.md) at `2c88ec90ab58e3e6719be5e236dc49388dbc72dd`; its exact-SHA Linux/GCC and Windows/MSVC Debug/Release runs passed. This revision resolves the [M4 preflight](../../architecture/milestones/m04-preflight.md) items. Begin with Task 1 after plan review; do not treat planning as M4 acceptance.
+**Execution progress (2026-09-06):** Task 1 is implemented locally at `edee9d30b07986fa17237ad85e7bd379aaa36cdf` and passed its independent spec/quality review. All 27 geometry tests and all 19 CTest entries pass in Linux/GCC Debug and Release; Windows/MSVC CI for this new source SHA remains pending. Tasks 2–4 are not started. [M3 remains accepted](../../architecture/milestones/m03-camera-api-simulator.md); see the [M4 preflight and Task 1 evidence](../../architecture/milestones/m04-preflight.md). Task 1 completion is not M4 acceptance.
 
 ## Global Constraints
 
@@ -68,7 +68,7 @@ After registering each task's files, configure using the [Linux build guide](../
 - Consumes: image dimensions in source pixels; viewport sizes, pointer coordinates, and pan deltas in logical pixels. Geometry is Qt-independent.
 - Produces: the `lumora::ui` value types and public operations below; `actualPixels` deliberately has no device-pixel-ratio argument.
 
-- [ ] **Step 1: Write failing geometry tests**
+- [x] **Step 1: Write failing geometry tests**
 
 ```cpp
 TEST(ViewportTransform, FitPreservesAspectRatio) {
@@ -86,13 +86,13 @@ TEST(ViewportTransform, FitCanBeSmallerThanManualMinimum) {
 
 Add the test source to `lumora_ui_tests`, the model files to `lumora_ui`, and the focused CTest registration described above. A compile failure from the missing model is the first red result; missing dependencies or an unregistered test are not behavioral evidence.
 
-- [ ] **Step 2: Verify the missing model fails to compile**
+- [x] **Step 2: Verify the missing model fails to compile**
 
 Run: `cmake --build --preset linux-gcc-debug-sim --target lumora_ui_tests`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement transform operations**
+- [x] **Step 3: Implement transform operations**
 
 ```cpp
 struct Size { double width; double height; };
@@ -123,11 +123,11 @@ If Fit is below 0.05, zoom-out is a no-op and zoom-in enters the manual range at
 
 `resize` recomputes Fit; Manual retains scale and the source point at viewport center before pan clamping. On image-size changes it retains that source coordinate where possible, then clamps to the new image. A zero extent is a valid transient non-drawable state: keep the selected mode, a finite scale, and finite coordinates, and recover when valid sizes return. Negative/non-finite sizes leave an existing transform unchanged; a factory receiving them produces the same finite non-drawable state as an empty image. If intermediate arithmetic would make scale zero/non-finite or produce non-finite coordinates, reject that update (or return the finite non-drawable factory state); cover extreme finite doubles as well as NaN/Inf in tests.
 
-- [ ] **Step 4: Add zoom/pan/resize cases**
+- [x] **Step 4: Add zoom/pan/resize cases**
 
 Cover Fit below 0.05 and above 32, both transitions to manual zoom, repeated zoom in/out, cursor anchoring away from clamped edges, edge precedence, pan bounds, Fit/manual resize, image-size changes, zero extents/recovery, and invalid input. Confirm `ViewportTransform::actualPixels({64, 32}, {128, 128}).scale() == 1.0`; DPR 1.0/1.25/1.5/2.0 belongs to Task 2's Qt rendering tests, not this pure model.
 
-- [ ] **Step 5: Run and commit**
+- [x] **Step 5: Run and commit**
 
 Run: `ctest --preset linux-gcc-debug-sim --output-on-failure --no-tests=error -R '^(ViewportTransform|MainWindowSmoke)$'`
 
