@@ -161,7 +161,7 @@ The source directories correspond to focused CMake library targets:
 
 Committed presets cover Linux/GCC and Windows/MSVC simulator Debug and Release builds plus Windows/MSVC Basler builds. Machine-specific SDK paths belong only in ignored `CMakeUserPresets.json`. A pinned vcpkg manifest supplies Qt, OpenCV, GoogleTest, and spdlog consistently on both operating systems, with an authenticated binary cache in CI. Pylon is an optional external SDK and runtime, not a vcpkg dependency. Every milestone runs Linux simulator tests locally and both Linux/GCC and Windows/MSVC simulator CI; packaging and final hardware acceptance are Windows-only.
 
-Dependencies flow toward contracts and domain types:
+Logical use-case dependencies flow toward contracts and domain types:
 
 ```text
 Qt UI --> Application --> Core contracts
@@ -173,6 +173,8 @@ Qt UI --> Application --> Core contracts
 Simulator --> Camera API + Core
 Basler ----> Camera API + Core + pylon
 ```
+
+This sketch is not a requirement to link the Qt-free application library against the concrete Qt configuration adapter. For M5 startup persistence, configuration consumes application-owned plain startup values, while the composition root injects the background adapter into the UI controller. The [M5 target map](../../architecture/milestones/m05-preflight.md#6-build-wiring-and-verification-evidence) gives the static links; application must not gain a Qt dependency or an application/configuration link cycle. The adapter's complete JSON document is serialization state, not an application-domain model.
 
 No module obtains dependencies through a global service locator. Runtime dependencies are supplied through constructors by the composition root. `PylonRuntime` is an RAII object owned by the composition root and outlives all pylon-backed providers and devices.
 

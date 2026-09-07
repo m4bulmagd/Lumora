@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. Tasks 1–2 were subsequently implemented, reviewed, merged and pushed with explicit authorization; matching Linux/Windows Debug/Release CI passed at `7295fb9`, as recorded in the [Task 2 checkpoint](../../architecture/milestones/m05-acquisition-worker.md#merged-cross-platform-checkpoint-2026-09-07). The user's latest approval authorizes [Task 3 development](../../architecture/milestones/m05-processing-worker.md) only. Tasks 4–5 remain later work. Native Windows 11 manual checks remain pending; neither the development exception nor Task 3 approval implies M4/M5 acceptance, another merge, or a push.
+**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. Tasks 1–2 were subsequently implemented, reviewed, merged and pushed with explicit authorization; matching Linux/Windows Debug/Release CI passed at `7295fb9`, as recorded in the [Task 2 checkpoint](../../architecture/milestones/m05-acquisition-worker.md#merged-cross-platform-checkpoint-2026-09-07). Task 3 is implemented and locally reviewed; the user's latest approval authorized its push and [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) at `ccabaae`, and continued M5 development without waiting for that CI. Tasks 4–5 proceed locally on `feat/m05-startup-and-integration`, based on `ccabaae`; the Task 3 PR stays unchanged. No further push or merge is implied. Matching Windows evidence and native Windows 11 manual checks remain acceptance gates, not prerequisites for this explicitly authorized continuation.
 
 ## Global Constraints
 
@@ -289,6 +289,8 @@ git commit -m "feat(app): add newest-frame processing worker"
 
 ### Task 4: Minimal startup controls and saved preferences
 
+**Local checkpoint (2026-09-07):** Implemented and independently task-reviewed through `5b4bff8`; full native-inclusive Linux Debug/Release33/33 and tests-OFF builds pass. The [Task 4 record](../../architecture/milestones/m05-startup-preferences.md) records the restored test matrix, process limitations, remaining minor review concern and acceptance gates.
+
 **Files:**
 - Create: `src/application/include/lumora/application/StartupPreferences.hpp`
 - Create: `src/application/src/StartupPreferences.cpp`
@@ -309,7 +311,7 @@ git commit -m "feat(app): add newest-frame processing worker"
 - Consumes: stable identity, capabilities, requested/actual settings, application status, and `ConfigurationStore`.
 - Produces: plain `StartupPreferences`, canonical capability comparison, schema-2 migration/codec, background `StartupPreferencesService`, and `CameraStartupPanel` intents. The [startup contract](../../architecture/milestones/m05-preflight.md#3-minimal-startup-ui-and-persistence) defines the fields, thread ownership, validation, and exact first/later-run sequences.
 
-- [ ] **Step 1: Write failing startup value, codec, and panel tests**
+- [x] **Step 1: Write failing startup value, codec, and panel tests**
 
 Use `StartupPreferencesTest` as a fixture over public value/codec/store interfaces, with an injected temporary path and matching/mismatched capability fixtures. Its `loadSchema1()` loads a valid old document through `ConfigurationStore`; its `roundTripConfirmed()` creates, encodes, and decodes a version-1 startup record using schema 2. These test helpers return the real `Result<ApplicationConfiguration>`; errors are asserted before reading values.
 
@@ -331,7 +333,7 @@ TEST_F(StartupPreferencesTest, ConfirmedRecordRoundTrips) {
 
 Add cases for set-order-independent capability equality, changed descriptor maximum/ROI/numeric limits/modes, wrong identity, duplicate/nonfinite capabilities, unconfirmed/future/corrupt record, save failure preserving the prior file, and background I/O thread affinity. Panel tests use `CameraStartupPanel` with immutable status: Start disabled before Confirm, requested versus actual values visible, priority actions enabled while an ordinary operation is pending, and no camera/device calls from UI signals.
 
-- [ ] **Step 2: Register and run the failing startup suites**
+- [x] **Step 2: Register and run the failing startup suites**
 
 Extend existing application/configuration/UI targets and register `Application.StartupPreferences`, `Configuration.StartupPreferences`, and `CameraStartupPanel` (the latter with the existing minimal-plugin environment). Keep UI's Qt test main; configuration/application tests keep their current non-widget main. Reconfigure/build those targets, then:
 
@@ -341,7 +343,7 @@ ctest --preset linux-gcc-debug-sim --no-tests=error --output-on-failure -R '^(Ap
 
 Expected: migration/eligibility/panel assertions fail, not missing registration.
 
-- [ ] **Step 3: Implement typed startup values and schema migration**
+- [x] **Step 3: Implement typed startup values and schema migration**
 
 Add optional `startup` to `ApplicationConfiguration`, with this plain application-owned record in `StartupPreferences.hpp` (types qualified from existing camera/core headers):
 
@@ -359,15 +361,15 @@ struct StartupPreferences final {
 
 `StartupPreferences.cpp` supplies validation and canonical capability/configuration comparison used by codec and startup guards; tests cross these plain-value functions, not Qt JSON. `StartupPreferencesStatus` is the plain service-result value described in the preflight. Increment `CurrentSchemaVersion` to 2; decode schema 1 by preserving all existing sections and setting startup absent, then validate as schema 2. Serialize all startup identity/capability/configuration fields explicitly with version checks and structural validation. Canonicalize unordered capability sets without changing semantic numeric values. Do not use memory bytes or platform-dependent hashes for the fingerprint. Preserve the existing atomic-save/invalid-file behavior and tests.
 
-- [ ] **Step 4: Implement background preferences and minimal panel**
+- [x] **Step 4: Implement background preferences and minimal panel**
 
 Implement `StartupPreferencesService` with one background worker, one pending coalesced immutable save and a latest status/result slot. It owns loaded-document read/modify/write and calls `ConfigurationStore` only off the UI/camera/processing threads; expose start/post-save/request-stop/join and never spawn a new thread per save. The panel emits selection/Connect/Apply/Confirm/Start/Stop/Disconnect/Retry/Resume intents; it does not schedule commands, persist, or control the presenter. Supply fixed-mode read-only configuration review now; M9 expands the editor. Keep all strings localization-ready and distinguish Resume Live (camera startup) from viewer Resume (unpause).
 
-- [ ] **Step 5: Verify startup contracts at green**
+- [x] **Step 5: Verify startup contracts at green**
 
 Rerun the Step 2 suites plus the existing `ConfigurationStore` tests. Verify no UI-thread file I/O, no lost unrelated JSON sections, typed failed-load/save warnings, worker join on exit, and no claim of persistence before the atomic save completes. End-to-end first/later-run actions are wired and tested in Task 5; this task's panel remains independently testable from immutable status.
 
-- [ ] **Step 6: Commit startup modules**
+- [x] **Step 6: Commit startup modules**
 
 ```powershell
 git add src/application src/configuration src/ui tests/unit/application tests/unit/configuration tests/unit/ui/CameraStartupPanelTests.cpp src/CMakeLists.txt tests/CMakeLists.txt

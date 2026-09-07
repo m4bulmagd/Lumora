@@ -20,7 +20,7 @@ M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with pas
 | DES-10 | §10 Processing pipeline | Qt-free processor port and minimal full-range Mono8 Original pass-through | M5 Task 3 locally verified | Task 3 pending | High-depth mapping/enhancements remain M7–M8; no full pipeline acceptance |
 | DES-11 | §11 Rendering and workstation UI | `ViewportTransform`, `ImageViewport`, `WorkstationView`, `FramePresenter`, `SimulatedViewer`; native Linux desktop smoke | M4 subset verified | Tasks 1–4 verified in CI; native Windows visual/DPI pending | M4 unaccepted; minimal startup controls remain M5, complete editor M9 |
 | DES-12 | §12 Capture and future recording | M10 capture plan; recording requires its own approved specification | Not run | Not run | Planned/deferred |
-| DES-13 | §13 Configuration and presets | `ConfigurationStore`; startup preferences remain M5, presets/installation profiles/full controls M9 | Verified for store only | Verified for store only | Partial |
+| DES-13 | §13 Configuration and presets | Store, plain startup values, schema2 migration, background preferences and snapshot-driven panel | M5 Task4 locally verified | Store baseline only; Task4 pending | Startup composition remains Task5; profiles/full editor M9 |
 | DES-14 | §14 Diagnostics, metrics, and logging | `Logging`, pool/slot counters, simulator pacing-slip and bounded acquisition/processing snapshots; full diagnostics remain M11 | M5 Task 3 snapshot locally verified | Acquisition snapshot verified at `7295fb9`; processing pending | Partial; overlapping raw-drop counters must not be summed |
 | DES-15 | §15 Reliability and failure policy | M3 device faults; M4 paused/stale, blocked-image-path, event-loop recovery and observable harness-timeout tests | M4 subset verified | M4 subset verified in CI | System recovery remains M12 |
 | DES-16 | §16 Test strategy | M1–M4 verification maps below; default short integration and opt-in 600-second M4 stress | See exact-source M4 execution record | M4 and follow-up CI passed; Release stress passed at `6c054a7` | Reference-image/performance/hardware gates remain later work |
@@ -89,7 +89,7 @@ M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with pas
 | `CMake.StressEvidence` | CTest stress-only selection, successful-output retention, failure/missing-test propagation, and preservation of previous evidence | Fast infrastructure fixture check; not a 600-second stress or hosted Windows result |
 | Native Linux checks and tests-disabled build | XCB exposure, synthetic render inspection, harness excluded from normal app links and install scope | Local-only engineering evidence; not physical-display or Windows validation |
 
-The [M3 record](milestones/m03-camera-api-simulator.md) retains every M3 acceptance criterion. The [M4 record](milestones/m04-preflight.md) separates completed automated verification from deferred native Windows 11 validation. M5 Tasks 1–2 are implemented, reviewed and merged with matching Linux/Windows Debug/Release CI at `7295fb9`; [Task 3](milestones/m05-processing-worker.md) is implemented, task-reviewed and locally verified under the scoped exception, with matching Windows CI pending. Tasks 4–5 and M6–M14 remain planned; production live composition, Windows installer validation (M13), and hardware acceptance (M14) are not supplied by the test harness.
+The [M3 record](milestones/m03-camera-api-simulator.md) retains every M3 acceptance criterion. The [M4 record](milestones/m04-preflight.md) separates completed automated verification from deferred native Windows 11 validation. M5 Tasks 1–2 are merged with matching Linux/Windows Debug/Release CI at `7295fb9`; [Task 3](milestones/m05-processing-worker.md) and [Task 4](milestones/m05-startup-preferences.md) are implemented, task-reviewed and locally verified under the scoped exception, with matching Windows evidence pending. Task 5 and M6–M14 remain planned; production live composition, Windows installer validation (M13), and hardware acceptance (M14) are not supplied by the test harness.
 
 ## Milestone 5 Task 1 verification map
 
@@ -120,5 +120,17 @@ See the [Task 2 checkpoint](milestones/m05-acquisition-worker.md) for exact sour
 | Build/registration | Qt-free core-only processing linkage, application -> processing, two required CTest entries, tests-OFF/Basler-OFF app/library build | Full local native-inclusive Linux 30/30 Debug and Release; matching Windows CI pending |
 
 See the [Task 3 checkpoint](milestones/m05-processing-worker.md) for exact commands, TDD/characterization distinctions, corrected test-timing evidence, review status and the snapshot aggregation contract. Focused repeated runs are not the opt-in ten-minute milestone stress test. The fresh per-session, single-publisher output slot is an owner precondition; production source handoff, complete pool provisioning and presentation remain Task 5.
+
+## Milestone 5 Task 4 verification map
+
+| Test/check | Requirement covered | Evidence boundary |
+|---|---|---|
+| `Application.StartupPreferences` | Plain structural validation, complete capability comparison and stable-identity Resume guard | Eight cases; minor configuration-mode test isolation remains for final review |
+| `Configuration.StartupPreferences` | Schema1 migration, schema2 round-trip/canonical fields, one-thread load/save, coalescing/drain, typed failures and exception containment | Eleven cases; injected I/O and real store/codec boundaries, not physical disk fault certification |
+| `ConfigurationStore` | Existing Unicode/default/atomic-save and corruption/schema preservation | All ten cases restored by reviewed filter fix `5b4bff8`; initial `8e7d65e` filter ran only five |
+| `CameraStartupPanel` | Confirmed-revision Start gate, requested/actual review, pending priority controls, typed intents and plain text | Four cases; independently testable panel, production hosting remains Task5 |
+| Full builds/registration | Qt-free application direction, four focused entries, tests-OFF/Basler-OFF app | Native-inclusive Linux33/33 Debug/Release at `5b4bff8`; Windows/native acceptance pending |
+
+See the [Task 4 checkpoint](milestones/m05-startup-preferences.md) for exact commands, process limitations, reviewed fix, native panel QA and recovered generated-cache warning. Saved preferences alone do not authorize silent streaming; Task 5 supplies end-to-end startup and lifetime verification.
 
 No row in this file represents clinical validation, regulatory evidence, or authorization for diagnostic use.

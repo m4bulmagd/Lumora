@@ -10,7 +10,7 @@
 
 **Final review-fix source:** `3c59b11041cdef2750356bf07ecc7fb859c40576`
 
-**Status:** Implemented, independently reviewed and verified locally. Task review, final Standards/Spec reviews and scoped fix reviews have no open findings. Not pushed, merged or accepted as a milestone.
+**Status:** Implemented, independently reviewed and verified locally. Task review, final Standards/Spec reviews and scoped fix reviews have no open findings. Subsequently pushed by explicit authorization as [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) at `ccabaae`; not merged or accepted as a milestone.
 
 ## Scope and contracts
 
@@ -18,7 +18,7 @@ The owner approved Task 3 after the [merged Tasks 1–2 cross-platform checkpoin
 
 This task supplies the Qt-free frame processor port, minimal full-range Mono8-to-Gray8 pass-through processor, and separately owned newest-frame processing worker. Raw pixels and metadata remain immutable; display pixels use a separate pool lease. The worker consumes slot revisions, publishes matching bundles, records bounded error/drop facts, and stops/joins without detaching. A finite in-flight processor call finishes and its unpublished output is discarded on cancellation.
 
-No startup UI, saved preferences, production live composition, high-depth normalization, enhancement stages, clinical/patient features, dependency changes, push or merge are authorized by this task. Tasks 4–5 own the remaining startup and visible live integration. M7–M8 replace the temporary Mono8 processor through the same port.
+No startup UI, saved preferences, production live composition, high-depth normalization, enhancement stages, clinical/patient features or dependency changes are included in this task. Tasks 4–5 own the remaining startup and visible live integration. The later push and M5 continuation authorization is recorded below; no merge is authorized. M7–M8 replace the temporary Mono8 processor through the same port.
 
 ## Implemented boundary
 
@@ -89,6 +89,6 @@ If the observation shape proves inadequate, revise this small API before Task 5/
 
 ## Remaining gates
 
-Matching Windows evidence for Task 3 remains pending; the green `7295fb9` runs cover only Tasks 1–2. Startup controls/preferences and visible production live composition remain Tasks 4–5. Nothing in this checkpoint authorizes those tasks, a push or a merge.
+Matching Windows evidence for Task 3 remains pending in this record; the green `7295fb9` runs cover only Tasks 1–2. Before the authorized push at `ccabaae`, fresh full native-inclusive Linux runs passed 30/30 Debug (16.41 s) and 30/30 Release (13.63 s). PR #6 targets main at that exact Task 3 head. The owner explicitly requested continued M5 work without waiting for its CI, so startup controls/preferences and visible production live composition proceed on the separate `feat/m05-startup-and-integration` branch based on `ccabaae`. This is development authorization, not Windows verification, another push or a merge.
 
 The [M4 native Windows 11 deferral](m04-deferred-windows-validation.md) remains open. No M4/M5 acceptance, installer/hardware validation, performance guarantee or authorization for clinical use follows from this checkpoint.
