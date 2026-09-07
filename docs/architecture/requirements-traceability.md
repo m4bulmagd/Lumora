@@ -164,6 +164,6 @@ See the [Task 5 checkpoint](milestones/m05-live-integration.md) for source, comm
 | Native-depth `LivePipeline` and prepared `AcquisitionWorker` cases | Real 8/10/12/16-bit simulator flow, checked 44/54-byte resource sizing, prepared descriptor/ROI enforcement, source replacement and explicit startup after saved-mode changes | Existing lifecycle/stall/100-cycle cases retained; 148 focused cases in ten suites pass |
 | Full builds and native smoke | All simulator tests, real XCB exposure, tests-OFF/Basler-OFF app and absence of test/harness/pass-through/pylon production linkage | Debug 40+1 and Release 40+1 passed at `aaf93f0`; fresh production build passed; Windows pending |
 
-The [M7 execution record](milestones/m07-preflight.md) retains commits, task reviews, commands and evidence limitations. Whole-branch review and milestone acceptance remain pending. M8 algorithms are not supplied by the configuration vocabulary.
+The [M7 execution record](milestones/m07-preflight.md) retains commits, task reviews, commands and evidence limitations. Whole-branch review is approved with no required changes; milestone acceptance remains pending. M8 algorithms are not supplied by the configuration vocabulary.
 
 No row in this file represents clinical validation, regulatory evidence, or authorization for diagnostic use.

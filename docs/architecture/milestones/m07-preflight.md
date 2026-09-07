@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-07
 
-**Status:** Tasks 1–4 implemented and independently task-reviewed on `feat/m07-high-bit-depth`; local verification passed. Whole-branch review and milestone acceptance remain separate.
+**Status:** Tasks 1–4 implemented and independently task-reviewed on `feat/m07-high-bit-depth`; local verification passed. Whole-branch review is approved; milestone acceptance remains pending.
 
 ## Development sequence and authority
 
@@ -92,6 +92,6 @@ Local execution logs, detailed task reports and the production link/symbol audit
 
 ### Review and remaining gates
 
-All four independent task reviews are approved. Two minor coverage suggestions from Tasks 2–3 are carried to final review: direct destination-storage rejection for normalization, and direct degenerate-window/source-storage rejection checks for mapping. They are not known implementation failures. Whole-branch review is pending.
+All four independent task reviews are approved. Final whole-branch review of `7ceec0d..a69a24f` approved technical readiness with no Critical or Important findings and no required code changes. It triaged the two Task 2–3 coverage suggestions as nonblocking: direct destination-storage rejection for normalization, and direct degenerate-window/source-storage rejection checks for mapping. Those defensive branches remain safe to defer; they are not known implementation failures. The review report is retained with the local QA evidence. Review approval does not authorize integration or record milestone acceptance.
 
 The branch is not merged or pushed. Matching Windows/MSVC checks, deferred M4/M5 native Windows validation and acceptance, and M6 profile/hardware work remain pending. Linux results do not close any of those gates or accept M7. M8 enhancement algorithms and later UI, capture, performance and distribution work remain separate milestones.
