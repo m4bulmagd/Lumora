@@ -1,9 +1,12 @@
 add_executable(lumora_application_tests
   unit/application/CameraSessionStateMachineTests.cpp
   unit/application/CameraCommandMailboxTests.cpp
-  unit/application/AcquisitionWorkerTests.cpp)
+  unit/application/AcquisitionWorkerTests.cpp
+  unit/application/ProcessingWorkerTests.cpp)
 target_link_libraries(lumora_application_tests PRIVATE
   lumora::application lumora::camera_simulator GTest::gtest_main)
+target_include_directories(lumora_application_tests PRIVATE
+  "${PROJECT_SOURCE_DIR}/src/application/src")
 lumora_enable_warnings(lumora_application_tests)
 add_test(NAME Application.CameraSessionStateMachine
   COMMAND lumora_application_tests --gtest_filter=CameraSessionStateMachine.*)
@@ -14,6 +17,18 @@ set_tests_properties(Application.CameraSessionStateMachine Application.CameraCom
 add_test(NAME Application.AcquisitionWorker
   COMMAND lumora_application_tests --gtest_filter=AcquisitionWorker.*)
 set_tests_properties(Application.AcquisitionWorker PROPERTIES TIMEOUT 60)
+add_test(NAME Application.ProcessingWorker
+  COMMAND lumora_application_tests --gtest_filter=ProcessingWorker.*)
+set_tests_properties(Application.ProcessingWorker PROPERTIES TIMEOUT 60)
+
+add_executable(lumora_processing_tests
+  unit/processing/Mono8PassThroughProcessorTests.cpp)
+target_link_libraries(lumora_processing_tests PRIVATE
+  lumora::processing GTest::gtest_main)
+lumora_enable_warnings(lumora_processing_tests)
+add_test(NAME Processing.Mono8PassThrough
+  COMMAND lumora_processing_tests --gtest_filter=Mono8PassThroughProcessor.*)
+set_tests_properties(Processing.Mono8PassThrough PROPERTIES TIMEOUT 60)
 
 add_executable(
   lumora_ui_tests

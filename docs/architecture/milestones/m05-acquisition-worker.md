@@ -6,9 +6,9 @@
 
 **Review-fix source:** `1dc19e65381a87fa6660f82fed0a593d9de4a9cb`
 
-**Status:** Implemented, verified and reviewed locally; task review and final Standards/Spec review are clear. Windows CI and full M5 acceptance pending. Not a milestone acceptance record.
+**Status:** Implemented, reviewed, merged and verified in Linux/Windows Debug/Release CI; task review and final Standards/Spec review are clear. Full M5 acceptance remains pending. Not a milestone acceptance record.
 
-The [M5 plan](../../superpowers/plans/2026-04-25-m05-independent-live-pipeline.md) and [preflight contracts](m05-preflight.md) define this task. Development continues under the [M4 Windows 11 manual-validation deferral](m04-deferred-windows-validation.md); those checks remain pending, not passed. Nothing was pushed or merged for this checkpoint.
+The [M5 plan](../../superpowers/plans/2026-04-25-m05-independent-live-pipeline.md) and [preflight contracts](m05-preflight.md) define this task. Development continues under the [M4 Windows 11 manual-validation deferral](m04-deferred-windows-validation.md); those checks remain pending, not passed. The original local checkpoint below preceded the separately authorized merge and CI record.
 
 ## Implemented boundary
 
@@ -80,8 +80,19 @@ Final independent checkpoint review examined the complete `f0bd99d...4ce17fd` ch
 4. Use a stable worker-owned stop source shared by waits/discovery/retrieval, while the owner serializes the `jthread` handle's start/join. This avoids producer-thread access to that changing handle. If the lifecycle model expands, revisit synchronization without weakening direct cancellation or joined ownership.
 5. Correct the narrow Start/priority outcome ordering with bounded deferral and require direct structural review, while documenting the deterministic-coverage gap above. If the reasoning is wrong, that scheduling defect may evade automated tests; revisit the seam if execution boundaries change, without treating probabilistic tests as deterministic evidence.
 
+## Merged cross-platform checkpoint (2026-09-07)
+
+Tasks 1–2 were merged into `main` at `7295fb95028714c16bdf8bf35cc77c920ccd2035` and pushed with separate owner authorization. The merged tree exactly matches the reviewed `6fb0081` tree; prior local planning history is preserved as the other merge parent. This later record supersedes the checkpoint's original no-push/no-merge and pending-Windows status without changing its historical test figures.
+
+| Exact-source CI | Result |
+|---|---|
+| [Linux Simulator 34101215800](https://github.com/m4bulmagd/Lumora/actions/runs/34101215800) | Debug and Release build/tests passed, including both native X11 desktop smoke steps; job duration 3m24s |
+| [Windows Simulator 34101215824](https://github.com/m4bulmagd/Lumora/actions/runs/34101215824) | MSVC Debug and Release build/tests passed; job duration 5m13s |
+
+Both runs report `success` for that exact merged SHA. GitHub cache-service restore/save warnings were non-blocking; no test failure was suppressed. The push did not run the opt-in ten-minute Windows stress workflow, and Windows Server CI does not supply native Windows 11 desktop validation. These runs cover Tasks 1–2, not later Task 3 code.
+
 ## Remaining gates
 
-Matching Windows/MSVC CI has not run for this source. Native Windows 11 checks remain deferred; neither M4 nor M5 is fully accepted. No installer, hardware, throughput/latency, long-duration soak or clinical validation is supplied by these tests.
+Native Windows 11 checks remain deferred; neither M4 nor M5 is fully accepted. No installer, hardware, throughput/latency, long-duration soak or clinical validation is supplied by these tests.
 
-The next planned implementation step is **M5 Task 3: frame processor port and processing worker**.
+The subsequent [M5 Task 3 checkpoint](m05-processing-worker.md) separately records processor/worker implementation, review and local verification; the Tasks 1–2 CI above does not verify that later source.

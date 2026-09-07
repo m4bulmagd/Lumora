@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. The user authorized Task 1 and subsequently Task 2 development while native Windows 11 manual checks remain pending; this is not M4/M5 acceptance or authorization to push. Task 1 is implemented and reviewed locally; see its [execution evidence](../../architecture/milestones/m05-camera-state-mailbox.md). Task 2 is implemented locally; its [checkpoint](../../architecture/milestones/m05-acquisition-worker.md) records verification and review status. Tasks 3–5 remain later work.
+**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. Tasks 1–2 were subsequently implemented, reviewed, merged and pushed with explicit authorization; matching Linux/Windows Debug/Release CI passed at `7295fb9`, as recorded in the [Task 2 checkpoint](../../architecture/milestones/m05-acquisition-worker.md#merged-cross-platform-checkpoint-2026-09-07). The user's latest approval authorizes [Task 3 development](../../architecture/milestones/m05-processing-worker.md) only. Tasks 4–5 remain later work. Native Windows 11 manual checks remain pending; neither the development exception nor Task 3 approval implies M4/M5 acceptance, another merge, or a push.
 
 ## Global Constraints
 
@@ -221,6 +221,8 @@ git commit -m "feat(app): add isolated acquisition worker"
 
 ### Task 3: Frame processor port and processing worker
 
+**Local checkpoint (2026-09-07):** Implemented and locally verified through review fixes at `3c59b11`; full native-inclusive Linux Debug/Release tests pass. See the [Task 3 record](../../architecture/milestones/m05-processing-worker.md) for exact-source evidence, review verdicts and remaining Windows/full-milestone gates. Tasks 4–5 are not included.
+
 **Files:**
 - Create: `src/processing/include/lumora/processing/IFrameProcessor.hpp`
 - Create: `src/processing/include/lumora/processing/Mono8PassThroughProcessor.hpp`
@@ -236,7 +238,7 @@ git commit -m "feat(app): add isolated acquisition worker"
 - Consumes: newest `RawFrame`, display pool, processor port, and bundle latest slot.
 - Produces: `IFrameProcessor::process(shared_ptr<const RawFrame>) -> Result<shared_ptr<const FrameBundle>>`, processing worker lifecycle, and replacement/error counters.
 
-- [ ] **Step 1: Write failing slow-processor freshness test**
+- [x] **Step 1: Write failing slow-processor freshness test**
 
 ```cpp
 TEST(ProcessingWorker, ProcessesNewestAvailableFrameAfterDelay) {
@@ -256,7 +258,7 @@ TEST(ProcessingWorker, ProcessesNewestAvailableFrameAfterDelay) {
 
 `ProcessingFixture` owns pools/slots, a blocking `IFrameProcessor` test adapter, and worker. `publishRaw(id)` creates a valid pooled Mono8 raw frame and publishes it. The fake numbers process calls from 1, records each input ID on entry, and blocks until `releaseCall(n)`; `waitForCall(n)` and `waitForBundleId(id)` have bounded watchdogs. Its RAII cleanup releases all current/future fake waits before requesting stop/join, even on fatal assertion. Call 1 legitimately returns frame 1; do not require its output to be frame 3. Add a separate test that publishes 1/2/3 **before starting** the worker and asserts first input 3.
 
-- [ ] **Step 2: Register and run failing processing suites**
+- [x] **Step 2: Register and run failing processing suites**
 
 Create/register `lumora_processing`, `lumora_processing_tests`, `Processing.Mono8PassThrough`, and `Application.ProcessingWorker`; append the processing worker to application and add application -> processing linkage. Reconfigure/build the two test targets, then:
 
@@ -266,19 +268,19 @@ ctest --preset linux-gcc-debug-sim --no-tests=error --output-on-failure -R '^(Pr
 
 Expected: pixel/ownership/freshness assertions fail against compiling stubs.
 
-- [ ] **Step 3: Implement minimal Mono8 processor**
+- [x] **Step 3: Implement minimal Mono8 processor**
 
 The pass-through processor accepts the exact full-range Mono8 descriptor and copies active row bytes into a separate pooled Gray8 display buffer, using the [mapping/orientation/factory contract](../../architecture/milestones/m05-preflight.md#5-processor-and-deterministic-tests). Original and raw share the source ID, not mutable pixels. Enhanced members are null. Unsupported descriptors return `Processing / processing_format_not_available`, and display exhaustion retains `ResourceExhaustion`; Milestone 7 replaces this adapter in production composition. Test padded rows, descriptor mismatch, all 256 sample values, unchanged raw bytes, shared owner release, and exhausted pools.
 
-- [ ] **Step 4: Implement stop-aware processing loop**
+- [x] **Step 4: Implement stop-aware processing loop**
 
 `ProcessingWorker(rawSlot, bundleSlot, processor)` borrows dependencies and provides `start() -> Result<void>`, `requestStop() noexcept`, and `join() noexcept`. Wait for a raw revision newer than the last consumed revision, process that input, publish a successful bundle, and categorize processing error or replacement. A newer arrival cannot alter an in-flight input; the next consume selects the newest value. Check stop/closed before processing and stop again before publication; `LatestValueSlot::waitForNewer` may return a retained value after cancellation. A closed/empty slot terminates rather than spins. Never drain a historical queue or add a stop parameter to the M7 processor interface without a separate contract change.
 
-- [ ] **Step 5: Run freshness, error, and cancellation tests**
+- [x] **Step 5: Run freshness, error, and cancellation tests**
 
 Cover replacement before first consume, an in-flight frame followed by newest input, bundle replacement, processor failure, stop while waiting, cancellation during a releasable in-flight call, closed-empty slot, and pool exhaustion. Rerun the focused suites at green. The last bundle ID must match the last explicitly consumed input, not a frame that arrived after that process call began.
 
-- [ ] **Step 6: Commit processing worker**
+- [x] **Step 6: Commit processing worker**
 
 ```powershell
 git add src/processing src/application tests/unit/processing tests/unit/application src/CMakeLists.txt tests/CMakeLists.txt
