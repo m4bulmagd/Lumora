@@ -16,6 +16,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -91,6 +92,14 @@ public:
             call = inputs_.size();
             changed_.notify_all();
             changed_.wait(lock, [&] { return releaseAll_ || released_ >= call; });
+            if (throwStandard_) {
+                throwStandard_ = false;
+                throw std::runtime_error("scripted processor exception");
+            }
+            if (throwUnknown_) {
+                throwUnknown_ = false;
+                throw 17;
+            }
             if (nextFailure_) {
                 auto error = std::move(*nextFailure_);
                 nextFailure_.reset();
@@ -149,6 +158,16 @@ public:
         nextFailure_ = std::move(error);
     }
 
+    void throwStandardNext() {
+        std::lock_guard lock(mutex_);
+        throwStandard_ = true;
+    }
+
+    void throwUnknownNext() {
+        std::lock_guard lock(mutex_);
+        throwUnknown_ = true;
+    }
+
     void returnNext(std::shared_ptr<const core::FrameBundle> bundle) {
         std::lock_guard lock(mutex_);
         hasBundleOverride_ = true;
@@ -162,6 +181,8 @@ private:
     std::vector<std::uint64_t> inputs_;
     std::size_t released_{0U};
     bool releaseAll_{false};
+    bool throwStandard_{false};
+    bool throwUnknown_{false};
     std::optional<core::Error> nextFailure_;
     bool hasBundleOverride_{false};
     std::shared_ptr<const core::FrameBundle> bundleOverride_;
@@ -349,6 +370,42 @@ TEST(ProcessingWorker, SeparatesDisplayPoolExhaustionFromOtherFailures) {
     EXPECT_EQ(snapshot.displayPoolExhaustions, 1U);
     ASSERT_TRUE(snapshot.currentError);
     EXPECT_EQ(snapshot.currentError->code, "frame_allocation_failed");
+}
+
+// Letting a processor exception escape the jthread entry terminates the process.
+TEST(ProcessingWorker, ContainsStandardProcessorExceptionAsTypedFailure) {
+    ProcessingFixture fixture;
+    fixture.processor.throwStandardNext();
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    fixture.publishRaw(1U);
+    ASSERT_TRUE(fixture.processor.waitForCall(1U));
+    fixture.processor.releaseCall(1U);
+
+    fixture.worker.join();
+    const auto snapshot = fixture.worker.snapshot();
+    EXPECT_EQ(snapshot.processingErrors, 1U);
+    ASSERT_TRUE(snapshot.currentError);
+    EXPECT_EQ(snapshot.currentError->category, core::ErrorCategory::Internal);
+    EXPECT_EQ(snapshot.currentError->code, "processing_worker_exception");
+    EXPECT_FALSE(fixture.bundleSlot.consumeAfter(0U));
+}
+
+// Non-standard exceptions require the same fail-closed worker containment.
+TEST(ProcessingWorker, ContainsUnknownProcessorExceptionAsTypedFailure) {
+    ProcessingFixture fixture;
+    fixture.processor.throwUnknownNext();
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    fixture.publishRaw(1U);
+    ASSERT_TRUE(fixture.processor.waitForCall(1U));
+    fixture.processor.releaseCall(1U);
+
+    fixture.worker.join();
+    const auto snapshot = fixture.worker.snapshot();
+    EXPECT_EQ(snapshot.processingErrors, 1U);
+    ASSERT_TRUE(snapshot.currentError);
+    EXPECT_EQ(snapshot.currentError->category, core::ErrorCategory::Internal);
+    EXPECT_EQ(snapshot.currentError->code, "processing_worker_unknown_exception");
+    EXPECT_FALSE(fixture.bundleSlot.consumeAfter(0U));
 }
 
 // Failing to pass the stop token into the raw wait leaves join blocked forever.

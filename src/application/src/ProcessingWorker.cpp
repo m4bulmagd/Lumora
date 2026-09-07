@@ -8,8 +8,12 @@
 #include <mutex>
 #include <stop_token>
 #include <thread>
+#include <type_traits>
+#include <utility>
 
 namespace lumora::application {
+
+static_assert(std::is_nothrow_move_constructible_v<core::Error>);
 
 struct ProcessingWorker::Impl final {
     Impl(core::LatestValueSlot<core::RawFrame>& rawSlotValue,
@@ -17,7 +21,21 @@ struct ProcessingWorker::Impl final {
          processing::IFrameProcessor& processorValue)
         : rawSlot(&rawSlotValue),
           bundleSlot(&bundleSlotValue),
-          processor(&processorValue) {}
+          processor(&processorValue),
+          standardExceptionFailure({
+              core::ErrorCategory::Internal,
+              "processing_worker_exception",
+              "Frame processing stopped unexpectedly.",
+              "The processing worker caught a standard exception at its thread boundary.",
+              false,
+          }),
+          unknownExceptionFailure({
+              core::ErrorCategory::Internal,
+              "processing_worker_unknown_exception",
+              "Frame processing stopped unexpectedly.",
+              "The processing worker caught an unknown exception at its thread boundary.",
+              false,
+          }) {}
 
     core::LatestValueSlot<core::RawFrame>* rawSlot;
     core::LatestValueSlot<core::FrameBundle>* bundleSlot;
@@ -27,16 +45,31 @@ struct ProcessingWorker::Impl final {
     bool started{false};
     mutable std::mutex snapshotMutex;
     ProcessingWorkerSnapshot snapshot;
+    core::Error standardExceptionFailure;
+    core::Error unknownExceptionFailure;
+
+    void recordBoundaryFailure(core::Error&& error) noexcept {
+        try {
+            std::lock_guard lock(snapshotMutex);
+            detail::saturatingIncrement(snapshot.processingErrors);
+            snapshot.currentError.emplace(std::move(error));
+        } catch (...) {
+            // The thread boundary remains contained if reporting itself fails.
+        }
+    }
 
     void recordFailure(const core::Error& error) {
+        const bool displayPoolExhausted =
+            error.category == core::ErrorCategory::ResourceExhaustion &&
+            error.code == processing::displayBufferPoolExhaustedCode;
+        core::Error retainedError(error);
         std::lock_guard lock(snapshotMutex);
-        if (error.category == core::ErrorCategory::ResourceExhaustion &&
-            error.code == processing::displayBufferPoolExhaustedCode) {
+        if (displayPoolExhausted) {
             detail::saturatingIncrement(snapshot.displayPoolExhaustions);
         } else {
             detail::saturatingIncrement(snapshot.processingErrors);
         }
-        snapshot.currentError = error;
+        snapshot.currentError.emplace(std::move(retainedError));
     }
 
     void recordPublication(bool replaced) {
@@ -96,6 +129,16 @@ struct ProcessingWorker::Impl final {
             }
         }
     }
+
+    void runBoundary() noexcept {
+        try {
+            run();
+        } catch (const std::exception&) {
+            recordBoundaryFailure(std::move(standardExceptionFailure));
+        } catch (...) {
+            recordBoundaryFailure(std::move(unknownExceptionFailure));
+        }
+    }
 };
 
 ProcessingWorker::ProcessingWorker(
@@ -129,7 +172,7 @@ core::Result<void> ProcessingWorker::start() {
         });
     }
     try {
-        impl_->thread = std::jthread([impl = impl_.get()] { impl->run(); });
+        impl_->thread = std::jthread([impl = impl_.get()] { impl->runBoundary(); });
     } catch (const std::exception& exception) {
         return core::Result<void>::failure({
             core::ErrorCategory::Internal,
