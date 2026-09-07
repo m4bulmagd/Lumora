@@ -1,10 +1,10 @@
 # Requirements traceability
 
-This matrix records the evidence chain for the approved evaluation architecture. The original M1–M3 results refer to `2c88ec90ab58e3e6719be5e236dc49388dbc72dd`, verified in Linux/GCC and Windows/MSVC Debug and Release. M4 extensions below record merged Tasks 1–4 separately from remaining stress/visual acceptance; they do not overwrite that accepted baseline.
+This matrix records the evidence chain for the approved evaluation architecture. The original M1–M3 results refer to `2c88ec90ab58e3e6719be5e236dc49388dbc72dd`, verified in Linux/GCC and Windows/MSVC Debug and Release. M4 extensions below record merged Tasks 1–4 separately from remaining native visual acceptance; they do not overwrite that accepted baseline.
 
 Current checkpoint: M1–M3 implementation is merged and pushed to `main`. **M3 is accepted for engineering/evaluation**; the [M3 verification record](milestones/m03-camera-api-simulator.md#cross-platform-ci-verification) records the exact-SHA successful CI runs, runner/compiler versions, local checks, and limitations. An implemented subset below does not imply that its complete design section or a later milestone is accepted.
 
-M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with passing cross-platform Debug/Release CI. Task 4 adds presentation and a non-shipping simulator harness. See the [M4 execution record](milestones/m04-preflight.md) for exact source/review evidence and remaining gates. **M4 is not yet accepted**; Windows Release stress and Windows 11 visual/DPI checks remain outstanding. The opt-in CI/evidence-collector follow-up requires its own cross-platform CI and actual stress execution.
+M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with passing cross-platform Debug/Release CI. Task 4 adds presentation and a non-shipping simulator harness. See the [M4 execution record](milestones/m04-preflight.md) for exact source/review evidence and remaining gates. **M4 is not fully accepted**; native Windows 11 visual/DPI checks remain pending. The follow-up at `6c054a7` passed matching Linux/Windows Debug/Release CI and Windows Release stress. The [2026-09-07 scoped exception](milestones/m04-deferred-windows-validation.md) permits M5 development only; it does not pass the manual gate.
 
 | ID | Design source | Implementation/evidence | Linux/GCC | Windows/MSVC | Status |
 |---|---|---|---|---|---|
@@ -18,12 +18,12 @@ M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with pas
 | DES-8 | §8 Threading model | Thread-confined camera port; UI-timer presenter and joined test-only simulator worker; no per-frame queued Qt signal | M4 harness subset verified | M4 harness subset verified in CI | Production worker orchestration remains M5/M12 |
 | DES-9 | §9 Frame memory ownership and bounded buffering | Core pool/frame/slot/queue tests; `ImageViewport`, `FramePresenter`, `SimulatedViewer` retained-ownership checks | M4 viewer subset verified | M4 viewer subset verified in CI | Production pipeline pools remain later work |
 | DES-10 | §10 Processing pipeline | Frame/provenance contracts exist; processing, high-bit-depth mapping and enhancements remain M5/M7/M8 | Not yet verified as pipeline | Not run | Planned |
-| DES-11 | §11 Rendering and workstation UI | `ViewportTransform`, `ImageViewport`, `WorkstationView`, `FramePresenter`, `SimulatedViewer`; native Linux desktop smoke | M4 subset verified | Tasks 1–4 verified in CI; native Windows visual/DPI pending | M4 unaccepted; later controls remain M9 |
+| DES-11 | §11 Rendering and workstation UI | `ViewportTransform`, `ImageViewport`, `WorkstationView`, `FramePresenter`, `SimulatedViewer`; native Linux desktop smoke | M4 subset verified | Tasks 1–4 verified in CI; native Windows visual/DPI pending | M4 unaccepted; minimal startup controls remain M5, complete editor M9 |
 | DES-12 | §12 Capture and future recording | M10 capture plan; recording requires its own approved specification | Not run | Not run | Planned/deferred |
-| DES-13 | §13 Configuration and presets | `ConfigurationStore`; presets, installation profiles and controls remain M9 | Verified for store only | Verified for store only | Partial |
+| DES-13 | §13 Configuration and presets | `ConfigurationStore`; startup preferences remain M5, presets/installation profiles/full controls M9 | Verified for store only | Verified for store only | Partial |
 | DES-14 | §14 Diagnostics, metrics, and logging | `Logging`, pool/slot counters and simulator pacing-slip tests; full diagnostics remain M11 | Verified for foundation only | Verified for foundation only | Partial |
 | DES-15 | §15 Reliability and failure policy | M3 device faults; M4 paused/stale, blocked-image-path, event-loop recovery and observable harness-timeout tests | M4 subset verified | M4 subset verified in CI | System recovery remains M12 |
-| DES-16 | §16 Test strategy | M1–M4 verification maps below; default short integration and opt-in 600-second M4 stress | See exact-source M4 execution record | M4 Tasks 1–4 CI passed; stress pending | Reference-image/performance/hardware gates remain later work |
+| DES-16 | §16 Test strategy | M1–M4 verification maps below; default short integration and opt-in 600-second M4 stress | See exact-source M4 execution record | M4 and follow-up CI passed; Release stress passed at `6c054a7` | Reference-image/performance/hardware gates remain later work |
 | DES-17 | §17 Milestones and acceptance criteria | Per-milestone plans, [M3 acceptance](milestones/m03-camera-api-simulator.md#acceptance-evidence), [M4 execution](milestones/m04-preflight.md) | M4 local evidence, not acceptance | M4 external gates incomplete | M3 accepted; M4–M14 unaccepted |
 | DES-18 | §18 Technical risks and mitigations | Bounded storage/retrieval and SDK isolation tested; rendering, throughput, hardware and distribution risks remain in their milestone gates | Partial evidence | Partial evidence | Ongoing |
 | DES-19 | §19 Deferred decisions | [Open hard gates](../superpowers/README.md#open-hard-gates) record required camera, workstation and distribution inputs | Not an executable test | Not an executable test | Deferred until the specified gates |
@@ -85,10 +85,30 @@ M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with pas
 | `SimulatedViewer.ResponsiveTenSeconds` | Real simulator worker publications/completed paints, interactive transforms/pause/resize, continued/late progress, bounded retained bundles, clean stop; also invokes timeout recovery and suppressed-publication checks | Default 60-second-bounded CTest entry; merged cross-platform CI |
 | `SimulatedViewer.TimeoutIsObservableAndRecovers`, `SuppressedPreparedPublicationKeepsAcquiringAndBecomesStale`, `StoppedProducerDoesNotPublish`, `ClosedSlotSuppressesPreparedPublicationAfterAcquisition` | Typed timeout reporting/recovery, later terminal replacement, acquiring while prepared delivery is suppressed, publication close/stop boundaries | Named focused cases; required boundaries also covered by the default integration driver/helper calls |
 | `SimulatedViewer.TimeoutPredicateRequiresExactTypedRecoverableError` | Only Acquisition + acquisition_timeout + recoverable is transient; mismatched category, code or recoverability is rejected | Focused regression also invoked by the default short integration case |
-| `SimulatedViewer.StressTenMinutes` (`SimulatedViewer.Stress` CTest entry) | Same interaction/ownership/liveness driver over 600 seconds | Linux Release passed at `c4b7e7f` in 600.16 s; max 2 retained bundles, observable timeouts counted; Windows run pending. See M4 execution evidence for counts/limits |
+| `SimulatedViewer.StressTenMinutes` (`SimulatedViewer.Stress` CTest entry) | Same interaction/ownership/liveness driver over 600 seconds | Linux Release passed at `c4b7e7f` in 600.16 s; max 2 retained bundles, observable timeouts counted; Windows Release passed at `6c054a7` in 600.198 s, with 16,831 observed publications, 12,122 paints, max 2 retained bundles and 0 timeouts. See M4 execution evidence for counts/limits |
 | `CMake.StressEvidence` | CTest stress-only selection, successful-output retention, failure/missing-test propagation, and preservation of previous evidence | Fast infrastructure fixture check; not a 600-second stress or hosted Windows result |
 | Native Linux checks and tests-disabled build | XCB exposure, synthetic render inspection, harness excluded from normal app links and install scope | Local-only engineering evidence; not physical-display or Windows validation |
 
-The [M3 record](milestones/m03-camera-api-simulator.md) retains every M3 acceptance criterion. The [M4 record](milestones/m04-preflight.md) separates local execution from unfulfilled cross-platform stress/visual gates. M5–M14 remain planned; production live composition, Windows installer validation (M13), and hardware acceptance (M14) are not supplied by the test harness.
+The [M3 record](milestones/m03-camera-api-simulator.md) retains every M3 acceptance criterion. The [M4 record](milestones/m04-preflight.md) separates completed automated verification from deferred native Windows 11 validation. M5 Task 1 is implemented locally, and subsequent Task 2 development is authorized under the scoped exception. Tasks 3–5 and M6–M14 remain planned; production live composition, Windows installer validation (M13), and hardware acceptance (M14) are not supplied by the test harness.
+
+## Milestone 5 Task 1 verification map (local only)
+
+| Test/check | Requirement covered | Evidence boundary |
+|---|---|---|
+| `Application.CameraSessionStateMachine` | Pure camera state ordering, 192 state/event pairs, unchanged typed rejection, request/success separation and terminal cancellation | Four tests at `51cdc04`; Linux Debug/Release pass; worker identity/revision/device effects remain Task 2 |
+| `Application.CameraCommandMailbox` | Fixed 32-command storage, priority under full load, in-flight fences and exact completion IDs, generation/lifecycle coalescing, stop/close/wakeup, bounded counters and concurrent admission | 22 tests at `51cdc04`; Linux Debug/Release pass; no production acquisition connected yet |
+| Build/registration | Qt-free application linkage, explicit suites/watchdogs, tests-OFF/Basler-OFF application and state library build | Full Linux 27/27 Debug and Release; Windows CI for new source pending |
+
+See the [Task 1 checkpoint](milestones/m05-camera-state-mailbox.md) for source, commands, independent review, counts and limitations. M5 Tasks 2–5 and native checks are not passed by this partial implementation.
+
+## Milestone 5 Task 2 verification map (local only)
+
+| Test/check | Requirement covered | Evidence boundary |
+|---|---|---|
+| `Application.AcquisitionWorker` | Exclusive provider/device ownership; explicit configuration/confirmation/start; revision/session guards; latest-only raw publication; categorized failure/drop policy; single-attempt same-ID Retry; priority cleanup and direct cancellation | 28 tests at `1dc19e6`; Linux Debug/Release verified; the checkpoint records the narrow final-Start priority-path coverage limitation; production composition and source-context handoff remain Task 5 |
+| Extended state/mailbox suites | Validated device-free initial state, priority-only selection preserving ordinary FIFO, closed-mailbox observation | Five state and 23 mailbox cases; 56 total application tests passing locally |
+| Build/registration | Qt-free worker linkage, three explicit Application suites with 60-second watchdogs, tests-OFF/Basler-OFF library/application build | Full Linux 28/28 Debug and Release; Windows CI for this source pending |
+
+See the [Task 2 checkpoint](milestones/m05-acquisition-worker.md) for exact source, commands, process limitations, contract decisions and review status. Tasks 3–5, automatic recovery in M12, native Windows checks and full milestone acceptance remain outstanding.
 
 No row in this file represents clinical validation, regulatory evidence, or authorization for diagnostic use.

@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Preflight revision (2026-09-06):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) before execution. This is a documentation-only preparation pass against source `6c054a7`, not M5 implementation or acceptance. M4 Windows Release stress, native Windows 11 visual/DPI evidence, and separate acceptance remain prerequisites. Do not execute the commit commands below during documentation preparation; they belong to later approved implementation.
+**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. The user authorized Task 1 and subsequently Task 2 development while native Windows 11 manual checks remain pending; this is not M4/M5 acceptance or authorization to push. Task 1 is implemented and reviewed locally; see its [execution evidence](../../architecture/milestones/m05-camera-state-mailbox.md). Task 2 is implemented locally; its [checkpoint](../../architecture/milestones/m05-acquisition-worker.md) records verification and review status. Tasks 3–5 remain later work.
 
 ## Global Constraints
 
@@ -65,9 +65,9 @@ Apply the same configure/build/test cycle to Release and matching Windows preset
 
 **Interfaces:**
 - Consumes: `CameraId`, `CameraConfiguration`, `AppliedCameraConfiguration`, capabilities, `Error`, stop tokens, and fixed bounded storage. The M2 generic FIFO is unchanged.
-- Produces: `CameraSessionState`, `CameraSessionEvent`, `struct CameraCommand`, `CameraStatusSnapshot`, and `CameraCommandMailbox::{post,tryPop,waitPop,completeBarrier,close,size}` with the [exact priority/admission contract](../../architecture/milestones/m05-preflight.md#1-camera-commands-and-bounded-mailbox).
+- Produces: `CameraSessionState`, `CameraSessionEvent`, `struct CameraCommand`, `CameraStatusSnapshot`, and `CameraCommandMailbox::{post,tryPop,waitPop,completeBarrier,close,size,stats}` with the [exact priority/admission contract](../../architecture/milestones/m05-preflight.md#1-camera-commands-and-bounded-mailbox).
 
-- [ ] **Step 1: Write the failing transition-table tests**
+- [x] **Step 1: Write the failing transition-table tests**
 
 ```cpp
 TEST(CameraSessionStateMachine, CannotStreamBeforeConnection) {
@@ -84,7 +84,7 @@ TEST(CameraSessionStateMachine, RemovalWhileStreamingRequestsReconnect) {
 }
 ```
 
-- [ ] **Step 2: Register and run the failing state/mailbox suites**
+- [x] **Step 2: Register and run the failing state/mailbox suites**
 
 Create/register `lumora_application`, `lumora_application_tests`, `Application.CameraSessionStateMachine` and `Application.CameraCommandMailbox` with the target map, then:
 
@@ -96,7 +96,7 @@ ctest --preset linux-gcc-debug-sim --no-tests=error --output-on-failure -R '^App
 
 Expected: a transition or priority assertion fails against compiling stubs, not an unknown target.
 
-- [ ] **Step 3: Implement the explicit state/event table**
+- [x] **Step 3: Implement the explicit state/event table**
 
 ```cpp
 enum class CameraSessionState {
@@ -117,15 +117,15 @@ Reject invalid transitions without mutation; preserve idempotent same-ID Connect
 
 Keep startup intent/confirmation separate from camera and viewer state. Task 4 supplies the typed saved record/panel, Task 5 wires its flow. Start requires a successful applied revision and matching confirmation on the camera worker; a UI button alone is not authorization. A later Resume action must revalidate identity/capabilities and actual readback before Start; drift cancels the continuation and requires review.
 
-- [ ] **Step 4: Implement mailbox priority/coalescing**
+- [x] **Step 4: Implement mailbox priority/coalescing**
 
 Use fixed storage for 32 commands with one lock around admission/coalescing/selection. Shutdown > Disconnect > Stop > ordinary FIFO. Priority commands remain admissible under full load by cancelling superseded/oldest ordinary work; repeated priority commands coalesce. Stop cancels pending Start/Confirm, Disconnect cancels all pending camera-specific work, and Shutdown seals admission. Coalesce Apply only within the same generation and lifecycle-barrier segment. Return `Result<void>` with `ResourceExhaustion / camera_mailbox_full` or `Cancelled / cancelled`, not an unexplained bool. Implement the pending Stop/Disconnect admission fences and nonblocking `tryPop` described in the preflight.
 
-- [ ] **Step 5: Exhaustively test state/event pairs and mailbox concurrency**
+- [x] **Step 5: Exhaustively test state/event pairs and mailbox concurrency**
 
-Generate every enum pair, assert the documented next state or unchanged typed error, and test concurrent producers, a full mailbox for each priority command, late Start/Connect during barriers, stale-session Apply/Confirm/Start, configuration coalescing across lifecycle barriers, close/cancellation, and idle wakeup. Rerun the Step 2 command at green; all registered focused cases must pass.
+Generate every enum pair, assert the documented next state or unchanged typed error, and test concurrent producers, a full mailbox for each priority command, late Start/Connect during pending and in-flight barriers, generation-isolated Apply coalescing and preserved Apply/Confirm/Start payloads, configuration coalescing across lifecycle barriers, bounded diagnostic counters, close/cancellation, and idle wakeup. Execution-time stale-session Apply/Confirm/Start rejection belongs to Task 2's worker tests, because this mailbox has no authoritative current session. Rerun the Step 2 command at green; all registered focused cases must pass.
 
-- [ ] **Step 6: Commit state control**
+- [x] **Step 6: Commit state control**
 
 ```powershell
 git add src/application tests/unit/application src/CMakeLists.txt tests/CMakeLists.txt
@@ -138,6 +138,13 @@ git commit -m "feat(app): add camera state machine and command mailbox"
 - Create: `src/application/include/lumora/application/AcquisitionWorker.hpp`
 - Create: `src/application/src/AcquisitionWorker.cpp`
 - Create: `tests/unit/application/AcquisitionWorkerTests.cpp`
+- Modify: `src/application/include/lumora/application/ApplicationState.hpp`
+- Modify: `src/application/include/lumora/application/CameraSessionStateMachine.hpp`
+- Modify: `src/application/src/CameraSessionStateMachine.cpp`
+- Modify: `src/application/include/lumora/application/CameraCommandMailbox.hpp`
+- Modify: `src/application/src/CameraCommandMailbox.cpp`
+- Modify: `tests/unit/application/CameraSessionStateMachineTests.cpp`
+- Modify: `tests/unit/application/CameraCommandMailboxTests.cpp`
 - Modify: `src/CMakeLists.txt`
 - Modify: `tests/CMakeLists.txt`
 
@@ -145,7 +152,9 @@ git commit -m "feat(app): add camera state machine and command mailbox"
 - Consumes: `ICameraProvider`, `CameraCommandMailbox`, raw `BufferPool`, `LatestValueSlot<RawFrame>`, `IClock`, and a latest `CameraStatusSnapshot` slot.
 - Produces: start/join lifecycle, command execution, bounded 250 ms retrieval, raw publication, and categorized acquisition counters.
 
-- [ ] **Step 1: Write failing ownership and stale-replacement tests**
+Task 2's consumer-driven interface clarifications are in the preflight: latest discovery/acquisition status, validated initial-state construction, priority-only mailbox checks/close observation, and explicit fresh-context replacement. Retry on a fresh Reconnecting worker opens the retained identity once to idle; the Task 5 owner retires an old context before forwarding an action that creates a replacement device. The first successful Apply fixes this worker's mode; composition selects that initial mode and matching pools.
+
+- [x] **Step 1: Write failing ownership and stale-replacement tests**
 
 ```cpp
 TEST(AcquisitionWorker, AllDeviceCallsOccurOnWorkerThread) {
@@ -162,7 +171,7 @@ TEST(AcquisitionWorker, AllDeviceCallsOccurOnWorkerThread) {
 
 `AcquisitionFixture` owns the recorder, provider, clock, raw pool, mailbox, raw/status slots, and worker in dependency order; its destructor requests stop and joins before dependencies die. Its provider creates a **closed** fake on the worker, and recording covers provider discovery/create plus device construction, every method, and destruction. `connectApplyConfirmAndStart()` posts the full explicit command sequence and awaits each successful status; `waitForAcquiredCount(n)` awaits the counter with a bounded condition-variable watchdog. Both return bool for fatal assertions; no sleep or hidden UI-thread device setup.
 
-- [ ] **Step 2: Register and run the failing worker suite**
+- [x] **Step 2: Register and run the failing worker suite**
 
 Append the worker source and test to the existing application targets and register `Application.AcquisitionWorker`; reconfigure/build, then run:
 
@@ -172,7 +181,7 @@ ctest --preset linux-gcc-debug-sim --no-tests=error --output-on-failure -R '^App
 
 Expected: the ownership, admission, or publication assertion fails before behavior is implemented.
 
-- [ ] **Step 3: Implement worker loop and command execution**
+- [x] **Step 3: Implement worker loop and command execution**
 
 ```cpp
 class AcquisitionWorker final {
@@ -195,15 +204,15 @@ The constructor borrows dependencies; it creates no device and performs no camer
 
 While idle use mailbox `waitPop(stopToken)`; while streaming use `tryPop()` with the bounded priority-first batch, then `retrieve(250ms, rawPool, stopToken)`. Recheck stop/priority before retrieval and before Start. Publish successful validated frames, release failures immediately, and never sleep while holding a device result or pool lock. Check cancellation before publication even if retrieval returned a frame. Catch worker exceptions into typed errors, clean up on the owning thread, and report failed cleanup honestly.
 
-- [ ] **Step 4: Handle pool exhaustion and replacement explicitly**
+- [x] **Step 4: Handle pool exhaustion and replacement explicitly**
 
 If the camera returns `ResourceExhaustion`, increment `droppedNoRawBuffer`. If raw publication replaces an unconsumed frame, increment `droppedBeforeProcessing`. Neither case changes camera state.
 
-- [ ] **Step 5: Test start/stop/disconnect/shutdown paths**
+- [x] **Step 5: Test start/stop/disconnect/shutdown paths**
 
 Use scripted simulator/fakes to cover commands while idle/streaming, timeout counts 1/2/3 and valid-frame reset, malformed frames, pool exhaustion, settings rejection, removal, manual Retry, Disconnect, full-mailbox priority, confirmation guards, and shutdown during retrieve. Assert acquisition stop/join during cancellable retrieval completes within 250 ms + 250 ms scheduling allowance; this is not a bound on arbitrary driver or filesystem calls. Rerun the focused suite at green and confirm every case is registered.
 
-- [ ] **Step 6: Commit acquisition worker**
+- [x] **Step 6: Commit acquisition worker**
 
 ```powershell
 git add src/application tests/unit/application/AcquisitionWorkerTests.cpp src/CMakeLists.txt tests/CMakeLists.txt
@@ -454,4 +463,4 @@ git commit -m "feat(app): connect independent live pipeline"
 - [ ] First-run and saved Resume workflows, schema-1 migration, capability/readback drift, and failed load/save pass without UI-thread persistence or silent Start.
 - [ ] Timeout 1/2/3, removal, malformed-frame/exhaustion/cancellation classification, interim manual Retry, and manual Disconnect behavior match the M5/M12 split.
 - [ ] New tests are explicitly registered; complete Linux/GCC and matching Windows/MSVC Debug/Release simulator suites pass at the recorded source, and tests-OFF/Basler-OFF application composition builds without the M4 harness.
-- [ ] M4 acceptance remains satisfied, affected native UI checks and traceability are recorded, and M5 acceptance is written separately from implementation commits.
+- [ ] M4 acceptance, including its deferred native Windows 11 checks, is closed; affected M5 native UI checks and traceability are recorded, and M5 acceptance is written separately from implementation commits. The scoped exception permits development only.
