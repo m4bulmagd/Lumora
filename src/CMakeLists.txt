@@ -41,6 +41,7 @@ add_library(
   processing/include/lumora/processing/ImageView.hpp
   processing/include/lumora/processing/NormalizeStage.hpp
   processing/include/lumora/processing/WindowLevelStage.hpp
+  processing/include/lumora/processing/ToneStages.hpp
   processing/include/lumora/processing/DisplayMapper.hpp
   processing/include/lumora/processing/ProcessingPipeline.hpp
   processing/include/lumora/processing/ProcessingWorkspace.hpp
@@ -51,6 +52,10 @@ add_library(
   processing/src/ImageView.cpp
   processing/src/NormalizeStage.cpp
   processing/src/WindowLevelStage.cpp
+  processing/src/ToneStageSupport.hpp
+  processing/src/BrightnessContrastStage.cpp
+  processing/src/GammaStage.cpp
+  processing/src/InvertStage.cpp
   processing/src/DisplayMapper.cpp
   processing/src/PipelineCompiler.cpp
   processing/src/Mono8PassThroughProcessor.cpp
