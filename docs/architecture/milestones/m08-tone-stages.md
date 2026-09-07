@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-07
 
-**Status:** Task 1 implemented at `246a73a` and independently task-reviewed on `feat/m08-tone-stages`. Local Linux Debug/Release suites passed; the tests-disabled production build passed and final review is pending. M8 is not accepted.
+**Status:** Task 1 implemented at `246a73a` and independently task-reviewed on `feat/m08-tone-stages`. Local Linux Debug/Release suites passed; the tests-disabled production build and final whole-branch review passed. M8 is not accepted.
 
 ## Authority and scope
 
@@ -50,3 +50,5 @@ Commands: `cmake --build --preset linux-gcc-{debug,release}-sim --parallel 3`, `
 
 
 A fresh Release `lumora_app` build with tests, benchmarks and Basler disabled passed with GCC 15.2.0. Configure/build logs are `production-configure.log` and `production-build.log` under the same QA directory.
+
+Final whole-branch review of `d191097..7c6f8bf` approved Task 1 with no Critical, Important or Minor findings and no required changes. The separate M7 stall-test correction, matching M8 Windows evidence and milestone acceptance remain open.
