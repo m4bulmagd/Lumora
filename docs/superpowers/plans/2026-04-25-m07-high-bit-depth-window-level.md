@@ -248,11 +248,11 @@ git commit -m "feat(processing): integrate immutable high-depth frame engine"
 
 ## Milestone 7 acceptance gate
 
-Local implementation evidence at `aaf93f0` covers the checked criteria below. This does not record milestone acceptance; matching Windows and preceding deferred gates remain open. See the [execution record](../../architecture/milestones/m07-preflight.md).
+Local evidence at `aaf93f0` and matching Linux/Windows PR checks at `34cf24a` cover the checked criteria below; PR #8 merged as `d191097`. This does not record milestone acceptance; preceding deferred gates remain open. See the [execution record](../../architecture/milestones/m07-preflight.md).
 
 - [x] Known 8/10/12/16-bit inputs produce exact canonical values.
 - [x] Raw hashes remain unchanged through Original and Enhanced processing.
 - [x] Window/level and display mappings pass exhaustive scalar comparison.
 - [x] Original and Enhanced displays always share the raw frame ID.
 - [x] No U8 conversion occurs before `DisplayMapper`.
-- [ ] Linux/GCC and Windows/MSVC produce exact normalization, window/level, and Gray8 mapping results; reordered definitions are rejected. Inversion execution and its cross-platform reference evidence belong to M8 with the other enhancement algorithms.
+- [x] Linux/GCC and Windows/MSVC produce exact normalization, window/level, and Gray8 mapping results; reordered definitions are rejected. Inversion execution and its cross-platform reference evidence belong to M8 with the other enhancement algorithms.

@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-07
 
-**Status:** Tasks 1–4 implemented and independently task-reviewed on `feat/m07-high-bit-depth`; local verification passed. Whole-branch review is approved; milestone acceptance remains pending.
+**Status:** Tasks 1–4 implemented, independently reviewed and merged through PR #8 as `d191097`; Linux/GCC and Windows/MSVC Debug/Release checks passed. Milestone acceptance remains pending.
 
 ## Development sequence and authority
 
@@ -94,4 +94,25 @@ Local execution logs, detailed task reports and the production link/symbol audit
 
 All four independent task reviews are approved. Final whole-branch review of `7ceec0d..a69a24f` approved technical readiness with no Critical or Important findings and no required code changes. It triaged the two Task 2–3 coverage suggestions as nonblocking: direct destination-storage rejection for normalization, and direct degenerate-window/source-storage rejection checks for mapping. Those defensive branches remain safe to defer; they are not known implementation failures. The review report is retained with the local QA evidence. Review approval does not authorize integration or record milestone acceptance.
 
-The branch is not merged or pushed. Matching Windows/MSVC checks, deferred M4/M5 native Windows validation and acceptance, and M6 profile/hardware work remain pending. Linux results do not close any of those gates or accept M7. M8 enhancement algorithms and later UI, capture, performance and distribution work remain separate milestones.
+At this local review checkpoint, the branch had not yet been pushed or merged and matching Windows/MSVC checks were pending; the subsequent integration evidence follows below. Deferred M4/M5 native Windows validation and acceptance, and M6 profile/hardware work remain open. M8 enhancement algorithms and later UI, capture, performance and distribution work remain separate milestones.
+
+## PR integration — 2026-09-07
+
+The owner approved the proposed PR, cross-platform CI and merge workflow with “Ok do that.” [PR #8](https://github.com/m4bulmagd/Lumora/pull/8) merged exact head `34cf24a28857204aead7533d37fb0af3250d2031` as `d191097ccb5c20bf4f44d9c5ae0440a963bd4bcb`. The merged tree equals the checked head; the last code commit remains `aaf93f0`. No CI source fix was needed. Local `main` was fast-forwarded without discarding changes.
+
+| Exact-head verification | Debug | Release |
+|---|---|---|
+| Local GCC 15.2.0 headless | 40/40, 22.75 s | 40/40, 18.04 s |
+| Local native X11 smoke | 1/1, 0.12 s | 1/1, 0.06 s |
+| [Linux PR CI, GCC 13.3.0](https://github.com/m4bulmagd/Lumora/actions/runs/34161362515) | 40/40, 21.33 s; X11 1/1, 0.09 s | 40/40, 17.64 s; X11 1/1, 0.04 s |
+| [Windows PR CI, MSVC 19.44.35228.0](https://github.com/m4bulmagd/Lumora/actions/runs/34161362517) | 40/40, 26.98 s | 40/40, 20.94 s |
+
+Both branch push checks also passed. Local refresh commands were `ctest --preset linux-gcc-{debug,release}-sim --output-on-failure -LE 'hardware|desktop'` and `xvfb-run -a ctest --preset linux-gcc-{debug,release}-sim --output-on-failure --no-tests=error -L desktop`, run separately for each configuration. Logs remain in the retained M7 worktree's `out/qa/m07-2026-09-07/` (`pr-head-debug.log`, `pr-head-release.log`, `pr-linux.log`, `pr-windows.log`).
+
+These automated results satisfy M7 cross-platform implementation checks. Hosted Windows Server CI does not supply deferred native Windows 11 visual/DPI checks. No optional ten-minute stress, physical camera, designated-workstation performance or milestone acceptance is claimed.
+
+### Post-merge verification
+
+At `d191097`, [Linux main CI](https://github.com/m4bulmagd/Lumora/actions/runs/34161792586) passed Debug 40/40 in 21.82 s plus X11 1/1 in 0.11 s, and Release 40/40 in 17.37 s plus X11 1/1 in 0.04 s.
+
+[Windows main CI attempt 1](https://github.com/m4bulmagd/Lumora/actions/runs/34161792587) passed Debug but failed Release: `LivePipeline.IndependentCameraProcessingAndPresentationStallsUseCompletedPaintDeadline` observed acquired count 2 against baseline 1 in its camera-stall boundary. The other 39 CTest entries passed. This post-merge failure is retained separately from the passing PR checks; diagnosis and correction are in progress.
