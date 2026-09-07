@@ -8,7 +8,9 @@
 
 **Review-fix source:** `f4e594075ed19b4941860a76d87b2c0c26a08a52`
 
-**Status:** Implemented, task-reviewed and independently verified locally; final Standards/Spec checkpoint reviews pending. Not pushed, merged or accepted as a milestone.
+**Final review-fix source:** `3c59b11041cdef2750356bf07ecc7fb859c40576`
+
+**Status:** Implemented, independently reviewed and verified locally. Task review, final Standards/Spec reviews and scoped fix reviews have no open findings. Not pushed, merged or accepted as a milestone.
 
 ## Scope and contracts
 
@@ -24,6 +26,7 @@ No startup UI, saved preferences, production live composition, high-depth normal
 - `ProcessingWorker` owns one joined thread, borrows its dependencies and consumes the newest raw revision. An in-flight frame remains unchanged by newer arrivals. Stop/closed checks suppress further processing/publication; the stable stop source supports concurrent cancellation without touching the owner-serialized thread handle. A cancelled finite in-flight call returns before join completes.
 - A valid result must retain the exact input raw frame and source ID. Null or mismatched successful results are typed processing failures. Display-pool exhaustion is separately classified, with no fallback pixel allocation.
 - A bounded, mutex-protected snapshot exposes saturating skipped-input, replaced-bundle and categorized failure totals plus the complete current error. The output slot must be fresh for the session, with this worker its exclusive publisher. Returned revision advancement acknowledges an accepted publication; a close-race rejection cannot clear the error.
+- Unexpected standard and unknown exceptions are contained at the thread entry and end processing without automatic restart. Preconstructed Internal errors allow allocation-free terminal error transfer; expected processor `Result` failures retain their original classification and normal cancellation remains non-failure.
 
 ## Test and process evidence
 
@@ -34,7 +37,7 @@ Some processor assertions were already green when added because the first succes
 | Suite | Local coverage |
 |---|---|
 | `Processing.Mono8PassThrough` | Eight cases: padded active-row copy, all 256 sample values, Original-only identity-oriented Gray8 mapping, complete descriptor rejection, invalid FPS, raw immutability, shared-owner release and real display-pool exhaustion |
-| `Application.ProcessingWorker` | 15 cases after review fixes: pre-start and in-flight newest selection, deterministic bundle replacement, typed error retention/clearing and exhaustion separation, waiting/in-flight cancellation, closed-empty termination, null/wrong-input/same-ID substituted-owner rejection, closed-output suppression, one-shot lifecycle and internal saturation arithmetic |
+| `Application.ProcessingWorker` | 17 cases after review fixes: pre-start and in-flight newest selection, deterministic bundle replacement, typed error retention/clearing and exhaustion separation, waiting/in-flight cancellation, closed-empty termination, null/wrong-input/same-ID substituted-owner rejection, closed-output suppression, one-shot lifecycle, internal saturation arithmetic and standard/unknown exception containment |
 
 The tests use real pooled frames and capacity-one exchanges with releasable processor boundary adapters. Bounded entry/publication waits and RAII release of current/future calls keep failed assertions from stranding a blocked worker. No timing guarantee for an uncooperative processor, physical camera or whole-application shutdown is claimed.
 
@@ -68,7 +71,17 @@ Fix `f4e5940` uses one shared overflow-safe operation behind private saturating 
 
 At exact fix source `f4e5940`, the controller reran the full build/test commands: **30/30 Debug (16.19 s)** and **30/30 Release (13.64 s)**, including native desktop smoke. Direct focused runs passed **15/15 worker** and **8/8 processor** cases. Tests-OFF/Basler-OFF processing/application/app rebuild and the complete committed-range whitespace check passed. These results supersede the initial-source figures above for current code. The implementer separately passed both focused suites for 50 repetitions after the fixes.
 
-Independent scoped re-review confirmed all three findings addressed, with no new breakage or out-of-scope observations. Task review has no open findings. Final Standards/Spec checkpoint reviews remain pending.
+Independent scoped re-review confirmed all three findings addressed, with no new breakage or out-of-scope observations. The subsequent final Standards/Spec checkpoint reviews follow.
+
+The final independent Standards and Spec reviews examined `7295fb9...1ee92f9`, including source, first fixes and checkpoint documentation. Each reported the same one P1: design §5.3 requires worker-boundary exception containment, but a processor or diagnostic-copy exception could escape the thread and terminate the application. Standards had no optional smell concerns; Spec had no other missing/wrong behavior or extra scope.
+
+Fix `3c59b11` adds a `noexcept` thread-entry wrapper for standard and unknown exceptions. Its stable `Internal / processing_worker_exception` and `Internal / processing_worker_unknown_exception` errors are constructed on the caller thread, then moved into the synchronized snapshot while incrementing the processing-error count. Error move is checked as non-throwing at compile time. Exception `what()` text is intentionally not copied; fixed diagnostic text avoids an allocation while already handling failure. Expected error copying occurs before any counter mutation, so a copy failure reaches the terminal fallback without counting twice. Terminal snapshot reporting is best effort only if locking/updating the snapshot itself fails; containment still prevents a secondary reporting exception from escaping. Allocator/mutex fault injection was not performed.
+
+Two vertical regressions separately reproduced uncaught `std::runtime_error` and unknown `int` exceptions as exit 134 with core dumps disabled. Each passed after its corresponding catch was added, asserting a joined worker, one typed error and no publication. The final two-phase reporting refinement was followed by a fresh focused 2/2 CTest run; the earlier 50-repetition run is not claimed as verification of that later refinement.
+
+At exact final source `3c59b11`, controller verification passed **30/30 Debug (16.29 s)** and **30/30 Release (13.53 s)**, including native desktop smoke, plus **17/17 worker** and **8/8 processor** direct cases. The tests-OFF/Basler-OFF processing/application/app rebuild and committed-range whitespace check passed. These supersede earlier source results for current code.
+
+Final scoped re-review confirmed the shared P1 addressed and found no new breakage or out-of-scope observations. **Final Standards outcome: zero open findings, zero optional concerns. Final Spec outcome: zero open findings.** The task and checkpoint review gates are clear; platform and milestone acceptance gates below are not. Only final evidence/status documentation follows the independently verified source.
 
 The plan required counters/current errors without specifying an observation method. The approved `snapshot()` supplies that bounded value without callbacks, history or a processor-signature change. `rawFramesSkipped` measures revision gaps at actual input selection and overlaps acquisition's `droppedBeforeProcessing`; downstream metrics must not sum them. Only `ResourceExhaustion / display_buffer_pool_exhausted` counts as actual display-pool exhaustion, not metadata allocation failures in the same category. Other errors retain their category/code and count under processing errors; normal cancellation is not a failure, and only an accepted non-cancelled publication clears the current error. Snapshot string copying is not `noexcept`.
 

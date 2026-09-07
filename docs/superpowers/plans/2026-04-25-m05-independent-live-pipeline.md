@@ -221,7 +221,7 @@ git commit -m "feat(app): add isolated acquisition worker"
 
 ### Task 3: Frame processor port and processing worker
 
-**Local checkpoint (2026-09-07):** Implemented and task-reviewed through `f4e5940`; full native-inclusive Linux Debug/Release tests pass. See the [Task 3 record](../../architecture/milestones/m05-processing-worker.md) for exact-source evidence, review fixes and remaining Windows/full-milestone gates. Tasks 4–5 are not included.
+**Local checkpoint (2026-09-07):** Implemented and locally verified through review fixes at `3c59b11`; full native-inclusive Linux Debug/Release tests pass. See the [Task 3 record](../../architecture/milestones/m05-processing-worker.md) for exact-source evidence, review verdicts and remaining Windows/full-milestone gates. Tasks 4–5 are not included.
 
 **Files:**
 - Create: `src/processing/include/lumora/processing/IFrameProcessor.hpp`
