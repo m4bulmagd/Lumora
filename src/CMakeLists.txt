@@ -40,8 +40,12 @@ add_library(
   processing/include/lumora/processing/IProcessingStage.hpp
   processing/include/lumora/processing/ImageView.hpp
   processing/include/lumora/processing/NormalizeStage.hpp
+  processing/include/lumora/processing/WindowLevelStage.hpp
+  processing/include/lumora/processing/DisplayMapper.hpp
   processing/src/ImageView.cpp
   processing/src/NormalizeStage.cpp
+  processing/src/WindowLevelStage.cpp
+  processing/src/DisplayMapper.cpp
   processing/src/PipelineCompiler.cpp
   processing/src/Mono8PassThroughProcessor.cpp
 )
