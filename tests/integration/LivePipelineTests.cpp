@@ -9,7 +9,10 @@
 #include <lumora/ui/WorkstationView.hpp>
 #include <lumora/processing/Mono8PassThroughProcessor.hpp>
 #include <lumora/camera/sim/FaultScript.hpp>
+#include <lumora/processing/FrameProcessingEngine.hpp>
 #include <gtest/gtest.h>
+#include <cstring>
+#include <limits>
 #include <QCoreApplication>
 #include <QPushButton>
 #include <thread>
@@ -263,7 +266,7 @@ TEST(LivePipeline, PermanentSaveAdmissionRejectionIsNotRetriedByOrdinaryPolling)
 }
 TEST(LivePipeline, DuplicatePendingDisconnectRetainsItsCompletionCorrelation) {
     Gate gate;
-    Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool& pool) {
+    Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&, core::BufferPool& pool, const core::ImageLayout&) {
         gate.block();
         return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(
             std::make_unique<processing::Mono8PassThroughProcessor>(pool));
@@ -332,7 +335,7 @@ private:Gate& gate_;
 };
 TEST(LivePipeline, ProcessingDiagnosticsAdvanceAfterTheFinalCameraStatus) {
     Gate gate;
-    Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&) {
+    Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&, core::BufferPool&, const core::ImageLayout&) {
         return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::make_unique<DelayedFailure>(gate));
     });
     ReleaseGate release{gate};ASSERT_TRUE(f.begin());ASSERT_TRUE(gate.wait());
@@ -344,7 +347,7 @@ TEST(LivePipeline, ProcessingDiagnosticsAdvanceAfterTheFinalCameraStatus) {
 }
 TEST(LivePipeline, ProcessorConstructionFailureCancelsPendingStartupAndClosesAdmission) {
     Gate gate;
-    Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&) {
+    Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&, core::BufferPool&, const core::ImageLayout&) {
         gate.block();return core::Result<std::unique_ptr<processing::IFrameProcessor>>::failure(
             {core::ErrorCategory::Processing,"factory_failed","Processor unavailable.","",false});
     });
@@ -362,12 +365,20 @@ TEST(LivePipeline, ShippingCompositionProducesTheApprovedFullRangeOriginal) {
     auto bundle=f.controller.presenter()->presentedBundle();
     EXPECT_EQ(bundle->raw->layout.width(),640U);EXPECT_EQ(bundle->raw->layout.height(),480U);
     EXPECT_DOUBLE_EQ(bundle->raw->metadata.acquisitionSettings.actualFps,30.0);
-    EXPECT_EQ(bundle->raw->metadata.acquisitionSettings.sourceFormat.sampleMaximum,255U);
+    EXPECT_EQ(bundle->raw->metadata.acquisitionSettings.sourceFormat.sampleMaximum,4095U);
     auto context=f.pipeline.snapshot().context;
     EXPECT_EQ(context->rawPool->stats().capacity,10U);EXPECT_EQ(context->processingPool->stats().capacity,9U);
     EXPECT_EQ(context->displayPool->stats().capacity,16U);
-    EXPECT_EQ(context->rawPool->stats().bytesPerBuffer,307200U);
+    EXPECT_EQ(context->rawPool->stats().bytesPerBuffer,614400U);
     EXPECT_EQ(context->processingPool->stats().bytesPerBuffer,614400U);
+    EXPECT_EQ(context->displayPool->stats().bytesPerBuffer,307200U);
+    EXPECT_EQ(bundle->raw->layout.storage(), core::StorageType::UInt16);
+    ASSERT_NE(bundle->enhanced, nullptr); ASSERT_NE(bundle->enhancedDisplay, nullptr);
+    EXPECT_EQ(bundle->enhanced->sourceFrameId, bundle->raw->frameId);
+    EXPECT_EQ(bundle->originalDisplay->sourceFrameId, bundle->raw->frameId);
+    EXPECT_EQ(bundle->enhancedDisplay->sourceFrameId, bundle->raw->frameId);
+    EXPECT_EQ(bundle->originalDisplay->storage, core::DisplayStorage::Gray8);
+    EXPECT_EQ(bundle->enhancedDisplay->storage, core::DisplayStorage::Gray8);
 }
 TEST(LivePipeline, RefreshAfterDisconnectBindsWaitingSourceWithoutReconnecting) {
     auto io=std::make_unique<MemoryIo>();io->record=savedRecord();Fixture f(std::move(io));
@@ -418,7 +429,7 @@ private:processing::Mono8PassThroughProcessor delegate_;Gate& gate_;std::atomic<
 TEST(LivePipeline, IndependentCameraProcessingAndPresentationStallsUseCompletedPaintDeadline) {
     for(int boundary=0;boundary<3;++boundary) {
         SCOPED_TRACE(boundary);core::ManualClock sourceClock;Gate gate;std::atomic<bool> stall{false};
-        Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool& pool) {
+        Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&, core::BufferPool& pool, const core::ImageLayout&) {
             return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::make_unique<StallProcessor>(pool,gate,stall));
         },request(),nullptr,boundary==0 ? &sourceClock : nullptr);
         ReleaseGate release{gate};ASSERT_TRUE(f.begin());
@@ -464,7 +475,7 @@ private:camera::sim::SimulatedCameraProvider delegate_;
 TEST(LivePipeline, LifecycleCancellationDuringPreparationPreventsLateCameraOpen) {
     for(bool shutdown:{false,true}) {
         SCOPED_TRACE(shutdown);core::ManualClock sourceClock;CountingProvider provider(sourceClock);Gate gate;int factories=0;
-        Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool& pool) {
+        Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&, core::BufferPool& pool, const core::ImageLayout&) {
             if(++factories==2) gate.block();
             return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::make_unique<processing::Mono8PassThroughProcessor>(pool));
         },request(),&provider);ReleaseGate release{gate};
@@ -505,7 +516,7 @@ TEST(LivePipeline, FailedSaveWarnsWithoutRevokingExplicitSessionStart) {
 }
 TEST(LivePipeline, StandardAndUnknownFactoryExceptionsFailClosed) {
     for(bool standard:{false,true}) {
-        SCOPED_TRACE(standard);Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&)
+        SCOPED_TRACE(standard);Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&, core::BufferPool&, const core::ImageLayout&)
             ->core::Result<std::unique_ptr<processing::IFrameProcessor>> {
             if(standard) throw std::runtime_error("factory exception");
             throw 7;
@@ -715,7 +726,7 @@ TEST(LivePipeline, ShutdownWhilePausedAndReconnectingReleasesTheRetiredImage) {
 TEST(LivePipeline, ShutdownJoinsCameraBeforeWaitingForInFlightProcessing) {
     core::ManualClock sourceClock;CameraObservation observed;ObservedProvider provider(sourceClock,observed);
     Gate gate;std::atomic<bool> stall{true};
-    Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool& pool) {
+    Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&, core::BufferPool& pool, const core::ImageLayout&) {
         return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::make_unique<StallProcessor>(pool,gate,stall));
     },request(),&provider);ReleaseGate release{gate};ASSERT_TRUE(f.begin());ASSERT_TRUE(gate.wait());
     auto raw=f.pipeline.snapshot().context->rawPool;auto display=f.pipeline.snapshot().context->displayPool;
@@ -727,7 +738,7 @@ TEST(LivePipeline, ShutdownJoinsCameraBeforeWaitingForInFlightProcessing) {
 }
 TEST(LivePipeline, FailedReplacementPreparationRetiresPipelineOwners) {
     int constructions=0;
-    Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool& pool) {
+    Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool&, core::BufferPool& pool, const core::ImageLayout&) {
         if(++constructions==2) return core::Result<std::unique_ptr<processing::IFrameProcessor>>::failure(
             {core::ErrorCategory::Processing,"replacement_failed","Replacement failed.","",false});
         return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::make_unique<processing::Mono8PassThroughProcessor>(pool));
@@ -738,4 +749,165 @@ TEST(LivePipeline, FailedReplacementPreparationRetiresPipelineOwners) {
     ASSERT_TRUE(f.wait([&]{return f.pipeline.snapshot().context==nullptr;}));
     EXPECT_FALSE(f.pipeline.post({100,application::Discover{}}).hasValue());
 }
+camera::CameraConfiguration depthRequest(unsigned bits) {
+    auto fixed = request();
+    fixed.pixelFormat = {"Mono" + std::to_string(bits), bits == 8 ? 0x01080001U :
+        (bits == 10 ? 0x01100003U : (bits == 12 ? 0x01100005U : 0x01100007U)),
+        static_cast<std::uint8_t>(bits), static_cast<std::uint16_t>((1U << bits) - 1U),
+        core::SourcePacking::Unpacked, core::BitAlignment::LeastSignificant,
+        bits == 8 ? core::StorageType::UInt8 : core::StorageType::UInt16};
+    return fixed;
+}
+camera::sim::SimulatedCameraOptions depthOptions(unsigned bits) {
+    auto simulation = options();
+    simulation.capabilities.pixelFormats = {depthRequest(bits).pixelFormat};
+    simulation.pattern = camera::sim::SimulationPattern::Ramp;
+    return simulation;
+}
+std::vector<std::byte> retainedBytes(const core::SharedBuffer& buffer) {
+    return {buffer.bytes().begin(), buffer.bytes().end()};
+}
+TEST(LivePipeline, NativeDepthsPublishPairedImmutableProductsAndReleaseAllPools) {
+    for (unsigned bits : {8U,10U,12U,16U}) {
+        SCOPED_TRACE(bits);
+        Fixture f(std::make_unique<MemoryIo>(), depthOptions(bits), {}, depthRequest(bits));
+        ASSERT_TRUE(f.begin()); ASSERT_TRUE(f.next()); ASSERT_TRUE(f.paint());
+        auto context = f.pipeline.snapshot().context;
+        auto rawPool = context->rawPool; auto u16Pool = context->processingPool; auto displayPool = context->displayPool;
+        const auto sampleBytes = bits == 8 ? 1U : 2U;
+        EXPECT_EQ(rawPool->stats().bytesPerBuffer, 48U * sampleBytes);
+        EXPECT_EQ(u16Pool->stats().bytesPerBuffer, 96U);
+        EXPECT_EQ(displayPool->stats().bytesPerBuffer, 48U);
+        auto bundle = f.latest();
+        ASSERT_NE(bundle, nullptr); ASSERT_NE(bundle->enhanced, nullptr); ASSERT_NE(bundle->enhancedDisplay, nullptr);
+        auto retainedRaw = bundle->raw;
+        const auto before = retainedBytes(retainedRaw->pixels);
+        const auto processed = retainedBytes(bundle->enhanced->pixels);
+        const auto original = retainedBytes(bundle->originalDisplay->pixels);
+        const auto enhanced = retainedBytes(bundle->enhancedDisplay->pixels);
+        EXPECT_EQ(retainedRaw->layout.storage(), depthRequest(bits).pixelFormat.applicationStorage);
+        EXPECT_EQ(bundle->enhanced->layout.storage(), core::StorageType::UInt16);
+        EXPECT_EQ(bundle->originalDisplay->storage, core::DisplayStorage::Gray8);
+        EXPECT_EQ(bundle->enhancedDisplay->storage, core::DisplayStorage::Gray8);
+        EXPECT_EQ(bundle->originalDisplay->sourceFrameId, retainedRaw->frameId);
+        EXPECT_EQ(bundle->enhanced->sourceFrameId, retainedRaw->frameId);
+        EXPECT_EQ(bundle->enhancedDisplay->sourceFrameId, retainedRaw->frameId);
+        EXPECT_EQ(bundle->originalDisplay->mapping, bundle->enhancedDisplay->mapping);
+        EXPECT_EQ(bundle->enhanced->pipelineVersion.configurationRevision,
+            bundle->enhancedDisplay->mapping.configurationRevision);
+        const auto maximum = depthRequest(bits).pixelFormat.sampleMaximum;
+        for (std::size_t x = 0; x < 8; ++x) {
+            std::uint16_t sample = 0;
+            if (bits == 8) sample = std::to_integer<std::uint8_t>(before[x]);
+            else std::memcpy(&sample, before.data() + x * 2, 2);
+            EXPECT_EQ(sample, static_cast<std::uint16_t>(x * maximum / 7U));
+            const auto canonical = (static_cast<std::uint64_t>(sample) * 65535U + maximum / 2U) / maximum;
+            std::uint16_t actual; std::memcpy(&actual, processed.data() + x * 2, 2);
+            EXPECT_EQ(actual, canonical);
+            EXPECT_EQ(std::to_integer<unsigned>(original[x]), (canonical + 128U) / 257U);
+        }
+        for (int next = 0; next < 4; ++next) ASSERT_TRUE(f.next());
+        EXPECT_EQ(retainedBytes(retainedRaw->pixels), before);
+        EXPECT_EQ(retainedBytes(bundle->enhanced->pixels), processed);
+        EXPECT_EQ(retainedBytes(bundle->originalDisplay->pixels), original);
+        EXPECT_EQ(retainedBytes(bundle->enhancedDisplay->pixels), enhanced);
+        ASSERT_TRUE(f.act(Intent::Disconnect));
+        ASSERT_TRUE(f.act(Intent::Connect));
+        ASSERT_NE(f.pipeline.snapshot().context->generation, context->generation);
+        EXPECT_EQ(retainedBytes(retainedRaw->pixels), before);
+        bundle.reset(); retainedRaw.reset(); context.reset();
+        ASSERT_TRUE(f.wait([&] { return rawPool->stats().inUse == 0 && u16Pool->stats().inUse == 0 && displayPool->stats().inUse == 0; }));
+        auto last = f.pipeline.snapshot().context;
+        rawPool = last->rawPool; u16Pool = last->processingPool; displayPool = last->displayPool;
+        ASSERT_TRUE(f.act(Intent::Apply)); ASSERT_TRUE(f.act(Intent::Confirm)); ASSERT_TRUE(f.act(Intent::Start));
+        ASSERT_TRUE(f.next()); ASSERT_TRUE(f.paint());
+        f.controller.shutdown(); last.reset();
+        EXPECT_EQ(rawPool->stats().inUse, 0U); EXPECT_EQ(u16Pool->stats().inUse, 0U); EXPECT_EQ(displayPool->stats().inUse, 0U);
+    }
+}
+TEST(LivePipeline, HighDepthFactoryReceivesCoherentPlanAndActivationRevisions) {
+    core::BufferPool* receivedU16 = nullptr; core::BufferPool* receivedGray = nullptr;
+    std::optional<core::ImageLayout> receivedLayout;
+    std::atomic<processing::FrameProcessingEngine*> engine{nullptr};
+    Fixture f(std::make_unique<MemoryIo>(), depthOptions(12),
+        [&](core::BufferPool& u16, core::BufferPool& gray, const core::ImageLayout& layout) {
+            receivedU16 = &u16; receivedGray = &gray; receivedLayout = layout;
+            auto made = processing::FrameProcessingEngine::create(u16, gray, layout);
+            if (!made.hasValue()) return core::Result<std::unique_ptr<processing::IFrameProcessor>>::failure(made.error());
+            engine.store(made.value().get());
+            return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::move(made).value());
+        }, depthRequest(12));
+    ASSERT_TRUE(f.begin()); ASSERT_TRUE(f.next());
+    auto context = f.pipeline.snapshot().context;
+    EXPECT_EQ(receivedU16, context->processingPool.get()); EXPECT_EQ(receivedGray, context->displayPool.get());
+    ASSERT_TRUE(receivedLayout); EXPECT_EQ(receivedLayout->storage(), core::StorageType::UInt16);
+    EXPECT_EQ(receivedLayout->strideBytes(), 16U); EXPECT_EQ(receivedLayout->payloadBytes(), 96U);
+    auto previous = f.latest(); ASSERT_NE(previous->enhanced, nullptr);
+    auto definition = processing::defaultPipeline(); definition.version.configurationRevision = 7;
+    ASSERT_TRUE(engine.load()->activate(definition).hasValue());
+    ASSERT_TRUE(f.next());
+    auto current = f.latest(); ASSERT_NE(current->enhanced, nullptr);
+    EXPECT_EQ(previous->enhanced->pipelineVersion.configurationRevision, 0U);
+    EXPECT_EQ(current->enhanced->pipelineVersion.configurationRevision, 7U);
+    EXPECT_EQ(current->originalDisplay->mapping.configurationRevision, 7U);
+    EXPECT_EQ(current->enhancedDisplay->mapping.configurationRevision, 7U);
+}
+TEST(LivePipeline, CheckedNativeResourcePlanRejectsInvalidModesBeforeFactoryOrContext) {
+    for (int invalid = 0; invalid < 12; ++invalid) {
+        SCOPED_TRACE(invalid);
+        core::ManualClock clock; camera::sim::SimulatedCameraProvider provider(options(), clock);
+        auto fixed = depthRequest(12);
+        if (invalid == 0) fixed.pixelFormat.applicationStorage = static_cast<core::StorageType>(99);
+        if (invalid == 1) fixed.pixelFormat.sampleMaximum = 65535;
+        if (invalid == 2) fixed.roi.width = 0;
+        if (invalid == 3) fixed.roi.height = 0;
+        if (invalid == 4) fixed.requestedFps = 0;
+        if (invalid == 5) fixed.requestedFps = std::numeric_limits<double>::infinity();
+        if (invalid == 6) fixed.requestedFps = std::numeric_limits<double>::quiet_NaN();
+        if (invalid == 7) fixed.acquisitionMode = camera::AcquisitionMode::Triggered;
+        if (invalid == 8) fixed.requestedFps.reset();
+        if (invalid == 9) fixed.roi = {0,0,1U << 30U,1U << 30U}; // blocks fit size_t; total does not
+        if (invalid >= 10) {
+            if (invalid == 11) fixed = depthRequest(8);
+            fixed.roi = {0,0,3U << 28U,1U << 29U}; // each pool fits size_t; their sum does not
+        }
+        std::atomic<int> calls{0};
+        application::LivePipeline pipeline(provider, clock, fixed,
+            [&](core::BufferPool&, core::BufferPool& display, const core::ImageLayout&) {
+                ++calls;
+                return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(
+                    std::make_unique<processing::Mono8PassThroughProcessor>(display));
+            });
+        auto started = pipeline.start();
+        ASSERT_FALSE(started.hasValue());
+        if (invalid >= 9) { EXPECT_EQ(started.error().category, core::ErrorCategory::ResourceExhaustion); }
+        if (invalid >= 10 && sizeof(std::size_t) == 8) { EXPECT_EQ(started.error().code, "size_addition_overflow"); }
+        EXPECT_EQ(calls.load(), 0); EXPECT_EQ(pipeline.snapshot().context, nullptr);
+    }
+}
+TEST(LivePipeline, OldMono8SavedCapabilitiesRequireReviewForShippingMono12) {
+    auto io = std::make_unique<MemoryIo>();
+    auto old = savedRecord();
+    old.requested = app::simulatorConfiguration(); old.lastApplied = old.requested;
+    old.requested.pixelFormat = request().pixelFormat; old.lastApplied.pixelFormat = request().pixelFormat;
+    old.confirmedCapabilities = app::simulatorOptions().capabilities;
+    old.confirmedCapabilities.pixelFormats = {request().pixelFormat};
+    io->record = old;
+    Fixture f(std::move(io), app::simulatorOptions(), {}, app::simulatorConfiguration());
+    ASSERT_TRUE(f.initialize());
+    ASSERT_TRUE(f.wait([&] { return f.panel.presentation().preferencesLoadCompleted
+        && !f.panel.presentation().ordinaryOperationPending; }));
+    EXPECT_EQ(f.pipeline.snapshot().camera->state, application::CameraSessionState::Disconnected);
+    EXPECT_FALSE(f.panel.presentation().resumeLiveAvailable);
+    EXPECT_FALSE(f.controller.dispatch(Intent::ResumeLive).hasValue());
+    EXPECT_FALSE(f.pipeline.snapshot().camera->confirmedRevision);
+    EXPECT_EQ(f.pipeline.snapshot().camera->acquisitionCounters.acquired, 0U);
+    f.controller.selectCamera({"SIM-LIVE"});
+    ASSERT_TRUE(f.act(Intent::Connect)); ASSERT_TRUE(f.act(Intent::Apply));
+    EXPECT_FALSE(f.controller.dispatch(Intent::Start).hasValue());
+    EXPECT_EQ(f.pipeline.snapshot().camera->appliedConfiguration->actual.pixelFormat.sampleMaximum, 4095U);
+    ASSERT_TRUE(f.act(Intent::Confirm)); ASSERT_TRUE(f.act(Intent::Start));
+    ASSERT_TRUE(f.next());
+}
+
 }

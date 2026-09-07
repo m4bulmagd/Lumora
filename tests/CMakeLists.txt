@@ -31,7 +31,8 @@ add_executable(lumora_processing_tests
   unit/processing/ImageViewTests.cpp
   unit/processing/NormalizeStageTests.cpp
   unit/processing/WindowLevelStageTests.cpp
-  unit/processing/DisplayMapperTests.cpp)
+  unit/processing/DisplayMapperTests.cpp
+  unit/processing/FrameProcessingEngineTests.cpp)
 target_link_libraries(lumora_processing_tests PRIVATE
   lumora::processing GTest::gtest_main)
 lumora_enable_warnings(lumora_processing_tests)
@@ -315,3 +316,7 @@ set_tests_properties(Processing.WindowLevelStage PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.DisplayMapper
   COMMAND lumora_processing_tests --gtest_filter=DisplayMapper.*)
 set_tests_properties(Processing.DisplayMapper PROPERTIES TIMEOUT 60)
+
+add_test(NAME Processing.FrameProcessingEngine
+  COMMAND lumora_processing_tests --gtest_filter=FrameProcessingEngine.*)
+set_tests_properties(Processing.FrameProcessingEngine PROPERTIES TIMEOUT 60)

@@ -42,6 +42,12 @@ add_library(
   processing/include/lumora/processing/NormalizeStage.hpp
   processing/include/lumora/processing/WindowLevelStage.hpp
   processing/include/lumora/processing/DisplayMapper.hpp
+  processing/include/lumora/processing/ProcessingPipeline.hpp
+  processing/include/lumora/processing/ProcessingWorkspace.hpp
+  processing/include/lumora/processing/FrameProcessingEngine.hpp
+  processing/src/ProcessingPipeline.cpp
+  processing/src/ProcessingWorkspace.cpp
+  processing/src/FrameProcessingEngine.cpp
   processing/src/ImageView.cpp
   processing/src/NormalizeStage.cpp
   processing/src/WindowLevelStage.cpp

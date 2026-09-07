@@ -8,7 +8,7 @@
 namespace lumora::application {
 
 // Borrow the slots only while retaining this handle. Workers are the sole
-// publishers. The U16 pool is reserved for M7 and has no M5 consumer.
+// publishers. Pixel storage is bounded by the three session-owned pools.
 struct LiveSessionContext final {
     std::uint64_t generation{0};
     std::shared_ptr<core::BufferPool> rawPool;
@@ -33,14 +33,18 @@ struct LivePipelineSnapshot final {
 
 // Provider and clock outlive the pipeline. The owner serializes start/shutdown;
 // post, snapshot and acknowledgement are safe concurrently and never join or
-// allocate pools. The control thread provisions the exact immutable M5 request
-// with checked 10 raw / 9 U16 / 16 Gray8 pools (44 bytes per source pixel total).
+// allocate pools. The control thread provisions the exact immutable native request
+// with checked 10 raw / 9 U16 / 16 Gray8 pools (44 bytes per U8 source pixel,
+// 54 bytes per U16 source pixel).
 class LivePipeline final {
 public:
-    // Runs on the control thread. The returned processor borrows the display
-    // pool, is called only by ProcessingWorker, and is destroyed after its join.
+    // Runs on the control thread. The returned processor may borrow both pools
+    // until destruction after ProcessingWorker joins. The layout is borrowed
+    // only for the factory call; copy any retained facts. No pixel fallback
+    // allocation is permitted. Default composition creates FrameProcessingEngine.
     using ProcessorFactory = std::function<core::Result<std::unique_ptr<processing::IFrameProcessor>>(
-        core::BufferPool&)>;
+        core::BufferPool& processingPool, core::BufferPool& displayPool,
+        const core::ImageLayout& sourceLayout)>;
     LivePipeline(camera::ICameraProvider& provider, core::IClock& clock,
                  camera::CameraConfiguration fixedRequest, ProcessorFactory factory = {});
     ~LivePipeline();

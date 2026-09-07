@@ -95,6 +95,7 @@ WorkstationView::WorkstationView(QWidget* parent)
     sidebarLayout->setContentsMargins(16, 16, 16, 16);
     auto* originalLabel = new QLabel(tr("Original"), sidebar_);
     originalLabel->setAccessibleName(tr("Original display"));
+    originalLabel->setToolTip(tr("Original (display mapped): window/level and display mapping affect the view; raw samples remain unchanged."));
     originalLabel->setStyleSheet(QStringLiteral(
         "QLabel { color: #eef0f3; font-size: 18px; font-weight: 600; }"));
     sidebarLayout->addWidget(originalLabel);
