@@ -678,6 +678,8 @@ Acceptance: the selected Basler camera is discovered by identity, configured wit
 
 ### Milestone 7: High-bit-depth and window/level
 
+The [2026-09-07 continuation](../../architecture/milestones/m07-preflight.md) permits simulator-only M7 development while M4/M5 native Windows acceptance and M6 remain pending. This is a scoped development sequencing exception, not acceptance or authorization to implement the Basler adapter without its approved profile. The existing architecture and all release gates remain unchanged.
+
 Deliver packed-format unpacking, canonical unsigned 16-bit frames, deterministic normalization, Original preservation tests, 16-bit window/level, and final 8-bit display mapping.
 
 Acceptance: known Mono10/Mono12/Mono16 samples produce exact canonical values; raw hashes do not change after processing; window/level boundary and terminal display-mapping reference tests pass.

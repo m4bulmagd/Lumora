@@ -12,6 +12,8 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
+**Execution clarification (2026-09-07):** The [M7 preflight](../../architecture/milestones/m07-preflight.md) records the simulator-only development exception and interface rulings against the implemented M5 pipeline. It does not record acceptance. Implementer test examples below are illustrative; use the preflight's current type names and the repository's registered test targets.
+
 ## Global Constraints
 
 - This milestone contributes only to the open-source evaluation release, which must display `EVALUATION — NOT FOR CLINICAL USE` and must not acquire or store real patient data.
@@ -41,7 +43,7 @@
 - Consumes: core image layout/result types and U16 storage.
 - Produces: `StageId`, all initial parameter structs, `StageParameters`, `StageDefinition`, `PipelineDefinition`, `ImageDomain`, `StageTraits`, `IProcessingStage`, and `PipelineCompiler::compile`.
 
-- [ ] **Step 1: Write failing domain/order/configuration tests**
+- [x] **Step 1: Write failing domain/order/configuration tests**
 
 ```cpp
 TEST(PipelineCompiler, RejectsDuplicateMandatoryNormalization) {
@@ -53,20 +55,20 @@ TEST(PipelineCompiler, RejectsDuplicateMandatoryNormalization) {
 }
 ```
 
-- [ ] **Step 2: Verify missing contracts fail**
+- [x] **Step 2: Verify missing contracts fail**
 
 Run: `cmake --build --preset linux-gcc-debug-sim --target lumora_processing_tests`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Define the complete configuration vocabulary once**
+- [x] **Step 3: Define the complete configuration vocabulary once**
 
 ```cpp
 enum class StageId { Normalize, WindowLevel, BrightnessContrast, Gamma,
     Clahe, Denoise, Sharpen, Invert };
-enum class ImageDomain { SensorU16, CanonicalU16 };
+enum class ImageDomain { SensorNative, CanonicalU16 };
 enum class DenoiseMode { Gaussian, Median };
-enum class Rotation { Degrees0, Degrees90, Degrees180, Degrees270 };
+// Reuse core::Rotation and core::Orientation; do not define duplicate types.
 
 using StageParameters = std::variant<NormalizationParameters,
     WindowLevelParameters, BrightnessContrastParameters, GammaParameters,
@@ -78,15 +80,15 @@ Parameter bounds are explicit: window `[1,65535]`, level `[0,65535]`, brightness
 
 `StageTraits` also declares dimension changes, required scratch images, bounded history-frame count, calibration-asset requirement, and execution backend. Initial stages declare zero history, no calibration asset, and CPU execution. Dark-frame, flat-field, bad-pixel, temporal, and GPU stages can therefore extend the registry without changing worker or frame-exchange contracts; their algorithms and assets remain out of this release.
 
-- [ ] **Step 4: Implement compile-time/runtime validation**
+- [x] **Step 4: Implement compile-time/runtime validation**
 
 Every `StageDefinition` parameter variant must match its `StageId`; stage IDs are unique; Normalize is first and mandatory; the only valid order is Normalize -> WindowLevel -> BrightnessContrast -> Gamma -> Clahe -> Denoise -> Sharpen -> Invert. Enabled adjacent domains must match; disabled stages remain serializable but are omitted from execution without changing their canonical positions. Return all validation violations in stable stage order.
 
-- [ ] **Step 5: Test complete parameter boundaries and fixed-order rules**
+- [x] **Step 5: Test complete parameter boundaries and fixed-order rules**
 
 Cover minimum/maximum accepted values, values immediately outside bounds, wrong variant, duplicate IDs, missing normalization, disabled stages, and rejection of every reordered or invalid-domain definition.
 
-- [ ] **Step 6: Commit contracts**
+- [x] **Step 6: Commit contracts**
 
 ```powershell
 git add src/processing tests/unit/processing/PipelineCompilerTests.cpp
@@ -104,7 +106,7 @@ git commit -m "feat(processing): define validated pipeline contracts"
 - Consumes: sensor U8/U16 image view, declared `sampleMaximum`/valid bits, alignment, and a writable canonical U16 view.
 - Produces: `NormalizeStage::process` mapping `[0, sampleMaximum]` to `[0,65535]` deterministically.
 
-- [ ] **Step 1: Write exact bit-depth tests**
+- [x] **Step 1: Write exact bit-depth tests**
 
 ```cpp
 TEST(NormalizeStage, Mono12ScalesDeclaredRangeNotFrameRange) {
@@ -116,19 +118,19 @@ TEST(NormalizeStage, Mono12ScalesDeclaredRangeNotFrameRange) {
 
 Expected values use integer rounding defined as `(value * 65535 + sourceMax / 2) / sourceMax`; do not replace the assertion with a floating tolerance.
 
-- [ ] **Step 2: Verify stage is missing**
+- [x] **Step 2: Verify stage is missing**
 
 Build `lumora_processing_tests`; expect failure.
 
-- [ ] **Step 3: Implement row/stride-aware normalization**
+- [x] **Step 3: Implement row/stride-aware normalization**
 
 Support declared maxima 1 through 65535 with valid/storage consistency, including camera maxima for 8, 10, 12, and 16 bits. Reject any sample above `sampleMaximum` with `sample_exceeds_source_maximum`; diagnostics identify the first failing coordinate. No production path clamps the malformed sample silently.
 
-- [ ] **Step 4: Test non-contiguous rows and temporal stability**
+- [x] **Step 4: Test non-contiguous rows and temporal stability**
 
 Use padded input/output strides and two frames with different observed minima/maxima but the same sample at one coordinate; assert that coordinate produces the same normalized value.
 
-- [ ] **Step 5: Run and commit**
+- [x] **Step 5: Run and commit**
 
 Run: `ctest --preset linux-gcc-debug-sim --output-on-failure -R NormalizeStage`
 
@@ -151,7 +153,7 @@ git commit -m "feat(processing): add deterministic U16 normalization"
 - Consumes: canonical U16 view, `WindowLevelParameters`, and pooled U16/U8 outputs.
 - Produces: exact U16 window mapping and a format-aware display-mapper interface with exact U16-to-Gray8 evaluation mapping.
 
-- [ ] **Step 1: Write failing endpoint tests**
+- [x] **Step 1: Write failing endpoint tests**
 
 ```cpp
 TEST(WindowLevelStage, MapsBelowInsideAndAboveWindow) {
@@ -165,23 +167,23 @@ TEST(WindowLevelStage, MapsBelowInsideAndAboveWindow) {
 }
 ```
 
-- [ ] **Step 2: Verify mapper/stage tests fail**
+- [x] **Step 2: Verify mapper/stage tests fail**
 
 Build `lumora_processing_tests`; expect missing types.
 
-- [ ] **Step 3: Implement a documented inclusive mapping**
+- [x] **Step 3: Implement a documented inclusive mapping**
 
 Define lower=`level-window/2`, upper=`level+window/2`; values at/below lower map to 0, at/above upper map to 65535, and interior values use rounded linear interpolation. Clamp mathematical bounds to the canonical domain without changing configuration values.
 
-- [ ] **Step 4: Implement terminal mapper**
+- [x] **Step 4: Implement terminal mapper**
 
 Map U16 `[0,65535]` to U8 `[0,255]` with `(value + 128) / 257`, preserving black, midpoint rounding, and white. Support padded strides and reject aliasing/size mismatch.
 
-- [ ] **Step 5: Add exhaustive scalar equivalence test**
+- [x] **Step 5: Add exhaustive scalar equivalence test**
 
 Generate all 65,536 U16 values and compare vectorized/stage output to the scalar reference formula. Repeat for window widths 1, 2, 4096, and 65535 and levels at 0, midpoint, and 65535.
 
-- [ ] **Step 6: Commit window/display mapping**
+- [x] **Step 6: Commit window/display mapping**
 
 ```powershell
 git add src/processing tests/unit/processing/WindowLevelStageTests.cpp tests/unit/processing/DisplayMapperTests.cpp
@@ -204,7 +206,7 @@ git commit -m "feat(processing): add U16 window level and display mapping"
 - Consumes: compiled pipeline, raw/processing/display pools, Normalize, WindowLevel, DisplayMapper, and `IFrameProcessor`.
 - Produces: `ProcessingPipeline::activate`, `FrameProcessingEngine::process`, atomic configuration revision, and paired Original/Enhanced bundles.
 
-- [ ] **Step 1: Write failing original-preservation and pairing tests**
+- [x] **Step 1: Write failing original-preservation and pairing tests**
 
 ```cpp
 TEST(FrameProcessingEngine, ProcessingCannotChangeRawSamples) {
@@ -217,27 +219,27 @@ TEST(FrameProcessingEngine, ProcessingCannotChangeRawSamples) {
 }
 ```
 
-- [ ] **Step 2: Verify engine is missing**
+- [x] **Step 2: Verify engine is missing**
 
 Build `lumora_processing_tests`; expect failure.
 
-- [ ] **Step 3: Implement preallocated workspace and pipeline swap**
+- [x] **Step 3: Implement preallocated workspace and pipeline swap**
 
 `ProcessingWorkspace` acquires two U16 leases for ping-pong execution and two Gray8 leases for Original/Enhanced evaluation display. Resolution changes require a stopped-state `prepare(layout)` call. `activate` compiles a complete fixed-order definition then swaps an immutable compiled pipeline under a short mutex/atomic shared pointer between frames.
 
-- [ ] **Step 4: Implement Original and Enhanced routes**
+- [x] **Step 4: Implement Original and Enhanced routes**
 
 Original executes Normalize, the configured WindowLevel, and DisplayMapper and is described as `Original (display mapped)`. Enhanced executes the full fixed-order enabled pipeline and DisplayMapper. Neither route mutates RawFrame; installation orientation is a shared presentation transform introduced in Milestone 8, not a processing stage.
 
-- [ ] **Step 5: Replace production pass-through processor**
+- [x] **Step 5: Replace production pass-through processor**
 
 Wire `FrameProcessingEngine` into `LivePipeline`. Retain the Mono8 pass-through only as a focused test fixture, not production composition.
 
-- [ ] **Step 6: Run integration tests at every valid bit depth**
+- [x] **Step 6: Run integration tests at every valid bit depth**
 
 Stream simulator frames at 8/10/12/16 valid bits, assert paired IDs, exact raw hashes, valid U8 displays, configuration revision changes only between frames, and pool counts return after shutdown.
 
-- [ ] **Step 7: Commit high-depth engine**
+- [x] **Step 7: Commit high-depth engine**
 
 ```powershell
 git add src/processing src/app/main.cpp tests/unit/processing/FrameProcessingEngineTests.cpp tests/integration
@@ -246,9 +248,11 @@ git commit -m "feat(processing): integrate immutable high-depth frame engine"
 
 ## Milestone 7 acceptance gate
 
-- [ ] Known 8/10/12/16-bit inputs produce exact canonical values.
-- [ ] Raw hashes remain unchanged through Original and Enhanced processing.
-- [ ] Window/level and display mappings pass exhaustive scalar comparison.
-- [ ] Original and Enhanced displays always share the raw frame ID.
-- [ ] No U8 conversion occurs before `DisplayMapper`.
-- [ ] Linux/GCC and Windows/MSVC produce exact normalization, window/level, inversion, and Gray8 mapping results; reordered definitions are rejected.
+Local implementation evidence at `aaf93f0` covers the checked criteria below. This does not record milestone acceptance; matching Windows and preceding deferred gates remain open. See the [execution record](../../architecture/milestones/m07-preflight.md).
+
+- [x] Known 8/10/12/16-bit inputs produce exact canonical values.
+- [x] Raw hashes remain unchanged through Original and Enhanced processing.
+- [x] Window/level and display mappings pass exhaustive scalar comparison.
+- [x] Original and Enhanced displays always share the raw frame ID.
+- [x] No U8 conversion occurs before `DisplayMapper`.
+- [ ] Linux/GCC and Windows/MSVC produce exact normalization, window/level, and Gray8 mapping results; reordered definitions are rejected. Inversion execution and its cross-platform reference evidence belong to M8 with the other enhancement algorithms.

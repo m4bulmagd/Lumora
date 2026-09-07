@@ -1,8 +1,8 @@
 #include "SimulatorComposition.hpp"
 namespace lumora::app {
 camera::CameraConfiguration simulatorConfiguration() {
-    return {{"Mono8",0x01080001U,8U,255U,core::SourcePacking::Unpacked,
-        core::BitAlignment::LeastSignificant,core::StorageType::UInt8},
+    return {{"Mono12",0x01100005U,12U,4095U,core::SourcePacking::Unpacked,
+        core::BitAlignment::LeastSignificant,core::StorageType::UInt16},
         {0U,0U,640U,480U},30.0,{camera::ExposureMode::Manual,1000.0},
         {camera::GainMode::Manual,0.0},camera::AcquisitionMode::Continuous};
 }

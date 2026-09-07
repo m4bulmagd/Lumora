@@ -6,9 +6,9 @@
 
 **Reviewed follow-up source:** `dca908e796e51767bafe45f50e279038d1b27090`
 
-**Status:** Task 1 implemented and task-reviewed locally; Windows CI and full M5 acceptance pending. Not a milestone acceptance record.
+**Status:** Task 1 implemented, reviewed and merged with Task 2, with matching Linux/Windows Debug/Release CI at `7295fb9`. Subsequent Tasks 3–5 are also merged through `f01b408`; see the [merged integration checkpoint](m05-live-integration.md#merged-main-verification-and-branch-cleanup-2026-09-07). Native Windows 11 checks and full M5 acceptance remain pending. Not a milestone acceptance record.
 
-The [M5 plan](../../superpowers/plans/2026-04-25-m05-independent-live-pipeline.md) and [preflight contracts](m05-preflight.md) define the work. Development proceeds under the [M4 native Windows 11 validation deferral](m04-deferred-windows-validation.md); those checks remain pending, not passed. No new source was pushed for this checkpoint.
+The [M5 plan](../../superpowers/plans/2026-04-25-m05-independent-live-pipeline.md) and [preflight contracts](m05-preflight.md) define the work. Development proceeded under the [M4 native Windows 11 validation deferral](m04-deferred-windows-validation.md); those checks remain pending, not passed. No new source was pushed at the initial local Task 1 checkpoint recorded below; subsequent integration is summarized at the end.
 
 ## Implemented boundary
 
@@ -20,7 +20,7 @@ The [M5 plan](../../superpowers/plans/2026-04-25-m05-independent-live-pipeline.m
 
 Request IDs correlate barrier completions and must not be reused while an earlier completion can still arrive. A successful `post` acknowledges admission, never camera execution or durable persistence. Coalesced duplicate priority requests retain the pending command's original ID.
 
-This task adds no camera worker, processing, persistence, startup panel or production live composition. The normal app still waits for an image; the separate M4 synthetic viewer remains unchanged. Tasks 2–5 own those later behaviors and their tests.
+At this Task 1 checkpoint, the task added no camera worker, processing, persistence, startup panel or production live composition. The normal app still waited for an image; the separate M4 synthetic viewer was unchanged. Tasks 2–5 subsequently implemented those behaviors and their tests; the Task 1 evidence below does not independently verify them.
 
 ## Test-first and review evidence
 
@@ -51,17 +51,17 @@ git diff --check
 
 Both builds passed. Full native-inclusive CTest passed **27/27 Debug (15.17 s)** and **27/27 Release (12.49 s)**. The direct application run passed **26/26 tests**; listing found exactly the two required entries, both with 60-second CTest watchdogs. Whitespace checks passed. An earlier GCC Release warning in test variant construction was fixed without suppressions before these final runs.
 
-A fresh local build directory `out/build/m05-tests-disabled` was configured with Ninja, Release, the same pinned dependency prefix, `LUMORA_BUILD_TESTS=OFF`, `BUILD_TESTING=OFF`, and `LUMORA_ENABLE_BASLER=OFF`. Building `lumora_application` and `lumora_app` passed. This checks Task 1's build independence; it is not evidence for Task 5's still-unimplemented production composition.
+A fresh local build directory `out/build/m05-tests-disabled` was configured with Ninja, Release, the same pinned dependency prefix, `LUMORA_BUILD_TESTS=OFF`, `BUILD_TESTING=OFF`, and `LUMORA_ENABLE_BASLER=OFF`. Building `lumora_application` and `lumora_app` passed. This checks Task 1's build independence; it is not evidence for Task 5's production composition, which was not implemented at that time.
 
 ## Final whole-branch review and follow-up
 
 The final Spec review of `6c054a7...2720679` found zero issues. Standards review found no documented-standard violation or blocking issue, and suggested one optional cleanup: share the identical pending-command cancellation loop used by Shutdown and close. Follow-up `dca908e` extracts that private helper without changing locks, accounting, sealing or notifications. It also replaces five Markdown hard-break trailing spaces with blank metadata separators. Independent scoped re-review confirmed both corrections and no new breakage; no findings remain open in either review axis.
 
-At the exact follow-up source, the controller independently rebuilt and reran the same full commands: **27/27 Debug (15.16 s)** and **27/27 Release (12.51 s)** passed, including desktop smoke. The tests-disabled/Basler-disabled application/library rebuild also passed. `git diff --check 6c054a7...HEAD` passed for the complete committed branch, in addition to working-tree checks. These results supersede the initial-source timing figures for the final code; Windows CI for this follow-up still has not run.
+At the exact follow-up source, the controller independently rebuilt and reran the same full commands: **27/27 Debug (15.16 s)** and **27/27 Release (12.51 s)** passed, including desktop smoke. The tests-disabled/Basler-disabled application/library rebuild also passed. `git diff --check 6c054a7...HEAD` passed for the complete committed branch, in addition to working-tree checks. These results supersede the initial-source timing figures for the final Task 1 code; Windows CI had not run at that local checkpoint. Subsequent merged verification is recorded below.
 
 ## Decisions and remaining gates
 
 - Keep execution-time stale-session rejection in Task 2, while Task 1 tests generation isolation and payload retention: the mailbox has no authoritative active session. If this split proves inadequate, revisit the worker boundary before integration.
 - Add a read-only mailbox statistics snapshot for the already-required admission diagnostics. If its shape proves inadequate, adjust that small API before Task 2; no queue capacity or per-command history was added.
 
-Matching Windows/MSVC CI for this source has not run. Native Windows 11 checks remain deferred, and M4/M5 are not fully accepted. No hardware, installer, throughput/latency, soak or clinical validation is claimed. The next implementation step is **M5 Task 2: acquisition worker with exclusive device ownership**.
+Tasks 1–2 subsequently merged with matching Linux/GCC and Windows/MSVC Debug/Release CI at `7295fb9`; see the [merged acquisition checkpoint](m05-acquisition-worker.md#merged-cross-platform-checkpoint-2026-09-07). Tasks 3–5 are now also implemented, reviewed and merged through `f01b408`, with passing post-merge CI recorded in the [integration checkpoint](m05-live-integration.md#merged-main-verification-and-branch-cleanup-2026-09-07). Native Windows 11 checks remain deferred, and M4/M5 are not fully accepted. No hardware, installer, throughput/latency, soak or clinical validation is claimed by this Task 1 record. See [current progress and next gates](../../PROGRESS.md) rather than treating the historical Task 1 checkpoint as the next-work instruction.

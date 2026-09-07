@@ -35,6 +35,24 @@ add_library(
   STATIC
   processing/include/lumora/processing/IFrameProcessor.hpp
   processing/include/lumora/processing/Mono8PassThroughProcessor.hpp
+  processing/include/lumora/processing/ProcessingConfiguration.hpp
+  processing/include/lumora/processing/PipelineCompiler.hpp
+  processing/include/lumora/processing/IProcessingStage.hpp
+  processing/include/lumora/processing/ImageView.hpp
+  processing/include/lumora/processing/NormalizeStage.hpp
+  processing/include/lumora/processing/WindowLevelStage.hpp
+  processing/include/lumora/processing/DisplayMapper.hpp
+  processing/include/lumora/processing/ProcessingPipeline.hpp
+  processing/include/lumora/processing/ProcessingWorkspace.hpp
+  processing/include/lumora/processing/FrameProcessingEngine.hpp
+  processing/src/ProcessingPipeline.cpp
+  processing/src/ProcessingWorkspace.cpp
+  processing/src/FrameProcessingEngine.cpp
+  processing/src/ImageView.cpp
+  processing/src/NormalizeStage.cpp
+  processing/src/WindowLevelStage.cpp
+  processing/src/DisplayMapper.cpp
+  processing/src/PipelineCompiler.cpp
   processing/src/Mono8PassThroughProcessor.cpp
 )
 add_library(lumora::processing ALIAS lumora_processing)

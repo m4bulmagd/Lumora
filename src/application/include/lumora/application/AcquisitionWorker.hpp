@@ -13,13 +13,16 @@ namespace lumora::application {
 // and requesting cancellation are thread-safe. Destruction joins defensively.
 class AcquisitionWorker final {
 public:
+    // Production supplies its prepared fixed descriptor and complete ROI.
+    // Without it, standalone use binds the first successfully applied mode.
     AcquisitionWorker(camera::ICameraProvider& provider,
                       CameraCommandMailbox& commands,
                       core::BufferPool& rawPool,
                       core::LatestValueSlot<core::RawFrame>& rawSlot,
                       core::IClock& clock,
                       core::LatestValueSlot<CameraStatusSnapshot>& statusSlot,
-                      CameraStatusSnapshot initialStatus);
+                      CameraStatusSnapshot initialStatus,
+                      std::optional<camera::CameraConfiguration> preparedMode = std::nullopt);
     ~AcquisitionWorker();
     AcquisitionWorker(const AcquisitionWorker&) = delete;
     AcquisitionWorker& operator=(const AcquisitionWorker&) = delete;

@@ -1,7 +1,8 @@
 #include <lumora/application/LivePipeline.hpp>
 #include <lumora/application/StartupPreferences.hpp>
 #include <lumora/core/CheckedMath.hpp>
-#include <lumora/processing/Mono8PassThroughProcessor.hpp>
+#include <lumora/processing/FrameProcessingEngine.hpp>
+#include <array>
 #include <condition_variable>
 #include <atomic>
 #include <cmath>
@@ -14,12 +15,55 @@ core::Error failure(std::string code, std::string detail,
                     core::ErrorCategory category=core::ErrorCategory::CameraConfiguration) {
     return {category,std::move(code),"Live pipeline operation failed.",std::move(detail),false};
 }
+
+struct ResourcePlan final {
+    core::ImageLayout sourceLayout;
+    std::size_t rawBytes;
+    std::size_t canonicalBytes;
+    std::size_t displayBytes;
+    std::size_t totalBytes;
+};
+core::Result<ResourcePlan> planResources(const camera::CameraConfiguration& request) {
+    using PlanResult = core::Result<ResourcePlan>;
+    auto format = core::validateSourcePixelFormat(request.pixelFormat);
+    if (!format.hasValue()) return PlanResult::failure(format.error());
+    if (request.roi.width == 0 || request.roi.height == 0 || !request.requestedFps
+        || !std::isfinite(*request.requestedFps) || *request.requestedFps <= 0
+        || request.acquisitionMode != camera::AcquisitionMode::Continuous) {
+        return PlanResult::failure(failure("unsupported_pipeline_mode",
+            "The pipeline requires nonzero dimensions and a finite positive-rate continuous native mode."));
+    }
+    const auto sampleBytes = request.pixelFormat.applicationStorage == core::StorageType::UInt8 ? 1U : 2U;
+    auto pixels = core::checkedMultiply(request.roi.width, request.roi.height);
+    if (!pixels.hasValue()) return PlanResult::failure(pixels.error());
+    auto stride = core::checkedMultiply(request.roi.width, sampleBytes);
+    if (!stride.hasValue()) return PlanResult::failure(stride.error());
+    auto rawBytes = core::checkedMultiply(stride.value(), request.roi.height);
+    if (!rawBytes.hasValue()) return PlanResult::failure(rawBytes.error());
+    auto canonicalBytes = core::checkedMultiply(pixels.value(), 2U);
+    if (!canonicalBytes.hasValue()) return PlanResult::failure(canonicalBytes.error());
+    const std::array<std::pair<std::size_t, std::size_t>, 3> pools{{
+        {10U, rawBytes.value()}, {9U, canonicalBytes.value()}, {16U, pixels.value()}}};
+    std::size_t total = 0;
+    for (const auto& [count, bytes] : pools) {
+        auto poolBytes = core::checkedMultiply(count, bytes);
+        if (!poolBytes.hasValue()) return PlanResult::failure(poolBytes.error());
+        auto accumulated = core::checkedAdd(total, poolBytes.value());
+        if (!accumulated.hasValue()) return PlanResult::failure(accumulated.error());
+        total = accumulated.value();
+    }
+    auto layout = core::ImageLayout::create(request.roi.width, request.roi.height,
+        stride.value(), request.pixelFormat.applicationStorage, rawBytes.value());
+    if (!layout.hasValue()) return PlanResult::failure(layout.error());
+    return PlanResult::success({layout.value(), rawBytes.value(), canonicalBytes.value(), pixels.value(), total});
+}
 }
 struct LivePipeline::Impl {
     camera::ICameraProvider& provider;
     core::IClock& clock;
     camera::CameraConfiguration fixed;
     ProcessorFactory factory;
+    std::optional<ResourcePlan> resources;
     mutable std::mutex mutex;
     std::condition_variable_any changed;
     LivePipelineSnapshot state;
@@ -48,26 +92,28 @@ struct LivePipeline::Impl {
         processor.reset(); cameraCommands.reset(); cameraStatus.reset();
     }
     Result prepare(CameraStatusSnapshot seed) {
-        auto bytes=core::checkedMultiply(fixed.roi.width,fixed.roi.height);
-        if(!bytes.hasValue()) return Result::failure(bytes.error());
-        auto total=core::checkedMultiply(bytes.value(),44U);
-        if(!total.hasValue()) return Result::failure(total.error());
+        const auto& plan = *resources;
         auto prepared=std::make_shared<LiveSessionContext>();
         prepared->generation=seed.sessionGeneration;
-        auto raw=core::BufferPool::create(10U,bytes.value());
+        auto raw=core::BufferPool::create(10U,plan.rawBytes);
         if(!raw.hasValue()) return Result::failure(raw.error());
         prepared->rawPool=std::move(raw.value());
-        auto u16=core::BufferPool::create(9U,bytes.value()*2U);
+        auto u16=core::BufferPool::create(9U,plan.canonicalBytes);
         if(!u16.hasValue()) return Result::failure(u16.error());
         prepared->processingPool=std::move(u16.value());
-        auto display=core::BufferPool::create(16U,bytes.value());
+        auto display=core::BufferPool::create(16U,plan.displayBytes);
         if(!display.hasValue()) return Result::failure(display.error());
         prepared->displayPool=std::move(display.value());
         if(factory) {
-            auto made=factory(*prepared->displayPool);
+            auto made=factory(*prepared->processingPool, *prepared->displayPool, plan.sourceLayout);
             if(!made.hasValue()) return Result::failure(made.error());
             processor=std::move(made.value());
-        } else processor=std::make_unique<processing::Mono8PassThroughProcessor>(*prepared->displayPool);
+        } else {
+            auto made = processing::FrameProcessingEngine::create(*prepared->processingPool,
+                *prepared->displayPool, plan.sourceLayout);
+            if (!made.hasValue()) return Result::failure(made.error());
+            processor = std::move(made).value();
+        }
         if(!processor) return Result::failure(failure("processor_required","Processor factory returned null."));
         retiringContext=std::move(context);
         context=std::move(prepared);
@@ -77,7 +123,7 @@ struct LivePipeline::Impl {
         auto processingStarted=processingWorker->start();
         if(!processingStarted.hasValue()) return processingStarted;
         cameraWorker=std::make_unique<AcquisitionWorker>(provider,*cameraCommands,*context->rawPool,
-            context->rawSlot,clock,*cameraStatus,seed);
+            context->rawSlot,clock,*cameraStatus,seed,fixed);
         auto cameraStarted=cameraWorker->start();
         if(!cameraStarted.hasValue()) return cameraStarted;
         statusRevision=0;
@@ -230,18 +276,9 @@ LivePipeline::~LivePipeline() { shutdown(); }
 Result LivePipeline::start() {
     std::lock_guard lock(impl_->mutex);
     if(impl_->started || impl_->terminal) return Result::failure(failure("pipeline_already_started","Pipeline is single-use."));
-    const auto& request=impl_->fixed;
-    auto canonical=request;
-    canonical.pixelFormat={"Mono8",0x01080001U,8U,255U,core::SourcePacking::Unpacked,
-        core::BitAlignment::LeastSignificant,core::StorageType::UInt8};
-    if(!cameraConfigurationsEqual(request,canonical) || request.roi.width==0U || request.roi.height==0U ||
-        !request.requestedFps || !std::isfinite(*request.requestedFps) || *request.requestedFps<=0 ||
-        request.acquisitionMode!=camera::AcquisitionMode::Continuous)
-        return Result::failure(failure("unsupported_pipeline_mode","M5 requires a finite positive-rate continuous full-range Mono8 mode."));
-    auto pixels=core::checkedMultiply(request.roi.width,request.roi.height);
-    if(!pixels.hasValue()) return Result::failure(pixels.error());
-    auto bytes=core::checkedMultiply(pixels.value(),44U);
-    if(!bytes.hasValue()) return Result::failure(bytes.error());
+    auto resources = planResources(impl_->fixed);
+    if (!resources.hasValue()) return Result::failure(resources.error());
+    impl_->resources = std::move(resources).value();
     impl_->started=true;
     impl_->accepting.store(true);
     try { impl_->control=std::jthread([this]{impl_->run(impl_->cancellation.get_token());}); }
@@ -262,7 +299,7 @@ Result LivePipeline::post(CameraCommand command) {
         return Result::failure(failure("context_handoff_pending","Acknowledge the outstanding source before replacement."));
     if(auto* apply=std::get_if<ApplyConfiguration>(&command.payload);
         apply && !cameraConfigurationsEqual(apply->configuration,impl_->fixed))
-        return Result::failure(failure("unsupported_pipeline_request","M5 accepts only its explicit fixed configuration."));
+        return Result::failure(failure("unsupported_pipeline_request","The pipeline accepts only its explicit fixed configuration."));
     auto result=impl_->incoming.post(std::move(command));impl_->changed.notify_all();return result;
 }
 LivePipelineSnapshot LivePipeline::snapshot() const { std::lock_guard lock(impl_->mutex);return impl_->state; }

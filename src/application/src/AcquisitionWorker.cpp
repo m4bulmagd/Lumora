@@ -2,6 +2,7 @@
 
 #include <lumora/application/CameraSessionStateMachine.hpp>
 #include <lumora/camera/CameraConfigurationValidator.hpp>
+#include <lumora/core/CheckedMath.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -41,10 +42,6 @@ bool sameRoi(const core::RegionOfInterest& a, const core::RegionOfInterest& b) n
 }
 bool sameMode(const camera::CameraConfiguration& a, const camera::CameraConfiguration& b) {
     return sameFormat(a.pixelFormat, b.pixelFormat) && sameRoi(a.roi, b.roi);
-}
-bool isMono8(const core::SourcePixelFormat& format) {
-    return sameFormat(format, {"Mono8", 0x01080001U, 8U, 255U,
-        core::SourcePacking::Unpacked, core::BitAlignment::LeastSignificant, core::StorageType::UInt8});
 }
 }  // namespace
 
@@ -117,14 +114,21 @@ struct AcquisitionWorker::Impl final {
         return Result::failure(std::move(error));
     }
     Result validateMode(const camera::CameraConfiguration& configuration) const {
-        if (!isMono8(configuration.pixelFormat)) {
-            return rejected("camera_format_not_available", "This pipeline requires full-range Mono8.");
+        if (!core::validateSourcePixelFormat(configuration.pixelFormat).hasValue()) {
+            return rejected("camera_format_not_available", "The source format must describe valid native numeric storage.");
         }
         if (fixedMode && !sameMode(configuration, *fixedMode)) {
             return rejected("camera_mode_change_requires_rebinding", "Changing the source mode requires new pipeline resources.");
         }
+        const auto sampleBytes = configuration.pixelFormat.applicationStorage == core::StorageType::UInt8 ? 1U : 2U;
+        const auto stride = core::checkedMultiply(configuration.roi.width, sampleBytes);
+        if (!stride.hasValue()) return rejected("camera_raw_pool_layout", "Source row size overflows native storage.");
+        const auto payload = core::checkedMultiply(stride.value(), configuration.roi.height);
+        if (!payload.hasValue() || payload.value() > rawPool.stats().bytesPerBuffer) {
+            return rejected("camera_raw_pool_layout", "The selected mode does not fit the raw buffer pool.");
+        }
         const auto layout = core::ImageLayout::create(configuration.roi.width, configuration.roi.height,
-            configuration.roi.width, core::StorageType::UInt8, rawPool.stats().bytesPerBuffer);
+            stride.value(), configuration.pixelFormat.applicationStorage, payload.value());
         if (!layout.hasValue()) {
             return rejected("camera_raw_pool_layout", "The selected mode does not fit the raw buffer pool.");
         }
@@ -189,9 +193,13 @@ struct AcquisitionWorker::Impl final {
         auto capabilities = device->capabilities();
         if (!capabilities.hasValue()) { return failAndCleanup(capabilities.error(), E::CapabilitiesFailed); }
         if (stopping()) { return cancelled(); }
-        if (std::none_of(capabilities.value().pixelFormats.begin(), capabilities.value().pixelFormats.end(), isMono8)) {
+        if (std::none_of(capabilities.value().pixelFormats.begin(), capabilities.value().pixelFormats.end(),
+            [&](const auto& format) {
+                return core::validateSourcePixelFormat(format).hasValue()
+                    && (!fixedMode || sameFormat(format, fixedMode->pixelFormat));
+            })) {
             return failAndCleanup(failure(ErrorCategory::CameraConfiguration, "camera_format_not_available",
-                "The camera does not support this pipeline's Mono8 format."), E::CapabilitiesFailed);
+                "The camera does not support the prepared native source format."), E::CapabilitiesFailed);
         }
         status.capabilities = std::move(capabilities.value());
         status.actualIdentity = id;
@@ -227,8 +235,8 @@ struct AcquisitionWorker::Impl final {
             valid = rejected("camera_actual_fps_invalid", "Camera readback must include positive finite actual FPS.");
         }
         if (!valid.hasValue()) { return failAndCleanup(valid.error(), E::DisconnectFailed); }
-        // Composition chooses the first accepted mode and matching downstream
-        // pools. Byte capacity alone cannot identify a width, height or ROI.
+        // Standalone workers without a prepared mode bind the first successful
+        // actual mode. Production is fixed before the worker is constructed.
         if (!fixedMode) { fixedMode = result.value().actual; }
         status.appliedConfiguration = std::move(result.value());
         status.appliedRevision = request.requestRevision;
@@ -436,8 +444,11 @@ struct AcquisitionWorker::Impl final {
 
 AcquisitionWorker::AcquisitionWorker(camera::ICameraProvider& provider, CameraCommandMailbox& commands,
     core::BufferPool& pool, core::LatestValueSlot<core::RawFrame>& raw, core::IClock& clock,
-    core::LatestValueSlot<CameraStatusSnapshot>& status, CameraStatusSnapshot initial)
-    : impl_(std::make_unique<Impl>(provider, commands, pool, raw, clock, status, std::move(initial))) {}
+    core::LatestValueSlot<CameraStatusSnapshot>& status, CameraStatusSnapshot initial,
+    std::optional<camera::CameraConfiguration> preparedMode)
+    : impl_(std::make_unique<Impl>(provider, commands, pool, raw, clock, status, std::move(initial))) {
+    impl_->fixedMode = std::move(preparedMode);
+}
 AcquisitionWorker::~AcquisitionWorker() { requestStop(); join(); }
 Result AcquisitionWorker::start() {
     if (impl_->started) { return rejected("camera_worker_already_started", "Camera worker can only start once."); }

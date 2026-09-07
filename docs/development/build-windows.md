@@ -53,9 +53,28 @@ CTest sets the smoke test's `QT_QPA_PLATFORM_PLUGIN_PATH` from the imported `Qt6
 
 Basler presets are reserved for the later camera-adapter milestone. Machine-specific pylon paths belong in ignored `CMakeUserPresets.json`, never in the shared presets.
 
+## Launch the desktop application
+
+After the Release simulator build, launch the normal application from the repository root:
+
+```powershell
+cmake --build --preset windows-msvc-release-sim --target lumora_app --parallel
+cmake -E env QT_QPA_PLATFORM=windows `
+  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_installed/x64-windows/Qt6/plugins/platforms" `
+  out/build/windows-msvc-release-sim/src/Release/lumora_app.exe
+```
+
+For Debug, use `windows-msvc-debug-sim`, `src/Debug/`, and `x64-windows/debug/Qt6/plugins/platforms`. Use the matching installed plugin directory if the dependency prefix differs. These are developer-build commands; native Windows execution and appearance remain subject to the deferred validation below.
+
+The application starts in **Waiting for image**. Select **SIM-LIVE**, click **Connect**, click **Apply** and review the settings, then **Confirm** and **Start**. On the M7 development branch this streams synthetic Mono12 data in U16 storage through the production acquisition, processing and presentation pipeline, with Gray8 conversion only at the display boundary. The evaluation banner remains visible. No physical camera is connected by this composition.
+
+Viewer **Pause / Live** freezes/resumes presentation while acquisition continues. Camera **Stop** stops acquisition while retaining the connected device; **Disconnect** closes it. If saved identity and requested settings match, the application may offer **Resume Live** on a later launch; it still requires an explicit click. Check these controls and the paused/stale indications in the normal application when collecting M4/M5 Windows acceptance evidence. See the [Linux launch guide](build-linux.md#launch-the-desktop-application) for the shared startup, saved-preference and source-reset behavior.
+
+An older M5 Mono8 saved request differs from M7 and leaves startup disconnected. Explicitly select **SIM-LIVE**, **Connect**, **Apply** and review, then **Confirm** and **Start**. The [M7 record](../architecture/milestones/m07-preflight.md) separates local Linux evidence from the still-required Windows/MSVC and native Windows checks.
+
 ## M4 synthetic viewer and remaining Windows checks
 
-The normal `lumora_app` still opens in `Waiting for image`; production live-pipeline composition remains M5. Test-enabled builds also produce a non-shipping synthetic viewer harness. From the repository root, after the Release build above:
+Test-enabled builds also produce a separate non-shipping synthetic viewer harness. It supplements the normal application checks above. From the repository root, after the Release build:
 
 ```powershell
 cmake --build --preset windows-msvc-release-sim --target lumora_viewer_harness --parallel

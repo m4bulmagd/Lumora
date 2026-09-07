@@ -4,13 +4,13 @@
 
 **Task baseline:** `ccabaae3bdff84c28e78be3de745cb3d30768cff`
 
-**Branch:** `feat/m05-startup-and-integration`
+**Historical branch:** `feat/m05-startup-and-integration` (deleted locally and remotely after merge; worktree retained detached).
 
 **Implementation source:** `8e7d65e5a28b2abea45e9cea8dd624584877d39f`
 
 **Reviewed registration fix:** `5b4bff87fe0ca3ece179dbaf9afbebe9bc212d20`
 
-**Status:** Implemented and locally verified; the independent task review's blocking finding is resolved and scoped re-review is clear. The deferred test-isolation Minor was corrected in the final Tasks4–5 review fix `d113da9`, with scoped re-review clear. Published together with Task 5 in [PR #7](https://github.com/m4bulmagd/Lumora/pull/7); its [integration checkpoint](m05-live-integration.md#integration-verification-and-windows-compiler-correction-2026-09-07) records subsequent exact-source platform evidence. Native Windows 11 checks and full milestone acceptance remain pending.
+**Status:** Implemented, reviewed and merged together with Task 5 through [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) as `f01b408`. The independent task review's blocking finding is resolved; the deferred test-isolation Minor was corrected in `d113da9`, with scoped re-review clear. The [merged integration checkpoint](m05-live-integration.md#merged-main-verification-and-branch-cleanup-2026-09-07) records passing local and post-merge Linux/Windows Debug/Release verification. Native Windows 11 checks and full milestone acceptance remain pending.
 
 ## Scope and authorization
 

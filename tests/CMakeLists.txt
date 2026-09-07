@@ -26,7 +26,13 @@ add_test(NAME Application.StartupPreferences
 set_tests_properties(Application.StartupPreferences PROPERTIES TIMEOUT 60)
 
 add_executable(lumora_processing_tests
-  unit/processing/Mono8PassThroughProcessorTests.cpp)
+  unit/processing/Mono8PassThroughProcessorTests.cpp
+  unit/processing/PipelineCompilerTests.cpp
+  unit/processing/ImageViewTests.cpp
+  unit/processing/NormalizeStageTests.cpp
+  unit/processing/WindowLevelStageTests.cpp
+  unit/processing/DisplayMapperTests.cpp
+  unit/processing/FrameProcessingEngineTests.cpp)
 target_link_libraries(lumora_processing_tests PRIVATE
   lumora::processing GTest::gtest_main)
 lumora_enable_warnings(lumora_processing_tests)
@@ -293,3 +299,24 @@ add_test(NAME ConfigurationStore
 add_test(NAME Configuration.StartupPreferences
   COMMAND lumora_configuration_tests --gtest_filter=StartupPreferencesTest.*:StartupPreferencesService.*)
 set_tests_properties(Configuration.StartupPreferences PROPERTIES TIMEOUT 60)
+
+add_test(NAME Processing.PipelineCompiler
+  COMMAND lumora_processing_tests --gtest_filter=PipelineCompiler.*)
+set_tests_properties(Processing.PipelineCompiler PROPERTIES TIMEOUT 60)
+
+add_test(NAME Processing.ImageView
+  COMMAND lumora_processing_tests --gtest_filter=ImageView.*)
+set_tests_properties(Processing.ImageView PROPERTIES TIMEOUT 60)
+add_test(NAME Processing.NormalizeStage
+  COMMAND lumora_processing_tests --gtest_filter=NormalizeStage.*)
+set_tests_properties(Processing.NormalizeStage PROPERTIES TIMEOUT 60)
+add_test(NAME Processing.WindowLevelStage
+  COMMAND lumora_processing_tests --gtest_filter=WindowLevelStage.*)
+set_tests_properties(Processing.WindowLevelStage PROPERTIES TIMEOUT 60)
+add_test(NAME Processing.DisplayMapper
+  COMMAND lumora_processing_tests --gtest_filter=DisplayMapper.*)
+set_tests_properties(Processing.DisplayMapper PROPERTIES TIMEOUT 60)
+
+add_test(NAME Processing.FrameProcessingEngine
+  COMMAND lumora_processing_tests --gtest_filter=FrameProcessingEngine.*)
+set_tests_properties(Processing.FrameProcessingEngine PROPERTIES TIMEOUT 60)

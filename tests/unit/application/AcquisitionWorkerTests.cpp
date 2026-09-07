@@ -56,6 +56,7 @@ struct Script final {
     bool failStop{false};
     bool failClose{false};
     std::optional<camera::CameraConfiguration> readback;
+    std::optional<camera::CameraCapabilities> offeredCapabilities;
 
     void record(std::string operation) {
         std::unique_lock lock(mutex);
@@ -98,7 +99,7 @@ public:
     Result<camera::CameraCapabilities> capabilities() override {
         script_.record("capabilities");
         if (script_.failCapabilities) { return Result<camera::CameraCapabilities>::failure(error(ErrorCategory::CameraConfiguration, "capabilities_failed")); }
-        return Result<camera::CameraCapabilities>::success(application::capabilities());
+        return Result<camera::CameraCapabilities>::success(script_.offeredCapabilities.value_or(application::capabilities()));
     }
     Result<camera::AppliedCameraConfiguration> applyConfiguration(const camera::CameraConfiguration& value) override {
         script_.record("apply");
@@ -145,8 +146,9 @@ public:
         if (!lease) { return failure(ErrorCategory::ResourceExhaustion, "buffer_pool_exhausted"); }
         auto roi = configuration_.roi;
         if (grab == Grab::WrongRoi) { roi.width = 2U; }
-        auto layout = core::ImageLayout::create(roi.width, roi.height, roi.width,
-            core::StorageType::UInt8, static_cast<std::size_t>(roi.width) * roi.height);
+        const auto sampleBytes = configuration_.pixelFormat.applicationStorage == core::StorageType::UInt8 ? 1U : 2U;
+        auto layout = core::ImageLayout::create(roi.width, roi.height, roi.width * sampleBytes,
+            configuration_.pixelFormat.applicationStorage, static_cast<std::size_t>(roi.width) * roi.height * sampleBytes);
         auto settings = core::AcquisitionSettingsSnapshot::create({"Test", "Camera", "1", "virtual", {}},
             configuration_.pixelFormat, roi, 30.0, 30.0, 100.0, 0.0);
         return core::RawFrame::create(++frameId_, layout.value(), std::move(*lease).seal(),
@@ -207,9 +209,10 @@ struct Fixture final {
     std::shared_ptr<const CameraStatusSnapshot> latest;
     std::uint64_t revision{0U};
     std::uint64_t requestId{0U};
-    explicit Fixture(CameraStatusSnapshot initial = {}, std::size_t bytesPerBuffer = 48U)
+    explicit Fixture(CameraStatusSnapshot initial = {}, std::size_t bytesPerBuffer = 48U,
+                     std::optional<camera::CameraConfiguration> prepared = configuration())
         : pool(core::BufferPool::create(10U, bytesPerBuffer).value()),
-          worker(provider, mailbox, *pool, raw, clock, status, std::move(initial)) {}
+          worker(provider, mailbox, *pool, raw, clock, status, std::move(initial), std::move(prepared)) {}
     ~Fixture() { script.release(); worker.requestStop(); worker.join(); }
     bool await(const std::function<bool(const CameraStatusSnapshot&)>& predicate) {
         std::stop_source timeout;
@@ -684,7 +687,7 @@ TEST(AcquisitionWorker, StreamingApplyAndOtherIdentityAreRejectedWithoutDeviceMu
 }
 
 TEST(AcquisitionWorker, FirstModeMustFitPoolBeforeApplyingToDevice) {
-    Fixture fixture({}, 12U);
+    Fixture fixture({}, 12U, std::nullopt);
     ASSERT_TRUE(fixture.worker.start().hasValue());
     ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
     auto tooLarge = configuration();
@@ -724,6 +727,112 @@ TEST(AcquisitionWorker, PriorityCancelsPendingConfirmationAndStartDuringApply) {
     EXPECT_FALSE(fixture.latest->confirmedRevision);
     ASSERT_TRUE(fixture.command(ConfirmConfiguration{0U, 1U}));
     ASSERT_TRUE(fixture.command(StartStream{0U, 1U}));
+}
+
+
+camera::CameraConfiguration highDepthConfiguration() {
+    auto value = configuration();
+    value.pixelFormat = {"Mono12", 0x01100005U, 12, 4095, core::SourcePacking::Unpacked,
+        core::BitAlignment::LeastSignificant, core::StorageType::UInt16};
+    return value;
+}
+TEST(AcquisitionWorker, PreparedHighDepthModeStreamsNativeSamples) {
+    const auto prepared = highDepthConfiguration();
+    Fixture fixture({}, 24, prepared);
+    auto offered = capabilities(); offered.pixelFormats = {prepared.pixelFormat};
+    fixture.script.offeredCapabilities = offered;
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+    ASSERT_TRUE(fixture.command(ApplyConfiguration{0, prepared, 1}));
+    ASSERT_TRUE(fixture.command(ConfirmConfiguration{0, 1}));
+    ASSERT_TRUE(fixture.command(StartStream{0, 1}));
+    fixture.script.push(Grab::Frame);
+    ASSERT_TRUE(fixture.await([](const auto& state) { return state.acquisitionCounters.acquired == 1; }));
+    auto frame = fixture.raw.consumeAfter(0);
+    ASSERT_TRUE(frame);
+    EXPECT_EQ(frame->value->layout.storage(), core::StorageType::UInt16);
+    EXPECT_EQ(frame->value->layout.strideBytes(), 8U);
+    EXPECT_EQ(frame->value->metadata.acquisitionSettings.sourceFormat.sampleMaximum, 4095U);
+}
+TEST(AcquisitionWorker, PreparedModeRejectsRequestedDescriptorAndCompleteRoiBeforeApply) {
+    for (int change = 0; change < 4; ++change) {
+        SCOPED_TRACE(change);
+        Fixture fixture;
+        auto offered = capabilities(); offered.pixelFormats.push_back(highDepthConfiguration().pixelFormat);
+        offered.roi.maximum.x = 4; offered.roi.maximum.y = 3;
+        fixture.script.offeredCapabilities = offered;
+        ASSERT_TRUE(fixture.worker.start().hasValue());
+        ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+        auto requested = configuration();
+        if (change == 0) requested.pixelFormat = highDepthConfiguration().pixelFormat;
+        if (change == 1) requested.roi.width = 2;
+        if (change == 2) requested.roi.height = 2;
+        if (change == 3) requested.roi.x = 1;
+        ASSERT_TRUE(fixture.command(ApplyConfiguration{0, requested, 1}, false));
+        EXPECT_EQ(fixture.latest->latestError->code, "camera_mode_change_requires_rebinding");
+        EXPECT_EQ(fixture.script.count("apply"), 0U);
+    }
+}
+TEST(AcquisitionWorker, PreparedModeRejectsChangedReadbackAndCleansUp) {
+    for (int change = 0; change < 4; ++change) {
+        SCOPED_TRACE(change);
+        Fixture fixture;
+        auto offered = capabilities(); offered.pixelFormats.push_back(highDepthConfiguration().pixelFormat);
+        offered.roi.maximum.x = 4; offered.roi.maximum.y = 3;
+        fixture.script.offeredCapabilities = offered;
+        auto actual = configuration();
+        if (change == 0) actual.pixelFormat = highDepthConfiguration().pixelFormat;
+        if (change == 1) actual.roi.width = 2;
+        if (change == 2) actual.roi.height = 2;
+        if (change == 3) actual.roi.y = 1;
+        fixture.script.readback = actual;
+        ASSERT_TRUE(fixture.worker.start().hasValue());
+        ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+        ASSERT_TRUE(fixture.command(ApplyConfiguration{0, configuration(), 1}, false));
+        EXPECT_EQ(fixture.latest->latestError->code, "camera_mode_change_requires_rebinding");
+        EXPECT_FALSE(fixture.latest->appliedConfiguration);
+        EXPECT_FALSE(fixture.latest->confirmedRevision);
+        EXPECT_EQ(fixture.script.count("apply"), 1U);
+        EXPECT_EQ(fixture.script.count("close"), 1U);
+        EXPECT_EQ(fixture.script.count("destroy"), 1U);
+        EXPECT_EQ(fixture.script.count("start"), 0U);
+    }
+}
+TEST(AcquisitionWorker, PreparedCapabilitiesRequireExactDescriptorBeforeApply) {
+    auto prepared = highDepthConfiguration();
+    Fixture fixture({}, 24, prepared);
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}, false));
+    EXPECT_EQ(fixture.latest->latestError->code, "camera_format_not_available");
+    EXPECT_EQ(fixture.script.count("close"), 1U);
+    EXPECT_EQ(fixture.script.count("apply"), 0U);
+}
+TEST(AcquisitionWorker, UnpreparedStandaloneWorkerBindsFirstSuccessfulActualMode) {
+    Fixture fixture({}, 48, std::nullopt);
+    auto offered = capabilities(); offered.pixelFormats = {highDepthConfiguration().pixelFormat};
+    offered.roi.maximum.x = 4;
+    fixture.script.offeredCapabilities = offered;
+    auto first = highDepthConfiguration(); first.roi.width = 2;
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+    ASSERT_TRUE(fixture.command(ApplyConfiguration{0, first, 1}));
+    auto changed = first; changed.roi.x = 1;
+    ASSERT_TRUE(fixture.command(ApplyConfiguration{0, changed, 2}, false));
+    EXPECT_EQ(fixture.latest->latestError->code, "camera_mode_change_requires_rebinding");
+    EXPECT_EQ(fixture.script.count("apply"), 1U);
+}
+TEST(AcquisitionWorker, PreparedModePreservesQuantizedExposureGainAndActualFps) {
+    Fixture fixture;
+    auto actual = configuration();
+    actual.requestedFps = 29; actual.exposure.requestedMicroseconds = 101; actual.gain.requestedDb = 1;
+    fixture.script.readback = actual;
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+    ASSERT_TRUE(fixture.command(ApplyConfiguration{0, configuration(), 1}));
+    ASSERT_TRUE(fixture.command(ConfirmConfiguration{0, 1}));
+    EXPECT_EQ(fixture.latest->appliedConfiguration->actual.requestedFps, 29);
+    EXPECT_EQ(fixture.latest->appliedConfiguration->actual.exposure.requestedMicroseconds, 101);
+    EXPECT_EQ(fixture.latest->appliedConfiguration->actual.gain.requestedDb, 1);
 }
 
 }  // namespace

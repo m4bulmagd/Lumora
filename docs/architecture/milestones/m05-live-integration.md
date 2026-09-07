@@ -4,7 +4,7 @@
 
 **Task baseline:** `dda79c09e0884da717625689723abd0bab4843ef`
 
-**Branch:** `feat/m05-startup-and-integration`
+**Historical branch:** `feat/m05-startup-and-integration` (deleted locally and remotely after merge; worktree retained detached).
 
 **Initial implementation source:** `9f562426406041f577b25f7050ed2e42b5a7ed62`
 
@@ -14,11 +14,11 @@
 
 **Final reviewed implementation source:** `d113da90421b68de13507a609b76fe33e55f4b0a`
 
-**Status:** Implemented and reviewed through `d113da9`, with the subsequent compiler-only correction reviewed and verified at `5e1c1ec`. Task reviews, both task fix rounds, final Standards/Spec review fixes and scoped re-reviews have no open findings. Exact-source Linux/GCC and Windows/MSVC Debug/Release CI passed; native Windows 11 checks and full M5 acceptance remain pending.
+**Status:** Implemented, reviewed and merged through PR #7 as `f01b408`. The final implementation review at `d113da9` and subsequent compiler-only correction at `5e1c1ec` have no open findings. Final PR-head and post-merge Linux/GCC and Windows/MSVC Debug/Release CI passed; native Windows 11 checks and full M5 acceptance remain pending. The merged checkpoint and cleanup are recorded below.
 
 ## Scope and authorization
 
-The owner initially authorized continuing M5 locally without waiting for the Task 3 CI run. That continuation did not authorize a further push or merge. On 2026-09-07 the owner subsequently authorized merging the completed M5 work into `main`: [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) was merged after exact-head Linux/Windows CI passed, and Tasks 4–5 were published separately in [PR #7](https://github.com/m4bulmagd/Lumora/pull/7). The continuation requires its own matching cross-platform checks before merge; milestone acceptance is separate.
+The owner initially authorized continuing M5 locally without waiting for the Task 3 CI run. That continuation did not authorize a further push or merge. On 2026-09-07 the owner subsequently authorized merging the completed M5 work into `main`: [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) was merged after exact-head Linux/Windows CI passed, and Tasks 4–5 were published separately in [PR #7](https://github.com/m4bulmagd/Lumora/pull/7). PR #7 then passed its own exact-head cross-platform checks and was merged as `f01b408`; milestone acceptance is separate.
 
 Task 5 connects the existing acquisition/processing workers, [startup preferences and panel](m05-startup-preferences.md), and paint-aware presenter through the [approved ownership and startup contract](m05-preflight.md). The normal application receives a synthetic MovingBar source: full-range Mono8, 640 x 480, 30 FPS, continuous RealTime pacing and seed `0x4C554D4F`. The application must not link the non-shipping M4 viewer harness. Basler hardware, high-depth processing, the full parameter editor and automatic recovery remain M6, M7, M9 and M12 respectively.
 
@@ -106,7 +106,24 @@ The following PR-event runs both report exact head `5e1c1ecc73d5a0ce0774fd81d532
 | Linux, GCC 13.3.0 | [Run 34136247078](https://github.com/m4bulmagd/Lumora/actions/runs/34136247078): Debug **34/34 (21.45 s)** plus native X11 **1/1 (0.16 s)**; Release **34/34 (17.15 s)** plus native X11 **1/1 (0.04 s)**. Completed at 15:07:24 UTC. |
 | Windows, MSVC 19.44.35228.0 | [Run 34136247037](https://github.com/m4bulmagd/Lumora/actions/runs/34136247037): Debug **34/34 (29.85 s)** and Release **34/34 (20.76 s)**. Completed at 15:09:29 UTC. Optional ten-minute stress steps were skipped, not passed. |
 
-Linux's 35 local entries include its native desktop test; Windows has 34 standard entries and no Linux desktop entry. Neither difference indicates a missing standard suite. The documentation follow-up changes no source, tests, CMake, dependency or workflow files. [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) retains the final documentation head's separate checks and merge event; those checks must pass before merging rather than borrowing success from this earlier source head.
+Linux's 35 local entries include its native desktop test; Windows has 34 standard entries and no Linux desktop entry. Neither difference indicates a missing standard suite. The documentation follow-up `a9c1999d6bf5e4e3ea4a49c69f3f75100befaaf4` changed no source, tests, CMake, dependency or workflow files. Its separate [Linux PR run](https://github.com/m4bulmagd/Lumora/actions/runs/34137088281/attempts/2) and [Windows PR run](https://github.com/m4bulmagd/Lumora/actions/runs/34137088292) both passed at that exact final head before merge. Linux attempt 1 was cancelled during Ubuntu package download, before the Lumora build; attempt 2 passed. The earlier cancellation and compiler failures are retained as history, not successful runs.
+
+## Merged main verification and branch cleanup (2026-09-07)
+
+[PR #6](https://github.com/m4bulmagd/Lumora/pull/6) merged Task 3 at 14:52:45 UTC as `2031848834c65a9915504e4409ce896069da25ce`. After its own final-head checks passed, [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) merged Tasks 4–5 at 15:25:36 UTC as `f01b408c8d93913cf8095470a9a6e5b8bcce1ba3`. Root `main` was fast-forwarded to that commit; its complete tree matched the final PR head `a9c1999`, and it contained both the Task 3 and Tasks 4–5 histories. Later documentation-only commits do not change this implementation checkpoint.
+
+Post-merge local builds and native-inclusive tests at `f01b408` passed **35/35 Debug (22.29 s)** and **35/35 Release (17.83 s)**, including `LinuxDesktopSmoke` (0.12 s / 0.06 s). These are recorded integration runs, not reruns for this documentation synchronization.
+
+Both subsequent `main` CI runs report exact head `f01b408c8d93913cf8095470a9a6e5b8bcce1ba3`, completed successfully, with all required Debug/Release configure/build/test steps passed:
+
+| Platform | Post-merge CI evidence |
+|---|---|
+| Linux/GCC | [Run 34138249120](https://github.com/m4bulmagd/Lumora/actions/runs/34138249120): Debug **34/34 (20.23 s)** plus native X11 **1/1 (0.21 s)**; Release **34/34 (16.95 s)** plus native X11 **1/1 (0.03 s)**. |
+| Windows/MSVC | [Run 34138249132](https://github.com/m4bulmagd/Lumora/actions/runs/34138249132): Debug **34/34 (29.87 s)** and Release **34/34 (20.94 s)**. |
+
+GitHub cache restore/save service warnings were non-blocking; required build/test steps passed. Optional ten-minute Windows stress was skipped, not rerun or passed for M5. Historical M4 stress at `6c054a7` remains separate evidence. Hosted Windows CI does not establish native Windows 11 visual/DPI, installer or hardware acceptance.
+
+The owner then authorized removal of merged branches. `feat/m05-processing-worker` (tip `ccabaae`) and `feat/m05-startup-and-integration` (tip `a9c1999`) were deleted locally and remotely after their merge status was verified. Only local `main` and remote `origin/main` remained; no unmerged branch work was identified. All three linked worktrees were retained detached: `linux-desktop` at `f380fbc`, `m04-image-viewport` at `a9c1999`, and `m04-viewport-transform` at `0d8d116`. Earlier squash-merged work was also checked for equivalent integrated content. Dependency installations, build caches and ignored QA/execution records were preserved; no worktree files or commits were deleted. This is the 2026-09-07 cleanup snapshot, not a claim about future branches.
 
 ## Remaining platform and acceptance gates
 
