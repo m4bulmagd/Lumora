@@ -14,7 +14,7 @@ This is a status and evidence summary, not a replacement for the [PRD](../prd.md
 | M4: viewer and latest-frame presentation | Tasks 1–4 merged; automated checks and historical Windows stress passed | Pending native Windows 11 visual/DPI validation and formal closeout |
 | M5: independent live pipeline | Tasks 1–5 implemented, reviewed and merged; no open recorded review findings | Pending deferred M4 checks, affected M5 native Windows UI checks and separate acceptance |
 | M6 | Awaiting approved hardware profile; not implemented | Entry and acceptance gates remain in force |
-| M7 | Simulator development started in an isolated worktree; [preflight](architecture/milestones/m07-preflight.md) | Pending implementation evidence, Windows checks and preceding deferred gates |
+| M7 | Tasks 1–3 reviewed on `feat/m07-high-bit-depth`; Task 4 live integration in progress; [evidence](architecture/milestones/m07-preflight.md) | Pending implementation evidence, Windows checks and preceding deferred gates |
 | M8–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
 
 The normal Linux application now provides synthetic live video through the production pipeline: select `SIM-LIVE`, Connect, Apply and review, Confirm, then Start. Pause freezes presentation while acquisition continues. See the [launch guide](development/build-linux.md#launch-the-desktop-application). No physical camera is connected by this composition.
