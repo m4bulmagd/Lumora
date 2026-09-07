@@ -4,7 +4,7 @@
 
 **Inspected source:** `6c054a7404c32a9be61c0922e6aa115e21eefe73`
 
-**Status:** Approved implementation contracts; [Tasks 1–2](m05-acquisition-worker.md#merged-cross-platform-checkpoint-2026-09-07) are merged with matching cross-platform CI. [Task 3](m05-processing-worker.md), [Task 4](m05-startup-preferences.md) and [Task 5](m05-live-integration.md) are implemented, task-reviewed and locally verified under the scoped M4 manual-validation deferral. The local Tasks4–5 whole-branch review remains pending. These checkpoints separately track verification and review; full M5 acceptance remains pending.
+**Status:** Approved implementation contracts; [Tasks 1–2](m05-acquisition-worker.md#merged-cross-platform-checkpoint-2026-09-07) are merged with matching cross-platform CI. [Task 3](m05-processing-worker.md), [Task 4](m05-startup-preferences.md) and [Task 5](m05-live-integration.md) are implemented, reviewed and locally verified under the scoped M4 manual-validation deferral. The local Tasks4–5 final Standards/Spec findings are resolved through `d113da9`. These checkpoints separately track verification and review; Windows evidence for the local changes and full M5 acceptance remain pending.
 
 This record clarifies the [M5 plan](../../superpowers/plans/2026-04-25-m05-independent-live-pipeline.md) against the implemented M2–M4 interfaces. Read it with the [design](../../superpowers/specs/2026-04-25-xray-imaging-workstation-design.md) and [roadmap](../../superpowers/plans/2026-04-25-xray-imaging-workstation-roadmap.md). It is not implementation, test, or milestone-acceptance evidence.
 

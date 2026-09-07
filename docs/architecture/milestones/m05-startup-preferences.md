@@ -10,7 +10,7 @@
 
 **Reviewed registration fix:** `5b4bff87fe0ca3ece179dbaf9afbebe9bc212d20`
 
-**Status:** Implemented and locally verified; the independent task review's blocking finding is resolved and scoped re-review is clear. One minor test-isolation concern remains for the final whole-branch review. Windows and milestone acceptance remain pending.
+**Status:** Implemented and locally verified; the independent task review's blocking finding is resolved and scoped re-review is clear. The deferred test-isolation Minor was corrected in the final Tasks4–5 review fix `d113da9`, with scoped re-review clear. Windows and milestone acceptance remain pending.
 
 ## Scope and authorization
 
@@ -49,7 +49,7 @@ Observed RED/GREEN covers migration, unknown-mode and missing-actual-FPS rejecti
 
 Independent task review found an Important registration defect: the new store filter omitted the `FailureMatrix/` prefix and silently excluded five parameterized corruption/schema cases. Fix `5b4bff8` restores wildcard-prefix matching while keeping startup tests separate. Verbose Debug/Release CTest then executed all ten store cases; scoped re-review confirmed the finding addressed with no new breakage. Earlier 33/33 entry counts at `8e7d65e` covered only five of those ten store cases and are not complete preservation evidence.
 
-One Minor concern remains for final whole-branch review: `ValidationRejectsUnknownConfigurationModes` also invalidates capabilities, so it does not isolate configuration-enumerator rejection. Task 5 must separately verify composition lifetimes, startup sequences, execution guards, failed-save eligibility and shutdown ordering.
+One Minor concern was deferred to final whole-branch review: `ValidationRejectsUnknownConfigurationModes` also invalidated capabilities, so it did not isolate configuration-enumerator rejection. Final fix `d113da9` validates the baseline, keeps capabilities valid, mutates only the requested acquisition-mode enumerator and expects `startup_configuration_invalid`. Scoped re-review confirmed the correction. The [Task5 checkpoint](m05-live-integration.md) records the final source-matched Linux matrix, translation and shutdown fixes, and end-to-end lifetime/startup evidence; earlier counts here remain the exact Task4 checkpoint, not current total case counts.
 
 A temporary native XCB/Xvfb check used the existing 240-pixel sidebar width: the panel fit at 208 pixels with a minimum hint of 166 x 351. This was panel-only QA, not final hosting, Windows DPI or physical-monitor validation. The minimal plugin's dummy fonts were unsuitable for visual judgment. The reduced Qt build exports BMP but not PNG; the ignored screenshot was mechanically converted without dependency changes.
 
@@ -57,4 +57,4 @@ The local Release Ninja dependency log repeatedly reported recovery and rebuilt 
 
 ## Remaining gates
 
-Task 5 owns controller/pipeline wiring and end-to-end first/later-run behavior. Matching Windows/MSVC Debug/Release CI and native UI checks affected by the controls remain required for acceptance. The [M4 native Windows deferral](m04-deferred-windows-validation.md) remains open. Neither this checkpoint nor continued local development authorizes another push, merge, hardware validation, installer acceptance or clinical use.
+Task5 now supplies controller/pipeline wiring and end-to-end first/later-run behavior. Matching Windows/MSVC Debug/Release CI and native UI checks affected by the controls remain required for acceptance. The [M4 native Windows deferral](m04-deferred-windows-validation.md) remains open. Neither this checkpoint nor continued local development authorizes another push, merge, hardware validation, installer acceptance or clinical use.

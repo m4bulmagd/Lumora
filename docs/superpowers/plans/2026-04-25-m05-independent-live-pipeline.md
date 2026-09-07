@@ -459,7 +459,7 @@ Rerun the focused suites at green and full Debug/Release simulator suites. Separ
 - [x] **Step 6: Commit live integration**
 
 ```powershell
-git add src/application src/ui src/app tests/integration/LivePipelineTests.cpp tests/unit/ui/WorkstationControllerTests.cpp src/CMakeLists.txt tests/CMakeLists.txt
+git add src/application src/configuration src/ui src/app tests/integration/LivePipelineTests.cpp tests/unit/configuration/StartupPreferencesTests.cpp tests/unit/ui/CameraStartupPanelTests.cpp tests/unit/ui/WorkstationControllerTests.cpp src/CMakeLists.txt tests/CMakeLists.txt
 git commit -m "feat(app): connect independent live pipeline"
 ```
 
