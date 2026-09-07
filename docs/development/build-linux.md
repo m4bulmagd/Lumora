@@ -74,7 +74,7 @@ The simulator presets force `LUMORA_ENABLE_BASLER=OFF`; pylon is neither searche
 
 CTest also selects the smoke test's plugin directory from `Qt6::QMinimalIntegrationPlugin` for the active Debug or Release configuration, without requiring a machine-wide Qt plugin-path setting.
 
-## Launch the desktop shell
+## Launch the desktop application
 
 After building, run this from the repository root in a graphical Linux session:
 
@@ -84,7 +84,21 @@ cmake --build --preset linux-gcc-debug-sim --target run-lumora
 
 Use `linux-gcc-release-sim` for Release. This development-only target selects `xcb` and the matching Debug/Release Qt plugin directory for this process; it does not require a global Qt environment setting. It runs until you close the window. Launching the binary directly may require an explicit platform-plugin path with a vcpkg build.
 
-The normal application displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls disabled until a presenter supplies a frame. Production live-pipeline composition remains M5. The separate M4 harness below can show synthetic moving video; a successful launch does not establish milestone acceptance or clinical validation.
+The M5 development application displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls disabled until a frame is actually presented. Its production composition supplies a synthetic 640x480 full-range Mono8 moving bar at 30 FPS; no physical camera or patient data is involved. See the [Task 5 checkpoint](../architecture/milestones/m05-live-integration.md) for current verification/review status. A successful launch does not establish milestone acceptance or clinical validation.
+
+For a first run:
+
+1. Wait for discovery, then explicitly select the `SIM-LIVE` simulator in Camera startup.
+2. Click **Connect**. The camera opens idle; there is no live video yet.
+3. Click **Apply** and review the requested and actual settings.
+4. Click **Confirm** to acknowledge the actual settings.
+5. Click **Start** to begin live synthetic video.
+
+The viewer's **Pause / Live** button freezes/resumes the displayed image while acquisition continues. Camera **Stop** stops acquisition while retaining the connected device; **Start** can restart its still-confirmed settings. **Disconnect** closes the device and cancels pending startup/Resume intent. The last image can remain as context with the existing paused/stale indication. Explicit **Refresh** after Disconnect binds a fresh waiting source and clears that contextual image; it discovers cameras but does not reconnect. In Error, use Retry only when a desired camera identity is retained, or Disconnect then Refresh to restart discovery.
+
+Preferences are saved in the background after successful confirmation. On a later run, an unchanged saved simulator identity may connect idle for capability checks and offer **Resume Live**. That startup action still needs an explicit click and rechecks Apply/readback before streaming. Capability or actual-setting changes require review, Confirm and Start; a load/save warning is not durable confirmation. **Resume Live** is distinct from the viewer's **Live** button. No startup path silently streams.
+
+The sidebar scrolls when needed, keeping the evaluation banner and viewer Pause/Live control outside the startup scroll area. Use a graphical session to assess actual appearance; the M4 harness below remains a separate non-shipping test tool.
 
 If Qt reports that `xcb` cannot be found, reconfigure with the pinned vcpkg toolchain after installing the prerequisites above. Existing `widgets`-only dependency installations must be rebuilt; pointing `CMAKE_PREFIX_PATH` at an older headless Qt installation is not sufficient. If `xcb` is found but cannot connect to a display, run inside your graphical session and check `DISPLAY` and XWayland availability. Do not use `QT_QPA_PLATFORM=minimal` to assess desktop visibility.
 
