@@ -1,6 +1,6 @@
 #include <lumora/processing/PipelineCompiler.hpp>
 #include <algorithm>
-#include <array>
+#include <set>
 #include <cmath>
 namespace lumora::processing {
 std::string_view stageName(StageId id) noexcept {
@@ -18,7 +18,7 @@ std::string_view stageName(StageId id) noexcept {
 }
 
 PipelineDefinition defaultPipeline() {
-    return {1, 1, 0, {
+    return {{1, 1, 0}, {
         {StageId::Normalize, true, NormalizationParameters{}},
         {StageId::WindowLevel, true, WindowLevelParameters{}},
         {StageId::BrightnessContrast, false, BrightnessContrastParameters{}},
@@ -89,28 +89,29 @@ core::Result<CompiledPipeline, PipelineValidationError> PipelineCompiler::compil
     const PipelineDefinition& definition) const {
     using CompileResult = core::Result<CompiledPipeline, PipelineValidationError>;
     Violations errors;
-    if (definition.schemaVersion != 1) add(errors, {}, "unsupported_schema_version", "Only schema version 1 is supported.");
-    if (definition.orderVersion != 1) add(errors, {}, "unsupported_order_version", "Only order version 1 is supported.");
+    if (definition.version.schemaVersion != 1) add(errors, {}, "unsupported_schema_version", "Only schema version 1 is supported.");
+    if (definition.version.orderVersion != 1) add(errors, {}, "unsupported_order_version", "Only order version 1 is supported.");
     if (std::none_of(definition.stages.begin(), definition.stages.end(), [](const auto& s) { return s.id == StageId::Normalize; }))
         add(errors, {}, "missing_normalization", "Normalization is mandatory.");
     for (const auto& traits : registry_) {
         if (!stagePosition(traits.id)) add(errors, {}, "unknown_registry_stage", "Registry contains an unknown stage ID.");
     }
-    std::array<bool, 8> seen{};
+    std::set<StageId> seen;
     std::optional<std::size_t> previousPosition;
     ImageDomain currentDomain = ImageDomain::SensorNative;
     std::vector<CompiledStage> stages;
     std::optional<std::size_t> lastEnabledIndex;
     for (std::size_t i = 0; i < definition.stages.size(); ++i) {
         const auto& stage = definition.stages[i];
+        const bool duplicate = !seen.insert(stage.id).second;
         const auto position = stagePosition(stage.id);
         if (!position) {
             add(errors, i, "unknown_stage", "The stage ID is not supported.");
+            if (duplicate) add(errors, i, "duplicate_stage", "Stage IDs must be unique.");
             validateParameters(stage.parameters, i, errors);
             continue;
         }
-        if (seen[*position]) add(errors, i, stage.id == StageId::Normalize ? "duplicate_normalization" : "duplicate_stage", "Stage IDs must be unique.");
-        seen[*position] = true;
+        if (duplicate) add(errors, i, stage.id == StageId::Normalize ? "duplicate_normalization" : "duplicate_stage", "Stage IDs must be unique.");
         if (previousPosition && *position < *previousPosition) add(errors, i, "invalid_stage_order", "Stages must follow canonical order.");
         previousPosition = position;
         if (stage.id == StageId::Normalize) {

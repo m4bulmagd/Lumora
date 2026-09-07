@@ -18,7 +18,7 @@ TEST(PipelineCompiler, RejectsDuplicateMandatoryNormalization) {
 
 TEST(PipelineCompiler, CompiledCopyRetainsDisabledConfigurationAndOwnsRegistry) {
     auto d = defaultPipeline();
-    d.configurationRevision = 17;
+    d.version.configurationRevision = 17;
     d.stages[1].enabled = false;
     auto registry = stageRegistry();
     PipelineCompiler compiler(registry);
@@ -26,7 +26,7 @@ TEST(PipelineCompiler, CompiledCopyRetainsDisabledConfigurationAndOwnsRegistry) 
     auto result = compiler.compile(d);
     ASSERT_TRUE(result.hasValue());
     d.stages.clear();
-    EXPECT_EQ(result.value().definition().configurationRevision, 17U);
+    EXPECT_EQ(result.value().definition().version.configurationRevision, 17U);
     EXPECT_EQ(result.value().definition().stages.size(), 8U);
     ASSERT_EQ(result.value().enabledStages().size(), 1U);
     EXPECT_EQ(result.value().enabledStages()[0].traits.inputDomain, ImageDomain::SensorNative);
@@ -72,20 +72,20 @@ TEST(PipelineCompiler, RejectsDuplicateIdsAndWrongVariantsAtEveryPosition) {
 
 TEST(PipelineCompiler, RejectsUnsupportedVersionsButAcceptsAllRevisionValues) {
     for (auto revision : {std::uint64_t{0}, std::numeric_limits<std::uint64_t>::max()}) {
-        auto d = defaultPipeline(); d.configurationRevision = revision;
+        auto d = defaultPipeline(); d.version.configurationRevision = revision;
         EXPECT_TRUE(PipelineCompiler(stageRegistry()).compile(d).hasValue());
     }
     for (auto version : {0U, 2U, std::numeric_limits<std::uint32_t>::max()}) {
-        auto d = defaultPipeline(); d.schemaVersion = version;
+        auto d = defaultPipeline(); d.version.schemaVersion = version;
         EXPECT_FALSE(PipelineCompiler(stageRegistry()).compile(d).hasValue());
-        d = defaultPipeline(); d.orderVersion = version;
+        d = defaultPipeline(); d.version.orderVersion = version;
         EXPECT_FALSE(PipelineCompiler(stageRegistry()).compile(d).hasValue());
     }
 }
 
 TEST(PipelineCompiler, ReturnsEveryViolationInStableStageOrder) {
     auto d = defaultPipeline();
-    d.schemaVersion = 0;
+    d.version.schemaVersion = 0;
     d.stages[1].parameters = WindowLevelParameters{0, -1};
     d.stages[2].parameters = BrightnessContrastParameters{-2, 5};
     d.stages[3].parameters = GammaParameters{0};
@@ -152,6 +152,24 @@ TEST(PipelineCompiler, RejectsUnknownStageAndRegistryEntries) {
     EXPECT_FALSE(PipelineCompiler(registry).compile(defaultPipeline()).hasValue());
     registry = stageRegistry(); registry[0].backend = static_cast<ExecutionBackend>(99);
     EXPECT_FALSE(PipelineCompiler(registry).compile(defaultPipeline()).hasValue());
+}
+
+TEST(PipelineCompiler, ReportsUnknownAndDuplicateViolationsForRepeatedUnknownIds) {
+    auto definition = defaultPipeline();
+    const StageDefinition unknown{static_cast<StageId>(99), false, InvertParameters{}};
+    definition.stages.push_back(unknown);
+    definition.stages.push_back(unknown);
+
+    const auto result = PipelineCompiler(stageRegistry()).compile(definition);
+
+    ASSERT_FALSE(result.hasValue());
+    ASSERT_EQ(result.error().violations.size(), 3U);
+    EXPECT_EQ(result.error().violations[0].stageIndex, 8U);
+    EXPECT_EQ(result.error().violations[0].code, "unknown_stage");
+    EXPECT_EQ(result.error().violations[1].stageIndex, 9U);
+    EXPECT_EQ(result.error().violations[1].code, "unknown_stage");
+    EXPECT_EQ(result.error().violations[2].stageIndex, 9U);
+    EXPECT_EQ(result.error().violations[2].code, "duplicate_stage");
 }
 
 TEST(PipelineCompiler, RejectsInvalidDomainsIncludingInitialAndFinalDomain) {

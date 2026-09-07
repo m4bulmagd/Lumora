@@ -1,5 +1,7 @@
 #pragma once
 
+#include <lumora/core/Frame.hpp>
+
 #include <cstdint>
 #include <string_view>
 #include <variant>
@@ -73,9 +75,7 @@ struct StageDefinition final {
 };
 
 struct PipelineDefinition final {
-    std::uint32_t schemaVersion{1};
-    std::uint32_t orderVersion{1};
-    std::uint64_t configurationRevision{0};
+    core::PipelineVersion version{1, 1, 0};
     std::vector<StageDefinition> stages;
 };
 
