@@ -217,8 +217,47 @@ void CameraStartupPanel::updatePresentation() {
     const auto warningValue = presentation_.startupWarning
         ? presentation_.startupWarning
         : status ? status->latestError : std::nullopt;
+    const auto warningSummary = [this](const core::Error& error) {
+        if (error.code == "startup_readback_changed")
+            return tr("Camera readback changed. Review and confirm settings before Start.");
+        if (error.code == "acquisition_timeout")
+            return tr("Camera retrieval timed out. Check the camera connection.");
+        if (error.code == "startup_save_source_unsafe" || error.code == "configuration_invalid_preservation_failed")
+            return tr("Startup preferences were not saved because the existing configuration could not be read or preserved safely.");
+        if (error.code == "configuration_invalid_preserved")
+            return tr("Invalid configuration was preserved. Review and confirm settings before saving new preferences.");
+        if (error.code == "configuration_read_failed")
+            return tr("Configuration could not be read. Check file access before saving startup preferences.");
+        if (error.code == "configuration_write_failed" || error.code == "configuration_replace_failed" ||
+            error.code == "configuration_directory_unavailable")
+            return tr("Startup preferences could not be saved. Check configuration file permissions and available disk space.");
+        if (error.code == "configuration_not_confirmed" || error.code == "configuration_not_applied")
+            return tr("Apply settings and explicitly confirm the camera readback before Start.");
+        if (error.code == "camera_identity_required" || error.code == "camera_not_found" || error.code == "simulator_not_found")
+            return tr("The selected camera is unavailable. Check its connection and select the intended camera.");
+        if (error.code == "camera_format_not_available" || error.code == "unsupported_pipeline_mode" ||
+            error.code == "unsupported_pipeline_request" || error.code == "camera_mode_change_requires_rebinding")
+            return tr("This live pipeline requires its fixed full-range Mono8 mode. Review the requested settings.");
+        if (error.code == "startup_action_unavailable" || error.code == "invalid_camera_state" ||
+            error.code == "context_handoff_pending" || error.code == "context_not_bound")
+            return tr("Wait for the current camera operation to finish before trying this action.");
+        if (error.code == "startup_service_worker_exception" || error.code == "startup_service_start_failed")
+            return tr("The startup preferences worker stopped unexpectedly. Preferences may not have been saved.");
+        switch (error.category) {
+        case core::ErrorCategory::CameraDiscovery: return tr("Camera discovery failed. Check camera connections and refresh the list.");
+        case core::ErrorCategory::CameraConnection: return tr("The camera connection failed. Check the selected camera and use Retry or Disconnect.");
+        case core::ErrorCategory::CameraConfiguration: return tr("Camera settings could not be accepted. Review the requested and actual settings.");
+        case core::ErrorCategory::Acquisition: return tr("Camera acquisition failed. Check the camera status before restarting.");
+        case core::ErrorCategory::InvalidFrame: return tr("An invalid camera frame was discarded. Check the camera format and connection.");
+        case core::ErrorCategory::Processing: return tr("Image processing failed. The displayed image may no longer be live.");
+        case core::ErrorCategory::Configuration: return tr("Startup preferences are unavailable or could not be saved. Review the configuration status.");
+        case core::ErrorCategory::ResourceExhaustion: return tr("Live imaging resources are exhausted. Stop acquisition and check available memory.");
+        case core::ErrorCategory::Cancelled: return tr("The camera operation was cancelled.");
+        default: return tr("Camera startup encountered an error (%1).").arg(QString::fromStdString(error.code));
+        }
+    };
     warning->setText(warningValue
-            ? tr("Warning: %1").arg(QString::fromStdString(warningValue->operatorSummary))
+            ? tr("Warning: %1").arg(warningSummary(*warningValue))
             : QString{});
     warning->setVisible(warningValue.has_value());
 

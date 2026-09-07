@@ -4,10 +4,13 @@
 #include <QLabel>
 #include <QComboBox>
 #include <QMetaObject>
+#include <QCoreApplication>
+#include <QTranslator>
 
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <cstring>
 
 namespace lumora::ui {
 namespace {
@@ -21,6 +24,46 @@ camera::CameraConfiguration configuration(double fps) {
     return {mono8(), {0U, 0U, 640U, 480U}, fps,
         {camera::ExposureMode::Manual, 1000.0},
         {camera::GainMode::Manual, 2.0}, camera::AcquisitionMode::Continuous};
+}
+
+TEST(CameraStartupPanel, WarningBodiesUseExtractableTranslationsAndTypedFallback) {
+    class WarningTranslator final : public QTranslator {
+    public:
+        bool isEmpty() const override { return false; }
+        QString translate(const char* context, const char* source, const char*, int) const override {
+            if (std::strcmp(context, "lumora::ui::CameraStartupPanel") != 0) return {};
+            if (std::strcmp(source, "Camera readback changed. Review and confirm settings before Start.") == 0)
+                return QStringLiteral("Translated readback review");
+            if (std::strcmp(source, "Camera retrieval timed out. Check the camera connection.") == 0)
+                return QStringLiteral("Translated camera timeout");
+            if (std::strcmp(source, "Startup preferences were not saved because the existing configuration could not be read or preserved safely.") == 0)
+                return QStringLiteral("Translated unsafe preferences");
+            if (std::strcmp(source, "Camera startup encountered an error (%1).") == 0)
+                return QStringLiteral("Translated unknown (%1)");
+            return {};
+        }
+    } translator;
+    ASSERT_TRUE(QCoreApplication::installTranslator(&translator));
+    struct RemoveTranslator final {
+        QTranslator* translator;
+        ~RemoveTranslator() { QCoreApplication::removeTranslator(translator); }
+    } remove{&translator};
+    CameraStartupPanel panel;
+    struct Case { const char* code; const char* expected; };
+    for (const auto& value : {Case{"startup_readback_changed", "Translated readback review"},
+             Case{"acquisition_timeout", "Translated camera timeout"},
+             Case{"startup_save_source_unsafe", "Translated unsafe preferences"},
+             Case{"unrecognized_error", "Translated unknown (unrecognized_error)"}}) {
+        CameraStartupPanelPresentation presentation;
+        presentation.startupWarning = core::Error{core::ErrorCategory::Internal,
+            value.code, "<b>Untranslated runtime warning</b>", "diagnostic detail", false};
+        panel.setPresentation(presentation);
+        const auto* label = panel.findChild<QLabel*>(QStringLiteral("startupWarningLabel"));
+        EXPECT_EQ(label->text(), QStringLiteral("Warning: %1").arg(QString::fromUtf8(value.expected)));
+        EXPECT_EQ(label->textFormat(), Qt::PlainText);
+        EXPECT_EQ(panel.presentation().startupWarning->code, value.code);
+        EXPECT_EQ(panel.presentation().startupWarning->diagnosticDetail, "diagnostic detail");
+    }
 }
 
 TEST(CameraStartupPanel, StartIsDisabledBeforeExplicitConfirmation) {

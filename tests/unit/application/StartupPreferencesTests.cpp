@@ -125,14 +125,13 @@ TEST(StartupPreferences, ValidationRejectsUnknownCapabilityModes) {
 
 TEST(StartupPreferences, ValidationRejectsUnknownConfigurationModes) {
     auto invalid = preferences();
-    invalid.requested.gain.mode = static_cast<camera::GainMode>(99);
-    invalid.confirmedCapabilities.gainModes.push_back(
-        static_cast<camera::GainMode>(99));
+    ASSERT_TRUE(validateStartupPreferences(invalid).hasValue());
+    invalid.requested.acquisitionMode = static_cast<camera::AcquisitionMode>(99);
 
     const auto result = validateStartupPreferences(invalid);
 
     ASSERT_FALSE(result.hasValue());
-    EXPECT_EQ(result.error().code, "startup_capabilities_invalid");
+    EXPECT_EQ(result.error().code, "startup_configuration_invalid");
 }
 
 TEST(StartupPreferences, ValidationRequiresPositiveFiniteAppliedFrameRate) {

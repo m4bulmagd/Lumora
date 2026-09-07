@@ -282,6 +282,28 @@ bool waitUntil(const std::function<bool()>& condition) {
     do { if(condition()) return true;std::this_thread::yield(); } while(std::chrono::steady_clock::now()<deadline);
     return false;
 }
+TEST(LivePipeline, ShutdownCapturesConfirmationCompletedSinceTheLastUiPoll) {
+    Gate gate;auto io=std::make_unique<MemoryIo>();auto* observer=io.get();
+    io->beforeLoad=[&]{gate.block();};
+    Fixture f(std::move(io));ReleaseGate release{gate};
+    ASSERT_TRUE(f.initialize());ASSERT_TRUE(gate.wait());
+    f.controller.selectCamera({"SIM-LIVE"});
+    ASSERT_TRUE(f.act(Intent::Connect));ASSERT_TRUE(f.act(Intent::Apply));
+    ASSERT_TRUE(f.controller.dispatch(Intent::Confirm).hasValue());
+    // This helper deliberately does not poll the controller or dispatch Qt events.
+    ASSERT_TRUE(waitUntil([&]{auto camera=f.pipeline.snapshot().camera;
+        return camera && camera->confirmedRevision.has_value();}));
+    EXPECT_TRUE(f.panel.presentation().ordinaryOperationPending);
+    EXPECT_FALSE(f.preferences.latestStatus()->latestAttemptedSaveRevision.has_value());
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
+    f.controller.shutdown();f.preferences.requestStop();gate.release();f.preferences.join();
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,1U);
+    ASSERT_TRUE(observer->saved.has_value());
+    EXPECT_TRUE(observer->saved->confirmed);
+    EXPECT_TRUE(application::cameraConfigurationsEqual(observer->saved->lastApplied,request()));
+    EXPECT_EQ(f.controller.presenter(),nullptr);
+    EXPECT_FALSE(f.pipeline.snapshot().context);
+}
 TEST(LivePipeline, ReplacementWaitsForTheOutstandingContextAcknowledgement) {
     Fixture f;ASSERT_TRUE(f.pipeline.start().hasValue());
     ASSERT_TRUE(waitUntil([&]{return f.pipeline.snapshot().context!=nullptr;}));
@@ -576,6 +598,23 @@ public:
     }
 private:camera::sim::SimulatedCameraProvider delegate_;CameraObservation& observation_;
 };
+TEST(LivePipeline, ShutdownCapturesResumeConfirmationWithoutAdvancingToStart) {
+    core::ManualClock sourceClock;CameraObservation observed;ObservedProvider provider(sourceClock,observed);
+    auto io=std::make_unique<MemoryIo>();io->record=savedRecord();
+    Fixture f(std::move(io),options(),{},request(),&provider);
+    ASSERT_TRUE(f.initialize());
+    ASSERT_TRUE(f.wait([&]{return f.panel.presentation().resumeLiveAvailable &&
+        !f.panel.presentation().ordinaryOperationPending;}));
+    ASSERT_TRUE(f.controller.dispatch(Intent::ResumeLive).hasValue());
+    ASSERT_TRUE(waitUntil([&]{auto camera=f.pipeline.snapshot().camera;return camera && camera->appliedRevision>0;}));
+    f.controller.poll(); // Advance only the completed Apply to Confirm.
+    ASSERT_TRUE(waitUntil([&]{auto camera=f.pipeline.snapshot().camera;return camera && camera->confirmedRevision.has_value();}));
+    f.controller.shutdown();f.preferences.requestStop();f.preferences.join();
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,1U);
+    EXPECT_EQ(observed.starts.load(),0);
+    EXPECT_EQ(observed.destroyed.load(),observed.creates.load());
+    EXPECT_FALSE(observed.wrongThread.load());
+}
 TEST(LivePipeline, TerminalPostDuringDiscoveryConnectingAndErrorJoinsTheComposedOwners) {
     for(int phase=0;phase<3;++phase) {
         SCOPED_TRACE(phase);core::ManualClock sourceClock;Gate gate;CameraObservation observed;

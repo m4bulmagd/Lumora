@@ -39,6 +39,23 @@ struct WorkstationController::Impl {
     std::optional<Intent> resumePhase;
     std::uint64_t resumeGeneration{0};
     std::optional<application::StartupPreferences> loaded;
+    void captureConfirmation(const std::shared_ptr<const application::CameraStatusSnapshot>& camera) {
+        if(!camera || !camera->confirmedRevision || !camera->actualIdentity || !camera->capabilities ||
+            !camera->requestedConfiguration || !camera->appliedConfiguration) return;
+        const auto confirmation=std::pair{camera->sessionGeneration,*camera->confirmedRevision};
+        if(submittedConfirmation==confirmation || rejectedConfirmation==confirmation) return;
+        const auto descriptor=std::find_if(camera->discoveredDescriptors.begin(),camera->discoveredDescriptors.end(),
+            [&](const auto& value){return value.id==*camera->actualIdentity;});
+        if(descriptor==camera->discoveredDescriptors.end()) return;
+        application::StartupPreferences record{1,*camera->actualIdentity,descriptor->identity,*camera->capabilities,
+            *camera->requestedConfiguration,camera->appliedConfiguration->actual,true};
+        auto saved=preferences.postSave(++saveRevision,std::move(record));
+        if(saved.hasValue()) submittedConfirmation=confirmation;
+        else {
+            // Permanent admission failure is not a submission or a polling retry.
+            rejectedConfirmation=confirmation;presentation.startupWarning=saved.error();
+        }
+    }
     bool eligible(const application::CameraStatusSnapshot& camera) const {
         if(!loaded || manuallyDisconnected || !camera.actualIdentity || !camera.capabilities ||
             camera.state!=application::CameraSessionState::ConnectedIdle ||
@@ -117,24 +134,7 @@ void WorkstationController::poll() {
         d.presentation.controlsEnabled=false;
     }
     const auto& camera=d.presentation.cameraStatus;
-    if(camera && camera->confirmedRevision && camera->actualIdentity && camera->capabilities &&
-        camera->requestedConfiguration && camera->appliedConfiguration &&
-        d.submittedConfirmation!=std::pair{camera->sessionGeneration,*camera->confirmedRevision} &&
-        d.rejectedConfirmation!=std::pair{camera->sessionGeneration,*camera->confirmedRevision}) {
-        const auto descriptor=std::find_if(camera->discoveredDescriptors.begin(),camera->discoveredDescriptors.end(),
-            [&](const auto& value){return value.id==*camera->actualIdentity;});
-        if(descriptor!=camera->discoveredDescriptors.end()) {
-            application::StartupPreferences record{1,*camera->actualIdentity,descriptor->identity,*camera->capabilities,
-                *camera->requestedConfiguration,camera->appliedConfiguration->actual,true};
-            auto saved=d.preferences.postSave(++d.saveRevision,std::move(record));
-            const auto confirmation=std::pair{camera->sessionGeneration,*camera->confirmedRevision};
-            if(saved.hasValue()) d.submittedConfirmation=confirmation;
-            else {
-                // Permanent admission failure is not a submission or a polling retry.
-                d.rejectedConfirmation=confirmation;d.presentation.startupWarning=saved.error();
-            }
-        }
-    }
+    d.captureConfirmation(camera);
     d.presentation.ordinaryOperationPending=d.pending.has_value() || d.barrier.has_value();
     d.presentation.resumeLiveAvailable=camera && d.eligible(*camera) && !d.presentation.startupWarning;
     d.panel.setPresentation(d.presentation);
@@ -203,9 +203,21 @@ void WorkstationController::shutdown() noexcept {
     auto& d=*impl_;if(d.stopped) return;d.stopped=true;d.timer.stop();
     d.pending.reset();d.barrier.reset();d.resumePhase.reset();
     d.presentation.controlsEnabled=false;d.presentation.ordinaryOperationPending=false;
-    d.panel.setPresentation(d.presentation);
+    try {
+        // Capture only already-confirmed facts, without advancing poll's startup
+        // or Resume continuations, before camera shutdown clears those facts.
+        d.captureConfirmation(d.pipeline.snapshot().camera);
+    } catch(...) {
+        try {
+            d.presentation.startupWarning=core::Error{core::ErrorCategory::Configuration,
+                "startup_save_capture_failed","Startup preferences could not be captured before closing.",
+                "An exception occurred while capturing the final confirmed configuration.",true};
+        } catch(...) { /* Best-effort warning must not prevent teardown. */ }
+    }
+    try { d.panel.setPresentation(d.presentation); } catch(...) {}
     d.pipeline.shutdown();
     d.presenter.reset();d.view.imageViewport()->clear();d.context.reset();
-    d.presentation.cameraStatus.reset();d.panel.setPresentation(d.presentation);
+    d.presentation.cameraStatus.reset();
+    try { d.panel.setPresentation(d.presentation); } catch(...) {}
 }
 }
