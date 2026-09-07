@@ -15,7 +15,7 @@ This is a status and evidence summary, not a replacement for the [PRD](../prd.md
 | M5: independent live pipeline | Tasks 1–5 implemented, reviewed and merged; no open recorded review findings | Pending deferred M4 checks, affected M5 native Windows UI checks and separate acceptance |
 | M6 | Awaiting approved hardware profile; not implemented | Entry and acceptance gates remain in force |
 | M7 | Tasks 1–4 implemented and task-reviewed on `feat/m07-high-bit-depth`; local Debug/Release 41/41; [evidence](architecture/milestones/m07-preflight.md) | Pending matching Windows checks and preceding deferred gates |
-| M8 | Task 1 authorized under the [simulator continuation](architecture/milestones/m08-tone-stages.md); implementation pending | Deferred gates and M8 acceptance remain open |
+| M8 | Task 1 implemented and task-reviewed on `feat/m08-tone-stages`; Linux Debug/Release 42/42 | Windows evidence, Tasks 2–5, deferred gates and M8 acceptance remain open |
 | M9–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
 
 The normal Linux application now provides synthetic live video through the production pipeline: select `SIM-LIVE`, Connect, Apply and review, Confirm, then Start. Pause freezes presentation while acquisition continues. See the [launch guide](development/build-linux.md#launch-the-desktop-application). No physical camera is connected by this composition.
@@ -49,3 +49,7 @@ After integration on 2026-09-07, the merged `feat/m05-processing-worker` and `fe
 - Keep later Windows packaging, hardware, performance and distribution gates intact. Daily development is on Linux; Windows 11 remains the official installation and hardware-acceptance target.
 
 All current work is **EVALUATION — NOT FOR CLINICAL USE** and must not acquire or store real patient data. A future clinical diagnostic release for Egypt remains a separately gated program.
+
+## M8 Task 1 development checkpoint
+
+The [tone-stage record](architecture/milestones/m08-tone-stages.md) records the owner-authorized continuation and implementation at `246a73a`: standalone U16 brightness/contrast, cached gamma and inversion with fourteen focused cases and passing Linux Debug/Release application suites. Task review passed. Live activation remains rejected until Task 5 composes execution. Whole-frame zero allocation and Windows/performance evidence remain open.

@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-07
 
-**Status:** Task 1 authorized; implementation and verification pending. M8 is not accepted.
+**Status:** Task 1 implemented at `246a73a` and independently task-reviewed on `feat/m08-tone-stages`. Local Linux Debug/Release suites passed; the tests-disabled production build passed and final review is pending. M8 is not accepted.
 
 ## Authority and scope
 
@@ -38,4 +38,15 @@ Whole-frame zero allocation remains an M8 Task 5 acceptance requirement: the cur
 
 ## Verification evidence
 
-Pending implementation.
+Commit `246a73a` adds the three stages, their private shared byte-safe validation helper, and `Processing.ToneStages` test/build registration. Fourteen tone cases include exhaustive integer/rational brightness/contrast and gamma-0.5 comparisons, gamma identity and selected scalar/fixed references, full-domain inversion, repeated configured gamma calls, numeric validation and all-stage row/alias guards. No production activation or engine code changed.
+
+Independent task review approved both spec compliance and code quality without findings. At `246a73a`, GCC 15.2.0 passed all eight Processing CTest suites and all fourteen tone cases in Debug and Release. Root's full Debug suite passed 41/41 headless in 29.18 s plus native X11 1/1 in 0.24 s; full Release passed 41/41 headless in 18.43 s plus native X11 1/1 in 0.06 s. Both use the existing pinned dependency prefix; no dependency version changed.
+
+The observed pre-implementation assertion RED directly covered brightness/contrast. Gamma, inversion, numeric validation and overlap tests were compile-ready but not separately run before implementation; later deliberate mutations made those tests fail, then source was restored and fresh focused suites passed. This is mutation evidence, not a claim of pre-implementation RED for those cases.
+
+The immutable gamma table and successful process paths have no heap allocation by code inspection. Repeated-output tests confirm stable configured behavior; neither LUT-build count nor allocation count was instrumented. The full-frame allocation gate remains open.
+
+Commands: `cmake --build --preset linux-gcc-{debug,release}-sim --parallel 3`, `ctest --preset linux-gcc-{debug,release}-sim --output-on-failure -LE 'hardware|desktop'`, and `xvfb-run -a ctest --preset linux-gcc-{debug,release}-sim --output-on-failure --no-tests=error -L desktop`, run separately by configuration. Focused suites use `-R '^Processing\.'`; tone cases use `--gtest_filter=ToneStages.*`. Logs, including restored mutation results, remain in `out/qa/m08-task1/` in the retained worktree. Matching Windows evidence, Tasks 2–5, whole-frame allocation and designated-workstation performance acceptance remain pending.
+
+
+A fresh Release `lumora_app` build with tests, benchmarks and Basler disabled passed with GCC 15.2.0. Configure/build logs are `production-configure.log` and `production-build.log` under the same QA directory.
