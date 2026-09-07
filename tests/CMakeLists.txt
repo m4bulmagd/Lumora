@@ -2,7 +2,8 @@ add_executable(lumora_application_tests
   unit/application/CameraSessionStateMachineTests.cpp
   unit/application/CameraCommandMailboxTests.cpp
   unit/application/AcquisitionWorkerTests.cpp
-  unit/application/ProcessingWorkerTests.cpp)
+  unit/application/ProcessingWorkerTests.cpp
+  unit/application/StartupPreferencesTests.cpp)
 target_link_libraries(lumora_application_tests PRIVATE
   lumora::application lumora::camera_simulator GTest::gtest_main)
 target_include_directories(lumora_application_tests PRIVATE
@@ -20,6 +21,9 @@ set_tests_properties(Application.AcquisitionWorker PROPERTIES TIMEOUT 60)
 add_test(NAME Application.ProcessingWorker
   COMMAND lumora_application_tests --gtest_filter=ProcessingWorker.*)
 set_tests_properties(Application.ProcessingWorker PROPERTIES TIMEOUT 60)
+add_test(NAME Application.StartupPreferences
+  COMMAND lumora_application_tests --gtest_filter=StartupPreferences.*)
+set_tests_properties(Application.StartupPreferences PROPERTIES TIMEOUT 60)
 
 add_executable(lumora_processing_tests
   unit/processing/Mono8PassThroughProcessorTests.cpp)
@@ -33,6 +37,8 @@ set_tests_properties(Processing.Mono8PassThrough PROPERTIES TIMEOUT 60)
 add_executable(
   lumora_ui_tests
   support/QtTestMain.cpp
+  unit/ui/CameraStartupPanelTests.cpp
+  unit/ui/WorkstationControllerTests.cpp
   unit/ui/FramePresenterTests.cpp
   unit/ui/ImageViewportTests.cpp
   unit/ui/MainWindowSmokeTests.cpp
@@ -75,11 +81,16 @@ add_test(
   NAME WorkstationView
   COMMAND lumora_ui_tests --gtest_filter=WorkstationView.*
 )
+add_test(
+  NAME CameraStartupPanel
+  COMMAND lumora_ui_tests --gtest_filter=CameraStartupPanel.*
+)
+add_test(NAME WorkstationController COMMAND lumora_ui_tests --gtest_filter=WorkstationController.*)
 # Surface stalled Qt startup promptly on unattended CI runners.
 # Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
 # does not make the installed Qt platform plugins discoverable by itself.
 set_tests_properties(
-  MainWindowSmoke ViewportTransform ImageViewport WorkstationView FramePresenter
+  MainWindowSmoke ViewportTransform ImageViewport WorkstationView FramePresenter CameraStartupPanel WorkstationController
   PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
@@ -89,18 +100,24 @@ add_executable(
   lumora_integration_tests
   support/QtTestMain.cpp
   integration/SimulatedViewerTests.cpp
+  integration/LivePipelineTests.cpp
+  "${PROJECT_SOURCE_DIR}/src/app/SimulatorComposition.cpp"
 )
 target_include_directories(
   lumora_integration_tests
   PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/support"
     "${PROJECT_SOURCE_DIR}/tools/viewer-harness"
+    "${PROJECT_SOURCE_DIR}/src/app"
 )
 target_link_libraries(
   lumora_integration_tests
-  PRIVATE lumora::ui lumora_viewer_harness_support Qt6::Widgets GTest::gtest
+  PRIVATE lumora::ui lumora::configuration lumora::camera_simulator lumora_viewer_harness_support Qt6::Widgets GTest::gtest
 )
 lumora_enable_warnings(lumora_integration_tests)
+add_test(NAME LivePipeline COMMAND lumora_integration_tests --gtest_filter=LivePipeline.*)
+set_tests_properties(LivePipeline PROPERTIES TIMEOUT 180
+  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
 
 add_test(
   NAME SimulatedViewer
@@ -261,6 +278,7 @@ add_test(NAME Logging COMMAND lumora_diagnostics_tests)
 add_executable(
   lumora_configuration_tests
   unit/configuration/ConfigurationStoreTests.cpp
+  unit/configuration/StartupPreferencesTests.cpp
 )
 
 target_link_libraries(
@@ -270,4 +288,8 @@ target_link_libraries(
     GTest::gtest_main
 )
 lumora_enable_warnings(lumora_configuration_tests)
-add_test(NAME ConfigurationStore COMMAND lumora_configuration_tests)
+add_test(NAME ConfigurationStore
+  COMMAND lumora_configuration_tests --gtest_filter=ConfigurationStore.*:*/InvalidConfigurationTest.*)
+add_test(NAME Configuration.StartupPreferences
+  COMMAND lumora_configuration_tests --gtest_filter=StartupPreferencesTest.*:StartupPreferencesService.*)
+set_tests_properties(Configuration.StartupPreferences PROPERTIES TIMEOUT 60)

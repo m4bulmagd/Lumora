@@ -1,5 +1,6 @@
 #pragma once
 
+#include <lumora/application/StartupPreferences.hpp>
 #include <lumora/core/Error.hpp>
 
 #include <QJsonObject>
@@ -10,7 +11,7 @@
 namespace lumora::configuration {
 
 struct ApplicationConfiguration final {
-    static constexpr int CurrentSchemaVersion = 1;
+    static constexpr int CurrentSchemaVersion = 2;
 
     int schemaVersion{CurrentSchemaVersion};
     QJsonObject application;
@@ -19,6 +20,7 @@ struct ApplicationConfiguration final {
     QJsonObject presets;
     QJsonObject capture;
     QJsonObject ui;
+    std::optional<application::StartupPreferences> startup;
 
     // Load metadata is deliberately not serialized.
     bool usedDefaults{false};

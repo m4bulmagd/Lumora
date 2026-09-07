@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. Tasks 1–2 were subsequently implemented, reviewed, merged and pushed with explicit authorization; matching Linux/Windows Debug/Release CI passed at `7295fb9`, as recorded in the [Task 2 checkpoint](../../architecture/milestones/m05-acquisition-worker.md#merged-cross-platform-checkpoint-2026-09-07). The user's latest approval authorizes [Task 3 development](../../architecture/milestones/m05-processing-worker.md) only. Tasks 4–5 remain later work. Native Windows 11 manual checks remain pending; neither the development exception nor Task 3 approval implies M4/M5 acceptance, another merge, or a push.
+**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. Tasks 1–2 were subsequently implemented, reviewed, merged and pushed with explicit authorization; matching Linux/Windows Debug/Release CI passed at `7295fb9`, as recorded in the [Task 2 checkpoint](../../architecture/milestones/m05-acquisition-worker.md#merged-cross-platform-checkpoint-2026-09-07). Task 3 is implemented and locally reviewed; the user's latest approval authorized its push and [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) at `ccabaae`, and continued M5 development without waiting for that CI. Tasks 4–5 proceed locally on `feat/m05-startup-and-integration`, based on `ccabaae`; the Task 3 PR stays unchanged. No further push or merge is implied. Matching Windows evidence and native Windows 11 manual checks remain acceptance gates, not prerequisites for this explicitly authorized continuation.
 
 ## Global Constraints
 
@@ -289,6 +289,8 @@ git commit -m "feat(app): add newest-frame processing worker"
 
 ### Task 4: Minimal startup controls and saved preferences
 
+**Local checkpoint (2026-09-07):** Implemented and independently task-reviewed through `5b4bff8`; full native-inclusive Linux Debug/Release33/33 and tests-OFF builds pass. The [Task 4 record](../../architecture/milestones/m05-startup-preferences.md) records the restored test matrix, process limitations, remaining minor review concern and acceptance gates.
+
 **Files:**
 - Create: `src/application/include/lumora/application/StartupPreferences.hpp`
 - Create: `src/application/src/StartupPreferences.cpp`
@@ -309,7 +311,7 @@ git commit -m "feat(app): add newest-frame processing worker"
 - Consumes: stable identity, capabilities, requested/actual settings, application status, and `ConfigurationStore`.
 - Produces: plain `StartupPreferences`, canonical capability comparison, schema-2 migration/codec, background `StartupPreferencesService`, and `CameraStartupPanel` intents. The [startup contract](../../architecture/milestones/m05-preflight.md#3-minimal-startup-ui-and-persistence) defines the fields, thread ownership, validation, and exact first/later-run sequences.
 
-- [ ] **Step 1: Write failing startup value, codec, and panel tests**
+- [x] **Step 1: Write failing startup value, codec, and panel tests**
 
 Use `StartupPreferencesTest` as a fixture over public value/codec/store interfaces, with an injected temporary path and matching/mismatched capability fixtures. Its `loadSchema1()` loads a valid old document through `ConfigurationStore`; its `roundTripConfirmed()` creates, encodes, and decodes a version-1 startup record using schema 2. These test helpers return the real `Result<ApplicationConfiguration>`; errors are asserted before reading values.
 
@@ -331,7 +333,7 @@ TEST_F(StartupPreferencesTest, ConfirmedRecordRoundTrips) {
 
 Add cases for set-order-independent capability equality, changed descriptor maximum/ROI/numeric limits/modes, wrong identity, duplicate/nonfinite capabilities, unconfirmed/future/corrupt record, save failure preserving the prior file, and background I/O thread affinity. Panel tests use `CameraStartupPanel` with immutable status: Start disabled before Confirm, requested versus actual values visible, priority actions enabled while an ordinary operation is pending, and no camera/device calls from UI signals.
 
-- [ ] **Step 2: Register and run the failing startup suites**
+- [x] **Step 2: Register and run the failing startup suites**
 
 Extend existing application/configuration/UI targets and register `Application.StartupPreferences`, `Configuration.StartupPreferences`, and `CameraStartupPanel` (the latter with the existing minimal-plugin environment). Keep UI's Qt test main; configuration/application tests keep their current non-widget main. Reconfigure/build those targets, then:
 
@@ -341,7 +343,7 @@ ctest --preset linux-gcc-debug-sim --no-tests=error --output-on-failure -R '^(Ap
 
 Expected: migration/eligibility/panel assertions fail, not missing registration.
 
-- [ ] **Step 3: Implement typed startup values and schema migration**
+- [x] **Step 3: Implement typed startup values and schema migration**
 
 Add optional `startup` to `ApplicationConfiguration`, with this plain application-owned record in `StartupPreferences.hpp` (types qualified from existing camera/core headers):
 
@@ -359,15 +361,15 @@ struct StartupPreferences final {
 
 `StartupPreferences.cpp` supplies validation and canonical capability/configuration comparison used by codec and startup guards; tests cross these plain-value functions, not Qt JSON. `StartupPreferencesStatus` is the plain service-result value described in the preflight. Increment `CurrentSchemaVersion` to 2; decode schema 1 by preserving all existing sections and setting startup absent, then validate as schema 2. Serialize all startup identity/capability/configuration fields explicitly with version checks and structural validation. Canonicalize unordered capability sets without changing semantic numeric values. Do not use memory bytes or platform-dependent hashes for the fingerprint. Preserve the existing atomic-save/invalid-file behavior and tests.
 
-- [ ] **Step 4: Implement background preferences and minimal panel**
+- [x] **Step 4: Implement background preferences and minimal panel**
 
 Implement `StartupPreferencesService` with one background worker, one pending coalesced immutable save and a latest status/result slot. It owns loaded-document read/modify/write and calls `ConfigurationStore` only off the UI/camera/processing threads; expose start/post-save/request-stop/join and never spawn a new thread per save. The panel emits selection/Connect/Apply/Confirm/Start/Stop/Disconnect/Retry/Resume intents; it does not schedule commands, persist, or control the presenter. Supply fixed-mode read-only configuration review now; M9 expands the editor. Keep all strings localization-ready and distinguish Resume Live (camera startup) from viewer Resume (unpause).
 
-- [ ] **Step 5: Verify startup contracts at green**
+- [x] **Step 5: Verify startup contracts at green**
 
 Rerun the Step 2 suites plus the existing `ConfigurationStore` tests. Verify no UI-thread file I/O, no lost unrelated JSON sections, typed failed-load/save warnings, worker join on exit, and no claim of persistence before the atomic save completes. End-to-end first/later-run actions are wired and tested in Task 5; this task's panel remains independently testable from immutable status.
 
-- [ ] **Step 6: Commit startup modules**
+- [x] **Step 6: Commit startup modules**
 
 ```powershell
 git add src/application src/configuration src/ui tests/unit/application tests/unit/configuration tests/unit/ui/CameraStartupPanelTests.cpp src/CMakeLists.txt tests/CMakeLists.txt
@@ -388,6 +390,11 @@ git commit -m "feat(app): add explicit startup controls and saved preferences"
 - Modify: `src/app/main.cpp`
 - Modify: `src/ui/include/lumora/ui/MainWindow.hpp`
 - Modify: `src/ui/src/MainWindow.cpp`
+- Modify: `src/ui/src/CameraStartupPanel.cpp` (authorized integration guard/selection-stability corrections)
+- Modify: `tests/unit/ui/CameraStartupPanelTests.cpp` (preserve the corrected intent fixture)
+- Modify: `src/configuration/include/lumora/configuration/StartupPreferencesService.hpp` (review-authorized pending-load admission contract)
+- Modify: `src/configuration/src/StartupPreferencesService.cpp` (retain accepted confirmation through delayed load and shutdown)
+- Modify: `tests/unit/configuration/StartupPreferencesTests.cpp` (safe delayed-load persistence regressions)
 - Modify: `src/CMakeLists.txt`
 - Modify: `tests/CMakeLists.txt`
 
@@ -395,7 +402,11 @@ git commit -m "feat(app): add explicit startup controls and saved preferences"
 - Consumes: camera provider, clock, session-owned pools/slots/workers, background preferences, `CameraStartupPanel` intents and the existing `WorkstationView`/`FramePresenter`.
 - Produces: `LivePipeline::{start,post,shutdown}` for application lifecycle/commands, bounded session-context/status exchange and UI binding acknowledgement; `WorkstationController` for camera/startup state translation; simulator-backed application. Viewer Pause/Resume remain presenter operations, not Qt-dependent methods on `LivePipeline`.
 
-- [ ] **Step 1: Write failing end-to-end lifecycle test**
+Integration checks authorized narrowly scoped corrections to the existing panel: actions match the worker's supported states/retained identity, Disconnect stays available during pending startup/discovery, and unchanged descriptor lists do not reset an open selector on each controller poll. These enforce the [startup contract](../../architecture/milestones/m05-preflight.md#3-minimal-startup-ui-and-persistence); they do not introduce a second camera policy or M9 editor.
+
+Task review additionally authorized bounded service acceptance while initial load is pending: confirmed records must survive Disconnect/shutdown without blocking imaging, and must never overwrite an unsafe source. Writes still occur only after safe whole-document load; acceptance is not durability. The preflight records this narrow service-policy amendment and its migration-free cost.
+
+- [x] **Step 1: Write failing end-to-end lifecycle test**
 
 ```cpp
 TEST(LivePipeline, PauseKeepsAcquiringAndResumeJumpsToNewest) {
@@ -418,7 +429,7 @@ TEST(LivePipeline, PauseKeepsAcquiringAndResumeJumpsToNewest) {
 
 `LivePipelineFixture` owns the production pipeline/controller/view/presenter and an injected deterministic simulator clock. Helpers drive discovery/Apply/Confirm/Start through real commands, count actual successful retrievals, and await real completed widget paints. `acquireAndProcessMoreFrames(n)` advances manual pacing until n further bundles are produced, then holds further source ticks; `latestBundle()` returns that last bundle, so the Resume assertion has a stable target without requiring an extra publication. Accessors cross the public application/controller interfaces. Cleanup shuts down and clears all retained owners; local `shown`/`newest` handles must be released before a zero-lease assertion.
 
-- [ ] **Step 2: Register and run the failing orchestration suites**
+- [x] **Step 2: Register and run the failing orchestration suites**
 
 Append `LivePipelineTests.cpp` to the **existing** `lumora_integration_tests`, add the pipeline/controller/composition sources and required linkage, and register `LivePipeline` plus `WorkstationController`. Reconfigure/build integration/UI targets, list the matching entries, then:
 
@@ -429,30 +440,32 @@ ctest --preset linux-gcc-debug-sim --no-tests=error --output-on-failure -R '^(Li
 
 Expected: new lifecycle/startup/freshness assertions fail before orchestration exists. An unchanged M4 suite passing is not this red check.
 
-- [ ] **Step 3: Implement ownership and shutdown order**
+- [x] **Step 3: Implement ownership and shutdown order**
 
 Implement the [ownership and handoff sequence](../../architecture/milestones/m05-preflight.md#4-ownership-source-handoff-and-shutdown). `LivePipeline` owns session pools/slots and workers; provider/clock outlive it. Connect can open idle to read capabilities, but retrieval cannot start before checked pools, processing worker, and acknowledged presenter binding exist. Stop/join camera before processing; clear/destroy presenter while the view lives, clear viewport QImages, release all slot/context/test owners, and only then assert zero leases through retained pool handles. Closing a slot or stopping a timer alone is insufficient. The controller owns the presenter, not a worker thread or device.
 
-- [ ] **Step 4: Wire simulator composition**
+- [x] **Step 4: Wire simulator composition**
 
 `main.cpp` creates clock, one provider from `SimulatorComposition`, pipeline, background preferences service, main window and controller in dependency order. The pipeline, not main, creates 10 raw / 9 U16 processing / 16 Gray8 display buffers after checked mode sizing. Explicitly select full-range Mono8, MovingBar, 640 x 480, 30 FPS, seed `0x4C554D4F`, Continuous and RealTime pacing; do not inherit Fastest or link the non-shipping harness. Add the typed `MainWindow::workstationView()` accessor and host `CameraStartupPanel` in its sidebar. Wire startup per Task 4: no initial stream, Apply/readback/Confirm guard, background save, safe matching-record Resume, drift/readback mismatch cancellation, and manual Disconnect suppression. Keep camera status separate from presenter freshness.
 
 Carry forward the [M4 source-session and presentation contracts](../../architecture/milestones/m04-preflight.md#resolved-implementation-contracts). When replacing a device/session, quiesce the old publisher, supply a fresh bundle slot owned for the new session, and call `FramePresenter::resetSource` before accepting its frames. Do not compare the new device's IDs against the previous session or reuse a slot containing old-session values. Ordinary stop/start of the same device retains its ID sequence. Freshness advances on completed presentation of a fresh frame, not on acquisition or processing activity.
 
-- [ ] **Step 5: Exercise 100 lifecycle cycles**
+- [x] **Step 5: Exercise 100 lifecycle cycles**
 
 Run the integration test with first-run confirmation, later-run Resume Live, changed-capability and changed-readback review, failed load/save, Disconnect during startup/Resume, repeated connect/start/pause/resume/stop/disconnect, and application shutdown from each state. Verify exact-ID matching with no camera substitution and no silently started stream. Stall camera retrieval, processing publication, and UI presentation independently; each must produce `STALE IMAGE / NOT LIVE` within the specified M4 deadline while retaining the last contextual frame. Exercise 100 bounded lifecycle cycles, replacement-session handoffs, same-device Stop/Start ID continuity, rejected M5 resolution changes, new-session reset, and shutdown while paused/processing. Zero pool use is asserted only after final owner release, not while preserving a contextual image. Record thread joins and capacity-one exchanges. Use a 180-second outer watchdog for this suite; do not sleep through 100 real-time cycles.
 
 Rerun the focused suites at green and full Debug/Release simulator suites. Separately configure/build `lumora_app` with `LUMORA_BUILD_TESTS=OFF` and `LUMORA_ENABLE_BASLER=OFF` in a fresh build directory; prove production has no harness dependency. Require matching Windows Debug/Release CI and native UI checks affected by the controls before acceptance; no dispatch/push is implied by this document.
 
-- [ ] **Step 6: Commit live integration**
+- [x] **Step 6: Commit live integration**
 
 ```powershell
-git add src/application src/ui src/app tests/integration/LivePipelineTests.cpp tests/unit/ui/WorkstationControllerTests.cpp src/CMakeLists.txt tests/CMakeLists.txt
+git add src/application src/configuration src/ui src/app tests/integration/LivePipelineTests.cpp tests/unit/configuration/StartupPreferencesTests.cpp tests/unit/ui/CameraStartupPanelTests.cpp tests/unit/ui/WorkstationControllerTests.cpp src/CMakeLists.txt tests/CMakeLists.txt
 git commit -m "feat(app): connect independent live pipeline"
 ```
 
 ## Milestone 5 acceptance gate
+
+Tasks1–5 are implemented; [Task5's checkpoint](../../architecture/milestones/m05-live-integration.md) records source, review fixes, compiler correction and platform evidence. [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) retains exact-head integration checks and merge status. Completed task steps or automated CI do not pass the milestone gate below: native Windows 11 evidence and separately recorded acceptance remain required.
 
 - [ ] Camera/device methods run on exactly one non-UI thread.
 - [ ] Slow processing/display causes categorized replacement, never queue growth.
