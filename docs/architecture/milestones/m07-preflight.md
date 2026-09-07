@@ -115,4 +115,10 @@ These automated results satisfy M7 cross-platform implementation checks. Hosted 
 
 At `d191097`, [Linux main CI](https://github.com/m4bulmagd/Lumora/actions/runs/34161792586) passed Debug 40/40 in 21.82 s plus X11 1/1 in 0.11 s, and Release 40/40 in 17.37 s plus X11 1/1 in 0.04 s.
 
-[Windows main CI attempt 1](https://github.com/m4bulmagd/Lumora/actions/runs/34161792587) passed Debug but failed Release: `LivePipeline.IndependentCameraProcessingAndPresentationStallsUseCompletedPaintDeadline` observed acquired count 2 against baseline 1 in its camera-stall boundary. The other 39 CTest entries passed. This post-merge failure is retained separately from the passing PR checks; diagnosis and correction are in progress.
+[Windows main CI attempt 1](https://github.com/m4bulmagd/Lumora/actions/runs/34161792587) passed Debug but failed Release: `LivePipeline.IndependentCameraProcessingAndPresentationStallsUseCompletedPaintDeadline` observed acquired count 2 against baseline 1 in its camera-stall boundary. The other 39 CTest entries passed. This post-merge failure is retained separately from the passing PR checks; the reproduced cause and correction follow below.
+
+### Stall-test synchronization correction
+
+Test-only commit `43a7401` addresses the post-merge failure without changing acquisition or freshness behavior. Raw/bundle publication can precede the camera-status snapshot; the test now waits for the acquisition count to cover the presented frame ID before sampling its baseline. It snapshots the prior bundle before stepping manual clocks, advances host before source, and waits for a newer completed bundle when recovering processing/presentation stalls. The exact 499 ms/current, 500 ms/stale, retained contextual frame, stopped camera count and pool-release assertions remain.
+
+The original count mismatch reproduced on Linux Release iteration 6; the separate-clock startup race reproduced in Debug iteration 143. After the final correction, 100 focused repetitions and all 37 LivePipeline cases passed separately in both Debug and Release, with clean builds and whitespace checks. No production code, timeout expansion or sleep was added. Independent review approved spec compliance and quality with no findings. Corresponding Windows CI is pending for this follow-up. Detailed diagnosis and logs remain under `out/qa/m07-2026-09-07/stall-fix/`.
