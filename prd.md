@@ -104,6 +104,8 @@ Basler pylon remains an optional external vendor SDK and must not be required by
 
 The exact Basler model, sensor, firmware, NIC, supported pixel formats, and free-running acquisition mode must be selected and recorded before physical-camera implementation begins. Milestones before that gate remain hardware-independent.
 
+The [2026-09-07 simulator development continuation](docs/architecture/milestones/m07-preflight.md) permits the existing high-bit-depth processing design to be implemented with simulator inputs while the owner defers M4/M5 native Windows validation and M6 awaits its hardware profile. This changes development sequencing only; preceding acceptance, physical-camera, Windows and release gates remain required.
+
 ---
 
 # 6. High-level system

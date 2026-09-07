@@ -13,7 +13,9 @@ This is a status and evidence summary, not a replacement for the [PRD](../prd.md
 | M1–M3: foundation, frames, camera API and simulator | Merged; Linux/GCC and Windows/MSVC verified | [M3 accepted for engineering/evaluation](architecture/milestones/m03-camera-api-simulator.md#acceptance-evidence) |
 | M4: viewer and latest-frame presentation | Tasks 1–4 merged; automated checks and historical Windows stress passed | Pending native Windows 11 visual/DPI validation and formal closeout |
 | M5: independent live pipeline | Tasks 1–5 implemented, reviewed and merged; no open recorded review findings | Pending deferred M4 checks, affected M5 native Windows UI checks and separate acceptance |
-| M6–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
+| M6 | Awaiting approved hardware profile; not implemented | Entry and acceptance gates remain in force |
+| M7 | Simulator development started in an isolated worktree; [preflight](architecture/milestones/m07-preflight.md) | Pending implementation evidence, Windows checks and preceding deferred gates |
+| M8–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
 
 The normal Linux application now provides synthetic live video through the production pipeline: select `SIM-LIVE`, Connect, Apply and review, Confirm, then Start. Pause freezes presentation while acquisition continues. See the [launch guide](development/build-linux.md#launch-the-desktop-application). No physical camera is connected by this composition.
 
@@ -38,7 +40,7 @@ After integration on 2026-09-07, the merged `feat/m05-processing-worker` and `fe
 ## Next gates
 
 - Complete the [deferred native Windows 11 checks](architecture/milestones/m04-deferred-windows-validation.md) on the then-current build, including affected M5 controls, and record M4/M5 acceptance separately.
-- Before M6 implementation, identify the exact Basler model, sensor, firmware, NIC/driver/link, capability-reported formats and feasible continuous ROI/FPS/exposure/gain mode. Documentation-only preflight may collect these inputs; no further milestone-entry exception is implied.
+- Before M6 implementation, identify the exact Basler model, sensor, firmware, NIC/driver/link, capability-reported formats and feasible continuous ROI/FPS/exposure/gain mode. Documentation-only preflight may collect these inputs. The separate [M7 simulator continuation](architecture/milestones/m07-preflight.md) does not waive the M6 hardware entry gate.
 - Keep later Windows packaging, hardware, performance and distribution gates intact. Daily development is on Linux; Windows 11 remains the official installation and hardware-acceptance target.
 
 All current work is **EVALUATION — NOT FOR CLINICAL USE** and must not acquire or store real patient data. A future clinical diagnostic release for Egypt remains a separately gated program.

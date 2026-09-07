@@ -12,6 +12,8 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
+**Execution clarification (2026-09-07):** The [M7 preflight](../../architecture/milestones/m07-preflight.md) records the simulator-only development exception and interface rulings against the implemented M5 pipeline. It does not record acceptance. Implementer test examples below are illustrative; use the preflight's current type names and the repository's registered test targets.
+
 ## Global Constraints
 
 - This milestone contributes only to the open-source evaluation release, which must display `EVALUATION — NOT FOR CLINICAL USE` and must not acquire or store real patient data.
@@ -64,9 +66,9 @@ Expected: FAIL.
 ```cpp
 enum class StageId { Normalize, WindowLevel, BrightnessContrast, Gamma,
     Clahe, Denoise, Sharpen, Invert };
-enum class ImageDomain { SensorU16, CanonicalU16 };
+enum class ImageDomain { SensorNative, CanonicalU16 };
 enum class DenoiseMode { Gaussian, Median };
-enum class Rotation { Degrees0, Degrees90, Degrees180, Degrees270 };
+// Reuse core::Rotation and core::Orientation; do not define duplicate types.
 
 using StageParameters = std::variant<NormalizationParameters,
     WindowLevelParameters, BrightnessContrastParameters, GammaParameters,
