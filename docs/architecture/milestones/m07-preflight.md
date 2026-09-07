@@ -43,4 +43,10 @@ At `3192d62`, GCC 15.2.0 passed all four registered Processing CTest suites in D
 
 Task 2's initial failing check was a missing-file configuration failure, not a behavioral test failure. After implementation, temporary mutations removing rounding and the excessive-sample guard caused the corresponding tests to fail. Source was restored byte-for-byte and the focused tests passed again. Later tasks require compile-ready stubs and observed assertion failures before implementation.
 
-These are local component results. Tasks 3–4, whole-branch review, complete final suites, Windows/MSVC and milestone acceptance remain pending.
+### Task 3 checkpoint
+
+Window/level and terminal display mapping are committed in `0eeb0b3`. Independent review approved spec compliance and code quality, with minor direct-branch coverage suggestions carried to final review. Fourteen new cases include every U16 sample across twelve window/level settings, the identity mapping, fractional parameters, clipped endpoints, Gray8 conversion, padded/unaligned rows, metadata and alias rejection. The reference window calculations use independent integer arithmetic.
+
+Compile-ready placeholders first produced observable failures in both stage and mapper tests. After implementation, GCC 15.2.0 passed all six registered Processing CTest suites in Debug and Release at `0eeb0b3` (51 individual processing cases). No floating tolerance replaces the exact pixel assertions.
+
+These are local component results. Task 4, whole-branch review, complete final suites, Windows/MSVC and milestone acceptance remain pending.

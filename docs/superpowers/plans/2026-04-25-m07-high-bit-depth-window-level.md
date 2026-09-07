@@ -153,7 +153,7 @@ git commit -m "feat(processing): add deterministic U16 normalization"
 - Consumes: canonical U16 view, `WindowLevelParameters`, and pooled U16/U8 outputs.
 - Produces: exact U16 window mapping and a format-aware display-mapper interface with exact U16-to-Gray8 evaluation mapping.
 
-- [ ] **Step 1: Write failing endpoint tests**
+- [x] **Step 1: Write failing endpoint tests**
 
 ```cpp
 TEST(WindowLevelStage, MapsBelowInsideAndAboveWindow) {
@@ -167,23 +167,23 @@ TEST(WindowLevelStage, MapsBelowInsideAndAboveWindow) {
 }
 ```
 
-- [ ] **Step 2: Verify mapper/stage tests fail**
+- [x] **Step 2: Verify mapper/stage tests fail**
 
 Build `lumora_processing_tests`; expect missing types.
 
-- [ ] **Step 3: Implement a documented inclusive mapping**
+- [x] **Step 3: Implement a documented inclusive mapping**
 
 Define lower=`level-window/2`, upper=`level+window/2`; values at/below lower map to 0, at/above upper map to 65535, and interior values use rounded linear interpolation. Clamp mathematical bounds to the canonical domain without changing configuration values.
 
-- [ ] **Step 4: Implement terminal mapper**
+- [x] **Step 4: Implement terminal mapper**
 
 Map U16 `[0,65535]` to U8 `[0,255]` with `(value + 128) / 257`, preserving black, midpoint rounding, and white. Support padded strides and reject aliasing/size mismatch.
 
-- [ ] **Step 5: Add exhaustive scalar equivalence test**
+- [x] **Step 5: Add exhaustive scalar equivalence test**
 
 Generate all 65,536 U16 values and compare vectorized/stage output to the scalar reference formula. Repeat for window widths 1, 2, 4096, and 65535 and levels at 0, midpoint, and 65535.
 
-- [ ] **Step 6: Commit window/display mapping**
+- [x] **Step 6: Commit window/display mapping**
 
 ```powershell
 git add src/processing tests/unit/processing/WindowLevelStageTests.cpp tests/unit/processing/DisplayMapperTests.cpp
