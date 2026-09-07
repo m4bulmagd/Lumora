@@ -213,7 +213,13 @@ struct AcquisitionWorker::Impl final {
         if (!valid.hasValue()) { (void)event(E::ApplyFailed); return valid; }
         auto result = device->applyConfiguration(request.configuration);
         if (stopping()) { return cancelled(); }
-        if (!result.hasValue()) { (void)event(E::ApplyFailed); return Result::failure(result.error()); }
+        if (!result.hasValue()) {
+            if (result.error().category != ErrorCategory::CameraConfiguration) {
+                return failAndCleanup(result.error(), E::DisconnectFailed);
+            }
+            (void)event(E::ApplyFailed);
+            return Result::failure(result.error());
+        }
         valid = camera::validateCameraConfiguration(result.value().actual, *status.capabilities);
         if (valid.hasValue()) { valid = validateMode(result.value().actual); }
         if (valid.hasValue() && (!result.value().actual.requestedFps
@@ -242,7 +248,7 @@ struct AcquisitionWorker::Impl final {
         status.restoreEligible = true;
         return Result::success();
     }
-    Result startStream(const StartStream& request) {
+    Result startStream(const StartStream& request, std::optional<CameraCommand>& deferredPriority) {
         auto valid = generation(request.sessionGeneration);
         if (!valid.hasValue()) { return valid; }
         valid = event(E::StartRequested);
@@ -257,10 +263,8 @@ struct AcquisitionWorker::Impl final {
         if (!valid.hasValue()) { return valid; }
         // Final linearization check before beginning the operation. Ordinary
         // work stays in FIFO position, even at the batch boundary.
-        if (auto priority = commands.tryPopPriority()) {
-            execute(std::move(*priority));
-            return cancelled();
-        }
+        deferredPriority = commands.tryPopPriority();
+        if (deferredPriority) { return cancelled(); }
         if (stopping()) { return cancelled(); }
         status.desiredStreaming = true;
         auto startedStream = device->startStream();
@@ -289,14 +293,14 @@ struct AcquisitionWorker::Impl final {
         }
         return event(E::DisconnectSucceeded);
     }
-    Result dispatch(const CameraCommand& command) {
+    Result dispatch(const CameraCommand& command, std::optional<CameraCommand>& deferredPriority) {
         return std::visit([&](const auto& request) -> Result {
             using T = std::decay_t<decltype(request)>;
             if constexpr (std::is_same_v<T, Discover>) { return discover(); }
             else if constexpr (std::is_same_v<T, Connect>) { return connect(request.cameraId, false); }
             else if constexpr (std::is_same_v<T, ApplyConfiguration>) { return apply(request); }
             else if constexpr (std::is_same_v<T, ConfirmConfiguration>) { return confirm(request); }
-            else if constexpr (std::is_same_v<T, StartStream>) { return startStream(request); }
+            else if constexpr (std::is_same_v<T, StartStream>) { return startStream(request, deferredPriority); }
             else if constexpr (std::is_same_v<T, StopStream>) { return stopStream(); }
             else if constexpr (std::is_same_v<T, Disconnect>) { return disconnect(); }
             else if constexpr (std::is_same_v<T, Retry>) {
@@ -313,18 +317,27 @@ struct AcquisitionWorker::Impl final {
         }, command.payload);
     }
     void execute(CameraCommand command) {
-        auto result = Result::success();
-        try { result = dispatch(command); }
-        catch (const std::exception& exception) {
-            result = failAndCleanup(failure(ErrorCategory::Internal, "camera_worker_exception", exception.what()), E::DisconnectFailed);
-        } catch (...) {
-            result = failAndCleanup(failure(ErrorCategory::Internal, "camera_worker_exception", "Unknown camera worker exception."), E::DisconnectFailed);
+        // Only Start can defer one priority command. That priority payload
+        // cannot defer another, so completion requires at most two iterations.
+        // Publish the interrupted Start first, then complete priority cleanup
+        // even if cancellation has arrived. Its result must remain the newest.
+        for (std::size_t executed = 0U; executed < 2U; ++executed) {
+            std::optional<CameraCommand> deferredPriority;
+            auto result = Result::success();
+            try { result = dispatch(command, deferredPriority); }
+            catch (const std::exception& exception) {
+                result = failAndCleanup(failure(ErrorCategory::Internal, "camera_worker_exception", exception.what()), E::DisconnectFailed);
+            } catch (...) {
+                result = failAndCleanup(failure(ErrorCategory::Internal, "camera_worker_exception", "Unknown camera worker exception."), E::DisconnectFailed);
+            }
+            commands.completeBarrier(command.requestId);
+            status.latestOutcome = CameraCommandOutcome{command.requestId,
+                result.hasValue() ? std::nullopt : std::optional{result.error()}};
+            if (!result.hasValue()) { status.latestError = result.error(); }
+            publish();
+            if (!deferredPriority) { return; }
+            command = std::move(*deferredPriority);
         }
-        commands.completeBarrier(command.requestId);
-        status.latestOutcome = CameraCommandOutcome{command.requestId,
-            result.hasValue() ? std::nullopt : std::optional{result.error()}};
-        if (!result.hasValue()) { status.latestError = result.error(); }
-        publish();
     }
     bool validFrame(const std::shared_ptr<const core::RawFrame>& frame) const {
         if (!frame || !status.appliedConfiguration) { return false; }

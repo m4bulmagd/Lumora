@@ -47,6 +47,7 @@ struct Script final {
     bool released{false};
     bool missing{false};
     bool rejectApply{false};
+    std::optional<ErrorCategory> applyFailure;
     bool failOpen{false};
     bool failCapabilities{false};
     bool failDiscover{false};
@@ -102,6 +103,9 @@ public:
     Result<camera::AppliedCameraConfiguration> applyConfiguration(const camera::CameraConfiguration& value) override {
         script_.record("apply");
         if (script_.rejectApply) { return Result<camera::AppliedCameraConfiguration>::failure(error(ErrorCategory::CameraConfiguration, "settings_rejected")); }
+        if (script_.applyFailure) {
+            return Result<camera::AppliedCameraConfiguration>::failure(error(*script_.applyFailure, "apply_failed"));
+        }
         configuration_ = script_.readback.value_or(value);
         return Result<camera::AppliedCameraConfiguration>::success({value, configuration_});
     }
@@ -397,6 +401,7 @@ TEST(AcquisitionWorker, InvalidConfigurationPreservesPriorAppliedSettingsAndMode
     ASSERT_TRUE(fixture.worker.start().hasValue());
     ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
     ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, configuration(), 1U}));
+    ASSERT_TRUE(fixture.command(ConfirmConfiguration{0U, 1U}));
     auto changed = configuration();
     changed.roi.width = 2U;
     ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, changed, 2U}, false));
@@ -407,6 +412,32 @@ TEST(AcquisitionWorker, InvalidConfigurationPreservesPriorAppliedSettingsAndMode
     EXPECT_EQ(fixture.latest->latestError->code, "settings_rejected");
     EXPECT_EQ(fixture.latest->appliedRevision, 1U);
     EXPECT_EQ(fixture.latest->state, S::ConnectedIdle);
+    EXPECT_EQ(fixture.latest->confirmedRevision, 1U);
+}
+
+TEST(AcquisitionWorker, TerminalApplyFailureRetiresConfirmedDevice) {
+    for (const auto category : {ErrorCategory::CameraConnection, ErrorCategory::Internal}) {
+        SCOPED_TRACE(static_cast<int>(category));
+        Fixture fixture;
+        ASSERT_TRUE(fixture.worker.start().hasValue());
+        ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+        ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, configuration(), 1U}));
+        ASSERT_TRUE(fixture.command(ConfirmConfiguration{0U, 1U}));
+        fixture.script.applyFailure = category;
+        ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, configuration(), 2U}, false));
+        EXPECT_EQ(fixture.latest->state, S::Error);
+        EXPECT_EQ(fixture.latest->latestError->category, category);
+        EXPECT_FALSE(fixture.latest->actualIdentity);
+        EXPECT_FALSE(fixture.latest->appliedConfiguration);
+        EXPECT_FALSE(fixture.latest->confirmedRevision);
+        EXPECT_TRUE(fixture.latest->sourceReplacementRequired);
+        EXPECT_EQ(fixture.latest->desiredIdentity, camera::CameraId{"camera-1"});
+        EXPECT_EQ(fixture.script.count("stop"), 1U);
+        EXPECT_EQ(fixture.script.count("close"), 1U);
+        EXPECT_EQ(fixture.script.count("destroy"), 1U);
+        ASSERT_TRUE(fixture.command(Retry{}, false));
+        EXPECT_EQ(fixture.latest->latestError->code, "camera_context_replacement_required");
+    }
 }
 
 TEST(AcquisitionWorker, RemovalAndFatalFailureDestroyOnOwnerAndPublishHonestState) {
@@ -462,6 +493,39 @@ TEST(AcquisitionWorker, ShutdownOutcomeIncludesCleanupFailure) {
     ASSERT_TRUE(finalStatus->value->latestOutcome->error);
     EXPECT_EQ(finalStatus->value->latestOutcome->error->code, "close_failed");
     EXPECT_EQ(fixture.script.count("destroy"), 1U);
+}
+
+TEST(AcquisitionWorker, PriorityCleanupFailureSurvivesLaterCancellation) {
+    for (int priority = 0; priority < 3; ++priority) {
+        SCOPED_TRACE(priority);
+        Fixture fixture;
+        fixture.script.blockedOperation = "retrieve";
+        fixture.script.failStop = priority == 0;
+        fixture.script.failClose = priority != 0;
+        ASSERT_TRUE(fixture.ready());
+        ASSERT_TRUE(fixture.script.waitFor("retrieve"));
+        CameraCommand command{99U, StopStream{}};
+        if (priority == 1) { command.payload = Disconnect{}; }
+        if (priority == 2) { command.payload = Shutdown{}; }
+        ASSERT_TRUE(fixture.worker.post(std::move(command)).hasValue());
+        fixture.script.release();
+        ASSERT_TRUE(fixture.await([](const auto& s) {
+            return s.latestOutcome && s.latestOutcome->requestId == 99U;
+        }));
+        fixture.worker.requestStop();
+        fixture.worker.join();
+        const auto finalStatus = fixture.status.consumeAfter(0U);
+        ASSERT_TRUE(finalStatus);
+        ASSERT_TRUE(finalStatus->value->latestOutcome);
+        EXPECT_EQ(finalStatus->value->latestOutcome->requestId, 99U);
+        ASSERT_TRUE(finalStatus->value->latestOutcome->error);
+        const auto expectedCode = priority == 0 ? "stop_failed" : "close_failed";
+        EXPECT_EQ(finalStatus->value->latestOutcome->error->code, expectedCode);
+        ASSERT_TRUE(finalStatus->value->latestError);
+        EXPECT_EQ(finalStatus->value->latestError->code, expectedCode);
+        EXPECT_EQ(fixture.script.count("destroy"), 1U);
+        EXPECT_EQ(fixture.script.count("retrieve"), 1U);
+    }
 }
 
 TEST(AcquisitionWorker, PostedShutdownDirectlyCancelsCooperativeRetrieval) {
