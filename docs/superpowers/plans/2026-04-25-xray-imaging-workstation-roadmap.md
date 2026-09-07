@@ -41,6 +41,8 @@
 
 Execute the milestone plans in numeric order. A later milestone begins only after the preceding milestone acceptance gate is recorded as passing.
 
+Documentation-only preflight preparation may precede that gate; implementation may not. The [M5 preflight](../../architecture/milestones/m05-preflight.md) refines the existing plan against M2–M4 without recording acceptance. M5 supplies minimal startup controls/persistence and failure classification; M9 expands the UI/preferences, and M12 adds timed automatic recovery to the same application contracts. M4 Windows stress and native Windows 11 checks remain required.
+
 | Milestone | Plan | Depends on | Deliverable |
 |---|---|---|---|
 | 1 | `2026-04-25-m01-project-foundation.md` | Approved design | Reproducible Linux/Windows build, shell, tests, logging bootstrap |
@@ -164,6 +166,9 @@ class IFrameProcessor;
 enum class CameraSessionState;
 enum class ViewerState;
 struct CameraCommand;
+struct CameraStatusSnapshot;
+struct StartupPreferences;
+class CameraCommandMailbox;
 class CameraSessionStateMachine;
 class AcquisitionWorker;
 class ProcessingWorker;
@@ -174,6 +179,8 @@ struct CaptureResult;
 class ICaptureEncoder;
 class ICaptureStore;
 ```
+
+`CameraCommand` owns a variant payload and request ID; it is not a variant alias. Mailbox/worker/pipeline `post(CameraCommand)` returns `Result<void>` for admission (`camera_mailbox_full` or `cancelled` on rejection), while immutable status reports execution outcome. Session generation guards camera commands but is not a core frame ID. The application owns camera/processing lifecycle; `FramePresenter` owns viewer Pause/Resume and completed-paint freshness. `LivePipeline` must not acquire Qt or duplicate presenter state to implement viewer actions. The [M5 contracts](../../architecture/milestones/m05-preflight.md#resolved-implementation-contracts) define priority, revision guards, source-context acknowledgement, and shutdown ownership.
 
 ## 4. Repository-wide review gates
 

@@ -12,6 +12,8 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
+**M5 handoff (2026-09-06):** Preserve the [M5 error classification and interim recovery contract](../../architecture/milestones/m05-preflight.md#2-state-startup-guards-and-milestone-recovery-policy). Single/second timeout handling, third-timeout/removal teardown, manual Disconnect cancellation, typed terminal errors, and an operator-only one-attempt Retry already exist at M5 acceptance. M12 adds scheduled recovery and verified settings/stream restoration; it does not introduce a competing state machine or copy the non-shipping M4 feed retry loop.
+
 ## Global Constraints
 
 - This milestone contributes only to the open-source evaluation release, which must display `EVALUATION — NOT FOR CLINICAL USE` and must not acquire or store real patient data.
@@ -35,6 +37,8 @@
 - Create: `src/application/src/ReconnectPolicy.cpp`
 - Create: `tests/unit/application/ReconnectPolicyTests.cpp`
 - Modify: `src/application/src/CameraSessionStateMachine.cpp`
+- Modify: `src/application/src/AcquisitionWorker.cpp`
+- Modify: `tests/unit/application/AcquisitionWorkerTests.cpp`
 
 **Interfaces:**
 - Consumes: `IClock`, desired camera ID/configuration/stream state, failure classification, and cancellation.
@@ -62,9 +66,9 @@ Build `lumora_application_tests`; expect failure.
 
 Compute deadlines from steady time, wake on stop/manual disconnect, retain the exact stable camera identity, and reset attempts only after a successful reconnect and valid frame—not merely device open.
 
-- [ ] **Step 4: Integrate timeout threshold**
+- [ ] **Step 4: Attach the schedule to the existing timeout threshold**
 
-One/two consecutive timeouts retain Streaming with warning metrics. Third transitions to Reconnecting and tears down the device. Successful frame resets count. Nonrecoverable configuration/unsupported-format errors enter Error directly.
+Keep M5's one/two consecutive timeouts in Streaming with warning metrics, third-timeout teardown into Reconnecting, and successful-frame count reset. Attach the five-attempt scheduler to that transition and removal; replace the interim manual-recovery status text. Nonrecoverable open/start/negotiated-format failures enter Error directly. A rejected idle configuration retains the prior valid configuration, and an unsupported/malformed individual frame is discarded; neither is a reason to reinterpret all such failures as reconnect requests. Retain the existing classification tests and add scheduler activation/cancellation assertions.
 
 - [ ] **Step 5: Test cancellation and clock jumps**
 

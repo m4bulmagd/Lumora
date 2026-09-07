@@ -664,6 +664,8 @@ Acceptance: generated frames display smoothly; pause freezes a stable bundle wit
 
 Deliver camera/processing workers, latest-frame exchanges, command handling, frame bundles, presentation cadence, stop-token shutdown, and base flow metrics.
 
+**Implementation staging clarification (2026-09-06):** M5 includes minimal selection/configuration-review/Confirm/Start controls and the saved, identity/capability-checked Resume Live workflow; M9 expands these controls and preferences rather than introducing a second startup policy. Configuration persistence runs off the UI/camera/processing threads. M5 already classifies individual timeouts, invalid frames, exhaustion, cancellation, and terminal failures; the third consecutive timeout or removal tears down the device into Reconnecting. Until M12 supplies automatic recovery, this state visibly requires operator Retry: one same-ID discover/open attempt, then review/confirmation and explicit Start. No automatic stream restoration or timed retry loop is claimed in M5. M12 adds the five-attempt schedule and verified restoration required by §7/§15; this staging does not weaken final release acceptance. The [M5 preflight](../../architecture/milestones/m05-preflight.md) specifies command priority, session handoff, final owner release, startup persistence, and deterministic tests. Documentation preparation is not permission to begin M5 before M4 acceptance.
+
 Acceptance: forced processing delay causes counted replacement rather than latency growth; no per-frame Qt events accumulate; shutdown succeeds from every active state.
 
 ### Milestone 6: Basler adapter
