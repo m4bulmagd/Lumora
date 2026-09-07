@@ -26,7 +26,9 @@ add_test(NAME Application.StartupPreferences
 set_tests_properties(Application.StartupPreferences PROPERTIES TIMEOUT 60)
 
 add_executable(lumora_processing_tests
-  unit/processing/Mono8PassThroughProcessorTests.cpp)
+  unit/processing/Mono8PassThroughProcessorTests.cpp
+  unit/processing/PipelineCompilerTests.cpp
+  unit/processing/ImageViewTests.cpp)
 target_link_libraries(lumora_processing_tests PRIVATE
   lumora::processing GTest::gtest_main)
 lumora_enable_warnings(lumora_processing_tests)
@@ -293,3 +295,11 @@ add_test(NAME ConfigurationStore
 add_test(NAME Configuration.StartupPreferences
   COMMAND lumora_configuration_tests --gtest_filter=StartupPreferencesTest.*:StartupPreferencesService.*)
 set_tests_properties(Configuration.StartupPreferences PROPERTIES TIMEOUT 60)
+
+add_test(NAME Processing.PipelineCompiler
+  COMMAND lumora_processing_tests --gtest_filter=PipelineCompiler.*)
+set_tests_properties(Processing.PipelineCompiler PROPERTIES TIMEOUT 60)
+
+add_test(NAME Processing.ImageView
+  COMMAND lumora_processing_tests --gtest_filter=ImageView.*)
+set_tests_properties(Processing.ImageView PROPERTIES TIMEOUT 60)
