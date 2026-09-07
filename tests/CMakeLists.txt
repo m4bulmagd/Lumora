@@ -31,6 +31,7 @@ add_executable(lumora_processing_tests
   unit/processing/ImageViewTests.cpp
   unit/processing/NormalizeStageTests.cpp
   unit/processing/WindowLevelStageTests.cpp
+  unit/processing/ToneStageTests.cpp
   unit/processing/DisplayMapperTests.cpp
   unit/processing/FrameProcessingEngineTests.cpp)
 target_link_libraries(lumora_processing_tests PRIVATE
@@ -313,6 +314,9 @@ set_tests_properties(Processing.NormalizeStage PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.WindowLevelStage
   COMMAND lumora_processing_tests --gtest_filter=WindowLevelStage.*)
 set_tests_properties(Processing.WindowLevelStage PROPERTIES TIMEOUT 60)
+add_test(NAME Processing.ToneStages
+  COMMAND lumora_processing_tests --gtest_filter=ToneStages.*)
+set_tests_properties(Processing.ToneStages PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.DisplayMapper
   COMMAND lumora_processing_tests --gtest_filter=DisplayMapper.*)
 set_tests_properties(Processing.DisplayMapper PROPERTIES TIMEOUT 60)

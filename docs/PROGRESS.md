@@ -1,8 +1,8 @@
 # Lumora progress
 
-**Updated:** 2026-09-07
+**Updated:** 2026-09-08
 
-**Latest integrated implementation checkpoint:** `d191097ccb5c20bf4f44d9c5ae0440a963bd4bcb` on `main`.
+**Latest integrated implementation checkpoint:** `61d91fb36a0be9a0d56d6ce04b5f68874a7f5283` on `main`.
 
 This is a status and evidence summary, not a replacement for the [PRD](../prd.md), [design and milestone authority](superpowers/README.md#document-authority), or separately recorded acceptance. Documentation-only commits may follow the implementation checkpoint above.
 
@@ -14,8 +14,9 @@ This is a status and evidence summary, not a replacement for the [PRD](../prd.md
 | M4: viewer and latest-frame presentation | Tasks 1–4 merged; automated checks and historical Windows stress passed | Pending native Windows 11 visual/DPI validation and formal closeout |
 | M5: independent live pipeline | Tasks 1–5 implemented, reviewed and merged; no open recorded review findings | Pending deferred M4 checks, affected M5 native Windows UI checks and separate acceptance |
 | M6 | Awaiting approved hardware profile; not implemented | Entry and acceptance gates remain in force |
-| M7 | Tasks 1–4 reviewed and merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8); Linux/GCC and Windows/MSVC Debug/Release passed | Preceding deferred gates and separate acceptance remain open |
-| M8–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
+| M7 | Tasks 1–4 reviewed and merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8); Linux/GCC and Windows/MSVC PR Debug/Release passed; stall-test correction merged through [PR #9](https://github.com/m4bulmagd/Lumora/pull/9) with passing Linux/Windows Debug/Release CI | Preceding deferred gates and separate acceptance remain open |
+| M8 | Task 1 implemented and task-reviewed on `feat/m08-tone-stages`; Linux Debug/Release 42/42 | Windows evidence, Tasks 2–5, deferred gates and M8 acceptance remain open |
+| M9–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
 
 The normal Linux application now provides synthetic live video through the production pipeline: select `SIM-LIVE`, Connect, Apply and review, Confirm, then Start. Pause freezes presentation while acquisition continues. See the [launch guide](development/build-linux.md#launch-the-desktop-application). No physical camera is connected by this composition.
 
@@ -35,7 +36,7 @@ These are recorded implementation results, not new test runs for later documenta
 
 ## M7 integrated verification
 
-[PR #8](https://github.com/m4bulmagd/Lumora/pull/8) merged the reviewed high-depth processing implementation as `d191097`. Its tree equals the verified PR head `34cf24a`: local GCC 15.2.0 passed 40 headless plus one native X11 check in Debug and Release. [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34161362515) passed 40+1 checks per configuration, and [Windows PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34161362517) passed 40/40 per configuration. No PR CI fix was required. The post-merge Windows run later exposed a stall-test synchronization race; test-only correction `43a7401` is locally verified, with follow-up review approved and CI pending. A separate intermittent context-retirement timeout remains unresolved; failure-only diagnostics are retained in `8c63f36`.
+[PR #8](https://github.com/m4bulmagd/Lumora/pull/8) merged the reviewed high-depth processing implementation as `d191097`. Its tree equals the verified PR head `34cf24a`: local GCC 15.2.0 passed 40 headless plus one native X11 check in Debug and Release. [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34161362515) passed 40+1 checks per configuration, and [Windows PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34161362517) passed 40/40 per configuration. No PR CI fix was required. The post-merge Windows run later exposed a stall-test synchronization race; test-only correction `43a7401` and diagnostics `8c63f36` are reviewed and merged through [PR #9](https://github.com/m4bulmagd/Lumora/pull/9) as `61d91fb`, with passing Linux/Windows Debug/Release PR and main CI. A separate intermittent context-retirement timeout remains unresolved; failure-only diagnostics are retained in `8c63f36`.
 
 SIM-LIVE uses Mono12 in U16 through normalization, window/level, terminal Gray8 mapping and the pooled frame engine. The M4 harness remains Mono8. A fresh tests-OFF/Basler-OFF Release app build and all task/final reviews passed. The [execution record](architecture/milestones/m07-preflight.md) retains exact source, commands, run links and evidence limits. Native Windows 11 checks, hardware work and formal acceptance remain pending.
 
@@ -50,3 +51,7 @@ After integration on 2026-09-07, the merged `feat/m05-processing-worker` and `fe
 - Keep later Windows packaging, hardware, performance and distribution gates intact. Daily development is on Linux; Windows 11 remains the official installation and hardware-acceptance target.
 
 All current work is **EVALUATION — NOT FOR CLINICAL USE** and must not acquire or store real patient data. A future clinical diagnostic release for Egypt remains a separately gated program.
+
+## M8 Task 1 development checkpoint
+
+The [tone-stage record](architecture/milestones/m08-tone-stages.md) records the owner-authorized continuation and implementation at `246a73a`: standalone U16 brightness/contrast, cached gamma and inversion with fourteen focused cases and passing Linux Debug/Release application suites. Task review passed. Live activation remains rejected until Task 5 composes execution. Whole-frame zero allocation and Windows/performance evidence remain open.

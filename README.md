@@ -34,6 +34,8 @@ M5 Tasks 1–2 add a Qt-free camera state machine, bounded priority command mail
 
 M7 is merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8) as `d191097`: validated processing contracts, deterministic U16 normalization, window/level, terminal Gray8 mapping and a pooled live engine. SIM-LIVE exercises Mono12 in U16. All task/final reviews passed; local and CI Linux Debug/Release each passed 41/41 checks, and Windows/MSVC passed 40/40 per configuration at the PR head. A tests-disabled application build passed. See the [M7 execution record](docs/architecture/milestones/m07-preflight.md); native Windows checks, preceding deferred gates and separate milestone acceptance remain open.
 
+M8 Task 1 is implemented and reviewed on `feat/m08-tone-stages`: standalone U16 brightness/contrast, gamma and inversion, with cached gamma tables and exhaustive references. Linux Debug/Release each passed 42/42 checks and the tests-disabled Release app built successfully. The [tone-stage record](docs/architecture/milestones/m08-tone-stages.md) retains evidence and decisions. Live composition, matching Windows evidence and the remaining M8 tasks are still pending.
+
 The normal application on `main` starts in `Waiting for image`, with no silent stream. Follow the [desktop launch guide](docs/development/build-linux.md#launch-the-desktop-application): select `SIM-LIVE`, Connect, Apply and review, Confirm, then Start to see synthetic live video. Viewer Pause freezes presentation while acquisition continues. No physical camera is connected by this simulator composition.
 
 The software is still an engineering/evaluation build. It is **not for clinical use**, must not be used for diagnosis, and must not acquire or store real patient data.

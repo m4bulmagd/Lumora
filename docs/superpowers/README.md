@@ -50,7 +50,7 @@ These are intentional deferred inputs, not contradictions and not permission to 
 | External signing | Before any external package | Organization signing identity/certificate custody, timestamp service, protected pipeline, and release authority. |
 | Clinical release | Before enabling a clinical build class | Separately approved Egypt-specific regulatory and clinical program with traceability and release authority. |
 
-M1-M5 may proceed without a selected physical camera. The [2026-09-07 continuation](../architecture/milestones/m07-preflight.md) permits simulator-only M7 implementation while M4/M5 native Windows checks and M6 remain pending. It does not authorize M6 implementation without its profile or acceptance of the deferred milestones.
+M1-M5 may proceed without a selected physical camera. The [2026-09-07 continuation](../architecture/milestones/m07-preflight.md) permits simulator-only M7 implementation while M4/M5 native Windows checks and M6 remain pending. The owner's subsequent approval extends development to [M8 Task 1](../architecture/milestones/m08-tone-stages.md). These exceptions do not authorize M6 implementation without its profile or acceptance of the deferred milestones.
 
 ## M4 verification and scoped deferral (2026-09-07)
 
@@ -72,3 +72,7 @@ The owner subsequently approved [Task 3: frame processor and processing worker](
 ## M7 simulator continuation (2026-09-07)
 
 The [M7 execution record](../architecture/milestones/m07-preflight.md) records the owner-authorized simulator continuation while M4/M5 native Windows checks and M6 hardware work remain pending. Tasks 1–4 are implemented and reviewed, then merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8) as `d191097`: configuration validation, U16 normalization, window/level, terminal Gray8 mapping and the pooled live engine. Local and CI Linux Debug/Release each passed 41/41 checks; Windows/MSVC passed 40/40 per configuration at the exact PR head. The tests-OFF/Basler-OFF Release app and whole-branch review passed. Preceding deferred gates and separate acceptance remain open.
+
+## M8 Task 1 simulator continuation (2026-09-07)
+
+The owner approved the [bounded tone-stage continuation](../architecture/milestones/m08-tone-stages.md) after M7: U16 brightness/contrast, immutable cached gamma and inversion with exhaustive tests. Implementation `246a73a` passed independent task review, Linux Debug/Release 42/42 application checks and a tests-disabled Release build. Final whole-branch review is approved without findings. Live activation/composition, cross-activation cache retention, remaining algorithms, whole-frame allocation and Windows performance evidence belong to later work; no milestone acceptance is claimed.
