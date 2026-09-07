@@ -197,12 +197,18 @@ struct IoState final {
     std::mutex mutex;
     std::condition_variable changed;
     bool loadCalled{false};
+    bool blockLoad{false};
+    bool loadReleased{false};
+    bool unpreservedLoad{false};
+    bool failLoad{false};
+    int loadException{0};
     std::thread::id loadThread;
     bool blockFirstSave{false};
     bool failSave{false};
     bool savesReleased{false};
     std::vector<std::string> savedSerials;
     std::vector<std::thread::id> saveThreads;
+    std::optional<ApplicationConfiguration> savedDocument;
 };
 
 class RecordingIo final : public IStartupPreferencesIo {
@@ -212,13 +218,29 @@ public:
 
     core::Result<ApplicationConfiguration> load() override {
         {
-            std::lock_guard lock(state_->mutex);
+            std::unique_lock lock(state_->mutex);
             state_->loadCalled = true;
             state_->loadThread = std::this_thread::get_id();
+            state_->changed.notify_all();
+            if (state_->blockLoad) {
+                state_->changed.wait(lock, [&] { return state_->loadReleased; });
+            }
         }
         state_->changed.notify_all();
+        if (state_->loadException == 1) { throw std::runtime_error("load failed"); }
+        if (state_->loadException == 2) { throw 7; }
+        if (state_->failLoad) {
+            return core::Result<ApplicationConfiguration>::failure({core::ErrorCategory::Configuration,
+                "scripted_read_failure", "Source could not be read.", {}, true});
+        }
         ApplicationConfiguration configuration;
         configuration.startup = preferences();
+        configuration.application.insert("theme", "retained-theme");
+        if (state_->unpreservedLoad) {
+            configuration.usedDefaults = true;
+            configuration.loadWarning = core::Error{core::ErrorCategory::Configuration,
+                "configuration_invalid_preservation_failed", "Source was not preserved.", {}, true};
+        }
         return core::Result<ApplicationConfiguration>::success(std::move(configuration));
     }
 
@@ -226,6 +248,7 @@ public:
         std::unique_lock lock(state_->mutex);
         state_->savedSerials.push_back(configuration.startup->identity.serial);
         state_->saveThreads.push_back(std::this_thread::get_id());
+        state_->savedDocument = configuration;
         state_->changed.notify_all();
         if (state_->blockFirstSave && state_->savedSerials.size() == 1U) {
             state_->changed.wait(lock, [&] { return state_->savesReleased; });
@@ -241,6 +264,136 @@ public:
 private:
     std::shared_ptr<IoState> state_;
 };
+
+struct ReleaseLoadOnExit final {
+    std::shared_ptr<IoState> state;
+    bool wait() {
+        std::unique_lock lock(state->mutex);
+        return state->changed.wait_for(lock, std::chrono::seconds{2}, [&] { return state->loadCalled; });
+    }
+    void release() {
+        std::lock_guard lock(state->mutex);
+        state->loadReleased = true;
+        state->changed.notify_all();
+    }
+    ~ReleaseLoadOnExit() { release(); }
+};
+
+TEST(StartupPreferencesService, AcceptedSaveFailsWithoutWritingAfterUnpreservedLoad) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    state->unpreservedLoad = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(release.wait());
+    ASSERT_TRUE(service.postSave(7U, preferences()).hasValue());
+    service.requestStop();
+    release.release();
+    service.join();
+    EXPECT_TRUE(state->savedSerials.empty());
+    const auto status = service.latestStatus();
+    EXPECT_EQ(status->latestAttemptedSaveRevision, 7U);
+    EXPECT_FALSE(status->latestSavedRevision.has_value());
+    ASSERT_TRUE(status->warning.has_value());
+    EXPECT_EQ(status->warning->code, "startup_save_source_unsafe");
+}
+
+TEST(StartupPreferencesService, StopDuringLoadDrainsAcceptedSaveUsingTheLoadedDocument) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_FALSE(service.postSave(1U, preferences()).hasValue());
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(release.wait());
+    auto confirmed = preferences();
+    confirmed.identity.serial = "NEW-CONFIRMED";
+    ASSERT_TRUE(service.postSave(1U, confirmed).hasValue());
+    EXPECT_FALSE(service.latestStatus()->loadCompleted);
+    EXPECT_FALSE(service.latestStatus()->latestAttemptedSaveRevision.has_value());
+    service.requestStop();
+    EXPECT_FALSE(service.postSave(2U, preferences()).hasValue());
+    release.release();
+    service.join();
+    ASSERT_EQ(state->savedSerials, (std::vector<std::string>{"NEW-CONFIRMED"}));
+    ASSERT_TRUE(state->savedDocument.has_value());
+    EXPECT_EQ(state->savedDocument->application.value("theme"), "retained-theme");
+    EXPECT_EQ(state->saveThreads.front(), state->loadThread);
+    EXPECT_NE(state->loadThread, std::this_thread::get_id());
+    const auto status = service.latestStatus();
+    EXPECT_EQ(status->latestAttemptedSaveRevision, 1U);
+    EXPECT_EQ(status->latestSavedRevision, 1U);
+    ASSERT_TRUE(status->loadedPreferences.has_value());
+    EXPECT_EQ(status->loadedPreferences->identity.serial, "SIM-1");
+}
+
+TEST(StartupPreferencesService, SlowLoadCoalescesOnlyTheNewestValidIncreasingConfirmation) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(release.wait());
+    auto record = preferences();
+    for (std::uint64_t revision = 1U; revision <= 100U; ++revision) {
+        record.identity.serial = "CONFIRMED-" + std::to_string(revision);
+        ASSERT_TRUE(service.postSave(revision, record).hasValue());
+    }
+    EXPECT_FALSE(service.postSave(100U, preferences()).hasValue());
+    record.confirmed = false;
+    EXPECT_FALSE(service.postSave(101U, record).hasValue());
+    EXPECT_FALSE(service.latestStatus()->latestAttemptedSaveRevision.has_value());
+    service.requestStop();
+    release.release();
+    service.join();
+    EXPECT_EQ(state->savedSerials, (std::vector<std::string>{"CONFIRMED-100"}));
+    EXPECT_EQ(service.latestStatus()->latestAttemptedSaveRevision, 100U);
+    EXPECT_EQ(service.latestStatus()->latestSavedRevision, 100U);
+}
+
+TEST(StartupPreferencesService, AcceptedSaveFailsWithoutWritingAfterFailedLoad) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    state->failLoad = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(release.wait());
+    ASSERT_TRUE(service.postSave(8U, preferences()).hasValue());
+    service.requestStop();
+    release.release();
+    service.join();
+    EXPECT_TRUE(state->savedSerials.empty());
+    const auto status = service.latestStatus();
+    EXPECT_EQ(status->latestAttemptedSaveRevision, 8U);
+    EXPECT_FALSE(status->latestSavedRevision.has_value());
+    ASSERT_TRUE(status->warning.has_value());
+    EXPECT_EQ(status->warning->code, "startup_save_source_unsafe");
+}
+
+TEST(StartupPreferencesService, LoadExceptionSettlesNewestAcceptedSaveAsFailed) {
+    for (const int exceptionKind : {1, 2}) {
+        auto state = std::make_shared<IoState>();
+        state->blockLoad = true;
+        state->loadException = exceptionKind;
+        StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+        ReleaseLoadOnExit release{state};
+        ASSERT_TRUE(service.start().hasValue());
+        ASSERT_TRUE(release.wait());
+        ASSERT_TRUE(service.postSave(9U, preferences()).hasValue());
+        service.requestStop();
+        release.release();
+        service.join();
+        const auto status = service.latestStatus();
+        EXPECT_EQ(status->latestAttemptedSaveRevision, 9U);
+        EXPECT_FALSE(status->latestSavedRevision.has_value());
+        EXPECT_TRUE(state->savedSerials.empty());
+        ASSERT_TRUE(status->warning.has_value());
+        EXPECT_EQ(status->warning->code, "startup_service_worker_exception");
+        EXPECT_FALSE(service.postSave(10U, preferences()).hasValue());
+    }
+}
 
 TEST(StartupPreferencesService, LoadsOnBackgroundWorkerAndPublishesInitialStatus) {
     using namespace std::chrono_literals;

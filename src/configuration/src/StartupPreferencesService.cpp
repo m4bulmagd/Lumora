@@ -106,17 +106,17 @@ public:
         }
 
         std::lock_guard lock(mutex_);
-        if (!started_ || !status_->loadCompleted) {
+        if (!started_) {
             return core::Result<void>::failure(serviceError(
-                "startup_save_load_pending", "Startup preferences are not ready.",
-                "A save cannot be submitted before the initial load completes."));
+                "startup_service_not_started", "Startup preferences are not ready.",
+                "A save cannot be submitted before the service starts."));
         }
         if (!accepting_ || stopSource_.stop_requested()) {
             return core::Result<void>::failure(serviceError(
                 "startup_save_stopping", "Startup preferences were not saved.",
                 "The startup preference worker is stopping."));
         }
-        if (!safeToSave_) {
+        if (status_->loadCompleted && !safeToSave_) {
             return core::Result<void>::failure(serviceError(
                 "startup_save_source_unsafe", "Startup preferences were not saved.",
                 "The source configuration could not be read or preserved safely."));
@@ -187,6 +187,10 @@ private:
             next.loadCompleted = true;
             next.warning = serviceError("startup_service_worker_exception",
                 "Startup preferences are unavailable.", detail);
+            if (pending_) {
+                next.latestAttemptedSaveRevision = pending_->revision;
+                pending_.reset();
+            }
             accepting_ = false;
             safeToSave_ = false;
             status_ = std::make_shared<const application::StartupPreferencesStatus>(
@@ -230,6 +234,14 @@ private:
             std::lock_guard lock(mutex_);
             auto next = *status_;
             next.latestAttemptedSaveRevision = submission.revision;
+            if (!safeToSave_) {
+                next.warning = serviceError(
+                    "startup_save_source_unsafe", "Startup preferences were not saved.",
+                    "The source configuration could not be read or preserved safely.");
+                status_ = std::make_shared<const application::StartupPreferencesStatus>(
+                    std::move(next));
+                return;
+            }
             status_ = std::make_shared<const application::StartupPreferencesStatus>(
                 std::move(next));
         }

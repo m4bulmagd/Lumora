@@ -32,6 +32,7 @@ struct WorkstationController::Impl {
     std::uint64_t revision{0};
     std::uint64_t saveRevision{0};
     std::optional<std::pair<std::uint64_t,std::uint64_t>> submittedConfirmation;
+    std::optional<std::pair<std::uint64_t,std::uint64_t>> rejectedConfirmation;
     bool stopped{false};
     bool probeAttempted{false};
     bool manuallyDisconnected{false};
@@ -118,15 +119,20 @@ void WorkstationController::poll() {
     const auto& camera=d.presentation.cameraStatus;
     if(camera && camera->confirmedRevision && camera->actualIdentity && camera->capabilities &&
         camera->requestedConfiguration && camera->appliedConfiguration &&
-        d.submittedConfirmation!=std::pair{camera->sessionGeneration,*camera->confirmedRevision}) {
+        d.submittedConfirmation!=std::pair{camera->sessionGeneration,*camera->confirmedRevision} &&
+        d.rejectedConfirmation!=std::pair{camera->sessionGeneration,*camera->confirmedRevision}) {
         const auto descriptor=std::find_if(camera->discoveredDescriptors.begin(),camera->discoveredDescriptors.end(),
             [&](const auto& value){return value.id==*camera->actualIdentity;});
         if(descriptor!=camera->discoveredDescriptors.end()) {
             application::StartupPreferences record{1,*camera->actualIdentity,descriptor->identity,*camera->capabilities,
                 *camera->requestedConfiguration,camera->appliedConfiguration->actual,true};
             auto saved=d.preferences.postSave(++d.saveRevision,std::move(record));
-            d.submittedConfirmation=std::pair{camera->sessionGeneration,*camera->confirmedRevision};
-            if(!saved.hasValue()) d.presentation.startupWarning=saved.error();
+            const auto confirmation=std::pair{camera->sessionGeneration,*camera->confirmedRevision};
+            if(saved.hasValue()) d.submittedConfirmation=confirmation;
+            else {
+                // Permanent admission failure is not a submission or a polling retry.
+                d.rejectedConfirmation=confirmation;d.presentation.startupWarning=saved.error();
+            }
         }
     }
     d.presentation.ordinaryOperationPending=d.pending.has_value() || d.barrier.has_value();

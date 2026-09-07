@@ -39,7 +39,9 @@ public:
     std::optional<application::StartupPreferences> saved;
     bool failLoad{false};
     bool failSave{false};
+    std::function<void()> beforeLoad;
     core::Result<configuration::ApplicationConfiguration> load() override {
+        if(beforeLoad) beforeLoad();
         if(failLoad) return core::Result<configuration::ApplicationConfiguration>::failure(
             {core::ErrorCategory::Configuration,"load_failed","Load failed.","",false});
         configuration::ApplicationConfiguration value;
@@ -208,6 +210,53 @@ struct Gate {
     void release() { std::lock_guard lock(mutex);released=true;changed.notify_all(); }
 };
 struct ReleaseGate { Gate& gate;~ReleaseGate(){gate.release();} };
+TEST(LivePipeline, ConfirmationDuringSlowLoadSurvivesImagingAndDisconnect) {
+    Gate gate;auto io=std::make_unique<MemoryIo>();
+    io->beforeLoad=[&]{gate.block();};
+    Fixture f(std::move(io));ReleaseGate release{gate};
+    ASSERT_TRUE(f.begin());ASSERT_TRUE(gate.wait());
+    EXPECT_FALSE(f.preferences.latestStatus()->loadCompleted);
+    for(int i=0;i<3;++i) { ASSERT_TRUE(f.next());ASSERT_TRUE(f.paint()); }
+    ASSERT_TRUE(f.act(Intent::Disconnect));
+    EXPECT_FALSE(f.preferences.latestStatus()->latestAttemptedSaveRevision.has_value());
+    gate.release();
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedRevision.has_value();}));
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,1U);
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::Disconnected);
+}
+TEST(LivePipeline, CloseDuringSlowLoadDrainsTheAlreadyConfirmedPreferences) {
+    Gate gate;auto io=std::make_unique<MemoryIo>();
+    io->beforeLoad=[&]{gate.block();};
+    Fixture f(std::move(io));ReleaseGate release{gate};
+    ASSERT_TRUE(f.begin());ASSERT_TRUE(gate.wait());
+    ASSERT_TRUE(f.next());ASSERT_TRUE(f.paint());
+    f.controller.shutdown();
+    f.preferences.requestStop();
+    EXPECT_FALSE(f.preferences.latestStatus()->loadCompleted);
+    gate.release();f.preferences.join();
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,1U);
+    EXPECT_EQ(f.controller.presenter(),nullptr);
+    EXPECT_FALSE(f.pipeline.snapshot().context);
+}
+TEST(LivePipeline, PermanentSaveAdmissionRejectionIsNotRetriedByOrdinaryPolling) {
+    Fixture f;
+    ASSERT_TRUE(f.pipeline.start().hasValue());ASSERT_TRUE(f.controller.start().hasValue());
+    ASSERT_TRUE(f.wait([&]{return f.panel.presentation().cameraStatus &&
+        !f.panel.presentation().cameraStatus->discoveredDescriptors.empty() &&
+        !f.panel.presentation().ordinaryOperationPending;}));
+    f.controller.selectCamera({"SIM-LIVE"});
+    ASSERT_TRUE(f.act(Intent::Connect));ASSERT_TRUE(f.act(Intent::Apply));ASSERT_TRUE(f.act(Intent::Confirm));
+    ASSERT_TRUE(f.panel.presentation().startupWarning.has_value());
+    EXPECT_EQ(f.panel.presentation().startupWarning->code,"startup_service_not_started");
+    for(int i=0;i<20;++i) f.controller.poll();
+    ASSERT_TRUE(f.preferences.start().hasValue());
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->loadCompleted;}));
+    for(int i=0;i<20;++i) f.controller.poll();
+    EXPECT_FALSE(f.preferences.latestStatus()->latestAttemptedSaveRevision.has_value());
+    ASSERT_TRUE(f.act(Intent::Apply));ASSERT_TRUE(f.act(Intent::Confirm));
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedRevision.has_value();}));
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,2U);
+}
 TEST(LivePipeline, DuplicatePendingDisconnectRetainsItsCompletionCorrelation) {
     Gate gate;
     Fixture f(std::make_unique<MemoryIo>(),options(),[&](core::BufferPool& pool) {

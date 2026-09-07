@@ -31,6 +31,11 @@ public:
     // The owner serializes start()/join(). postSave(), latestStatus(), and
     // requestStop() may be called concurrently after a successful start().
     [[nodiscard]] core::Result<void> start();
+    // After start, admission coalesces one latest valid confirmed value even
+    // while loading. I/O waits for the whole document; an unsafe load settles
+    // the accepted revision as an attempted failure without writing defaults.
+    // Success here means admission, not durable persistence. Stop rejects new
+    // submissions and drains the newest accepted value after load completes.
     [[nodiscard]] core::Result<void> postSave(
         std::uint64_t revision,
         application::StartupPreferences preferences);
