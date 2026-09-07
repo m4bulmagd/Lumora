@@ -187,14 +187,14 @@ struct LivePipeline::Impl {
                 bool retire=false;
                 { std::lock_guard lock(mutex);retire=state.camera && state.camera->sourceReplacementRequired; }
                 if(retire && cameraWorker && !active && !priority) stopWorkers();
-                if(auto command=incoming.tryPopPriority()) {
+                if(auto priorityCommand=incoming.tryPopPriority()) {
                     if(active) {
                         std::lock_guard lock(mutex);
                         state.ordinaryOutcome=CameraCommandOutcome{active->requestId,
                             failure("cancelled","Superseded by lifecycle command.",core::ErrorCategory::Cancelled)};
                         active.reset();
                     }
-                    send(std::move(*command),true);
+                    send(std::move(*priorityCommand),true);
                 } else if(!active && !priority) {
                     if(auto command=incoming.tryPop()) {
                         if(std::holds_alternative<StartStream>(command->payload) && !bound) {
