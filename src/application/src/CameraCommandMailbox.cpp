@@ -162,6 +162,18 @@ std::optional<CameraCommand> CameraCommandMailbox::tryPop() {
     return popLocked();
 }
 
+std::optional<CameraCommand> CameraCommandMailbox::tryPopPriority() {
+    std::lock_guard lock(mutex_);
+    for (std::size_t i = 0U; i < size_; ++i) {
+        if (priority(entries_[i]->command) > 0) { return popLocked(); }
+    }
+    return std::nullopt;
+}
+bool CameraCommandMailbox::closed() const noexcept {
+    std::lock_guard lock(mutex_);
+    return closed_;
+}
+
 std::optional<CameraCommand> CameraCommandMailbox::waitPop(std::stop_token stopToken) {
     std::unique_lock lock(mutex_);
     condition_.wait(lock, stopToken, [this] {

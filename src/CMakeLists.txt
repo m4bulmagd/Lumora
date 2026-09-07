@@ -60,6 +60,8 @@ add_library(
   application/include/lumora/application/CameraSessionStateMachine.hpp
   application/src/CameraCommandMailbox.cpp
   application/src/CameraSessionStateMachine.cpp
+  application/include/lumora/application/AcquisitionWorker.hpp
+  application/src/AcquisitionWorker.cpp
 )
 add_library(lumora::application ALIAS lumora_application)
 target_include_directories(lumora_application PUBLIC

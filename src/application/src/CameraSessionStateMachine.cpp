@@ -76,6 +76,16 @@ std::optional<S> nextState(S state, E event) {
 }
 }  // namespace
 
+core::Result<CameraSessionStateMachine> CameraSessionStateMachine::fromInitialState(CameraSessionState state) {
+    if (state != S::Disconnected && state != S::Error && state != S::Reconnecting) {
+        return core::Result<CameraSessionStateMachine>::failure({core::ErrorCategory::CameraConfiguration,
+            "invalid_initial_camera_state", "Initial camera state must not require a device.", "", false});
+    }
+    CameraSessionStateMachine machine;
+    machine.state_ = state;
+    return core::Result<CameraSessionStateMachine>::success(machine);
+}
+
 core::Result<void> CameraSessionStateMachine::apply(CameraSessionEvent event) {
     if (state_ == S::ShuttingDown && event != E::ShutdownRequested) {
         return core::Result<void>::failure({core::ErrorCategory::Cancelled,

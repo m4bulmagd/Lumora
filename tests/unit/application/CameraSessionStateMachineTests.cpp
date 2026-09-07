@@ -7,6 +7,17 @@
 
 namespace {
 using namespace lumora::application;
+TEST(CameraSessionStateMachine, InitialStateFactoryOnlyAcceptsDeviceFreeNonterminalStates) {
+    for (auto state : {CameraSessionState::Disconnected, CameraSessionState::Error, CameraSessionState::Reconnecting}) {
+        auto machine = CameraSessionStateMachine::fromInitialState(state);
+        ASSERT_TRUE(machine.hasValue());
+        EXPECT_EQ(machine.value().state(), state);
+    }
+    for (auto state : {CameraSessionState::Discovering, CameraSessionState::Connecting,
+             CameraSessionState::ConnectedIdle, CameraSessionState::Streaming, CameraSessionState::ShuttingDown}) {
+        EXPECT_FALSE(CameraSessionStateMachine::fromInitialState(state).hasValue());
+    }
+}
 using S = CameraSessionState;
 using E = CameraSessionEvent;
 

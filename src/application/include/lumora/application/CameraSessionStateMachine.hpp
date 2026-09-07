@@ -7,6 +7,7 @@ namespace lumora::application {
 
 class CameraSessionStateMachine final {
 public:
+    [[nodiscard]] static core::Result<CameraSessionStateMachine> fromInitialState(CameraSessionState state);
     [[nodiscard]] core::Result<void> apply(CameraSessionEvent event);
     [[nodiscard]] CameraSessionState state() const noexcept { return state_; }
 

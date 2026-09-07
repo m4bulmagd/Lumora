@@ -4,7 +4,9 @@
 #include <lumora/core/Error.hpp>
 
 #include <cstdint>
+#include <chrono>
 #include <optional>
+#include <vector>
 
 namespace lumora::application {
 
@@ -39,6 +41,15 @@ struct CameraMailboxStats final {
     std::uint64_t cancelled{0U};
 };
 
+struct AcquisitionCounters final {
+    std::uint64_t acquired{0U};
+    std::uint64_t timeouts{0U};
+    std::uint64_t droppedInvalidFrame{0U};
+    std::uint64_t droppedNoRawBuffer{0U};
+    std::uint64_t droppedBeforeProcessing{0U};
+    std::uint64_t terminalFailures{0U};
+};
+
 // Publish as an immutable snapshot; admission is not execution success.
 struct CameraStatusSnapshot final {
     CameraSessionState state{CameraSessionState::Disconnected};
@@ -58,6 +69,11 @@ struct CameraStatusSnapshot final {
     std::optional<core::Error> latestError;
     std::optional<CameraCommandOutcome> latestOutcome;
     CameraMailboxStats mailboxStats;
+    std::vector<camera::CameraDescriptor> discoveredDescriptors;
+    AcquisitionCounters acquisitionCounters;
+    // Worker observation time, separate from adapter frame timestamps.
+    std::optional<std::chrono::steady_clock::time_point> lastAcquiredAt;
+    bool sourceReplacementRequired{false};
 };
 
 }  // namespace lumora::application

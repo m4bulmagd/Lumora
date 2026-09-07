@@ -21,6 +21,8 @@ class CameraCommandMailbox final {
 public:
     [[nodiscard]] core::Result<void> post(CameraCommand command);
     [[nodiscard]] std::optional<CameraCommand> tryPop();
+    [[nodiscard]] std::optional<CameraCommand> tryPopPriority();
+    [[nodiscard]] bool closed() const noexcept;
     [[nodiscard]] std::optional<CameraCommand> waitPop(std::stop_token stopToken);
     void completeBarrier(std::uint64_t requestId) noexcept;
     void close() noexcept;

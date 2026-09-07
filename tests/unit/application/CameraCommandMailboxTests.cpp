@@ -12,6 +12,24 @@
 
 namespace {
 using namespace lumora::application;
+TEST(CameraCommandMailbox, PriorityOnlyPopPreservesOrdinaryFifoAndBarrier) {
+    CameraCommandMailbox mailbox;
+    ASSERT_TRUE(mailbox.post({1U, Discover{}}).hasValue());
+    ASSERT_TRUE(mailbox.post({2U, Discover{}}).hasValue());
+    EXPECT_FALSE(mailbox.tryPopPriority());
+    ASSERT_TRUE(mailbox.post({3U, StopStream{}}).hasValue());
+    auto priorityCommand = mailbox.tryPopPriority();
+    ASSERT_TRUE(priorityCommand);
+    EXPECT_EQ(priorityCommand->requestId, 3U);
+    EXPECT_FALSE(mailbox.post({4U, StartStream{0U, 1U}}).hasValue());
+    EXPECT_FALSE(mailbox.tryPopPriority());
+    mailbox.completeBarrier(3U);
+    EXPECT_EQ(mailbox.tryPop()->requestId, 1U);
+    EXPECT_EQ(mailbox.tryPop()->requestId, 2U);
+    EXPECT_FALSE(mailbox.closed());
+    mailbox.close();
+    EXPECT_TRUE(mailbox.closed());
+}
 using namespace std::chrono_literals;
 void expectCancelled(const lumora::core::Result<void>& result);
 

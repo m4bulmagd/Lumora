@@ -1,6 +1,7 @@
 add_executable(lumora_application_tests
   unit/application/CameraSessionStateMachineTests.cpp
-  unit/application/CameraCommandMailboxTests.cpp)
+  unit/application/CameraCommandMailboxTests.cpp
+  unit/application/AcquisitionWorkerTests.cpp)
 target_link_libraries(lumora_application_tests PRIVATE
   lumora::application lumora::camera_simulator GTest::gtest_main)
 lumora_enable_warnings(lumora_application_tests)
@@ -10,6 +11,9 @@ add_test(NAME Application.CameraCommandMailbox
   COMMAND lumora_application_tests --gtest_filter=CameraCommandMailbox.*)
 set_tests_properties(Application.CameraSessionStateMachine Application.CameraCommandMailbox
   PROPERTIES TIMEOUT 60)
+add_test(NAME Application.AcquisitionWorker
+  COMMAND lumora_application_tests --gtest_filter=AcquisitionWorker.*)
+set_tests_properties(Application.AcquisitionWorker PROPERTIES TIMEOUT 60)
 
 add_executable(
   lumora_ui_tests
