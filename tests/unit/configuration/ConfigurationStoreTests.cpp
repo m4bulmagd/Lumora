@@ -123,7 +123,7 @@ INSTANTIATE_TEST_SUITE_P(
         std::pair{"truncated JSON", QByteArray{"{\"schemaVersion\":"}},
         std::pair{"wrong root type", QByteArray{"[]"}},
         std::pair{"missing schema", QByteArray{"{\"application\":{}}"}},
-        std::pair{"future schema", QByteArray{"{\"schemaVersion\":2}"}},
+        std::pair{"future schema", QByteArray{"{\"schemaVersion\":3}"}},
         InvalidConfigurationTest::ParamType{
             "non-object section",
             QByteArray{R"json({"schemaVersion":1,"application":[],"cameraProfiles":{},"processing":{},"presets":{},"capture":{},"ui":{}})json"}}),
