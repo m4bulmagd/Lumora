@@ -281,7 +281,7 @@ target_link_libraries(
 )
 lumora_enable_warnings(lumora_configuration_tests)
 add_test(NAME ConfigurationStore
-  COMMAND lumora_configuration_tests --gtest_filter=ConfigurationStore.*:InvalidConfigurationTest.*)
+  COMMAND lumora_configuration_tests --gtest_filter=ConfigurationStore.*:*/InvalidConfigurationTest.*)
 add_test(NAME Configuration.StartupPreferences
   COMMAND lumora_configuration_tests --gtest_filter=StartupPreferencesTest.*:StartupPreferencesService.*)
 set_tests_properties(Configuration.StartupPreferences PROPERTIES TIMEOUT 60)
