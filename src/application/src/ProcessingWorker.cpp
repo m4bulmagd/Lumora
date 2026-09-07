@@ -2,6 +2,8 @@
 
 #include <lumora/core/Error.hpp>
 
+#include "ProcessingWorkerCounters.hpp"
+
 #include <exception>
 #include <mutex>
 #include <stop_token>
@@ -30,9 +32,9 @@ struct ProcessingWorker::Impl final {
         std::lock_guard lock(snapshotMutex);
         if (error.category == core::ErrorCategory::ResourceExhaustion &&
             error.code == processing::displayBufferPoolExhaustedCode) {
-            ++snapshot.displayPoolExhaustions;
+            detail::saturatingIncrement(snapshot.displayPoolExhaustions);
         } else {
-            ++snapshot.processingErrors;
+            detail::saturatingIncrement(snapshot.processingErrors);
         }
         snapshot.currentError = error;
     }
@@ -40,7 +42,7 @@ struct ProcessingWorker::Impl final {
     void recordPublication(bool replaced) {
         std::lock_guard lock(snapshotMutex);
         if (replaced) {
-            ++snapshot.bundlesReplaced;
+            detail::saturatingIncrement(snapshot.bundlesReplaced);
         }
         snapshot.currentError.reset();
     }
@@ -57,7 +59,9 @@ struct ProcessingWorker::Impl final {
             }
             {
                 std::lock_guard lock(snapshotMutex);
-                snapshot.rawFramesSkipped += raw->revision - rawRevision - 1U;
+                detail::saturatingAdd(
+                    snapshot.rawFramesSkipped,
+                    raw->revision - rawRevision - 1U);
             }
             rawRevision = raw->revision;
             auto bundle = processor->process(raw->value);
@@ -69,6 +73,7 @@ struct ProcessingWorker::Impl final {
                 continue;
             }
             if (!bundle.value() ||
+                bundle.value()->raw != raw->value ||
                 bundle.value()->sourceFrameId() != raw->value->frameId) {
                 recordFailure({
                     core::ErrorCategory::Processing,

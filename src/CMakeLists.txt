@@ -76,6 +76,7 @@ add_library(
   application/include/lumora/application/AcquisitionWorker.hpp
   application/src/AcquisitionWorker.cpp
   application/include/lumora/application/ProcessingWorker.hpp
+  application/src/ProcessingWorkerCounters.hpp
   application/src/ProcessingWorker.cpp
 )
 add_library(lumora::application ALIAS lumora_application)

@@ -2,6 +2,8 @@
 
 #include <lumora/core/BufferPool.hpp>
 
+#include "ProcessingWorkerCounters.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -10,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -19,6 +22,27 @@
 namespace lumora::application {
 namespace {
 using namespace std::chrono_literals;
+
+// Wrapping event counters corrupt bounded lifetime diagnostics at the limit.
+TEST(ProcessingWorker, CounterArithmeticSaturatesZeroOrdinaryAndBoundaries) {
+    std::uint64_t value = 0U;
+    detail::saturatingAdd(value, 0U);
+    EXPECT_EQ(value, 0U);
+    detail::saturatingIncrement(value);
+    EXPECT_EQ(value, 1U);
+    detail::saturatingAdd(value, 41U);
+    EXPECT_EQ(value, 42U);
+
+    const auto maximum = std::numeric_limits<std::uint64_t>::max();
+    detail::saturatingAdd(value, maximum - 42U);
+    EXPECT_EQ(value, maximum);
+    detail::saturatingIncrement(value);
+    EXPECT_EQ(value, maximum);
+
+    value = maximum - 2U;
+    detail::saturatingAdd(value, 3U);
+    EXPECT_EQ(value, maximum);
+}
 
 core::SourcePixelFormat mono8() {
     return {"Mono8", 0x01080001U, 8U, 255U, core::SourcePacking::Unpacked,
@@ -286,6 +310,8 @@ TEST(ProcessingWorker, CountsProcessorFailureAndClearsItAfterPublication) {
     ASSERT_TRUE(fixture.processor.waitForCall(2U));
     fixture.processor.releaseCall(2U);
     ASSERT_TRUE(fixture.waitForBundleId(2U));
+    ASSERT_TRUE(fixture.waitForSnapshot(
+        [](const auto& snapshot) { return !snapshot.currentError; }));
     EXPECT_FALSE(fixture.worker.snapshot().currentError);
 }
 
@@ -405,6 +431,25 @@ TEST(ProcessingWorker, RejectsSuccessfulBundleForDifferentInput) {
     auto wrongRawPool = core::BufferPool::create(1U, 4U).value();
     auto wrongDisplayPool = core::BufferPool::create(1U, 4U).value();
     fixture.processor.returnNext(makeBundle(*wrongRawPool, *wrongDisplayPool, 99U));
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    fixture.publishRaw(1U);
+    ASSERT_TRUE(fixture.processor.waitForCall(1U));
+    fixture.processor.releaseCall(1U);
+
+    ASSERT_TRUE(fixture.waitForSnapshot(
+        [](const auto& snapshot) { return snapshot.processingErrors == 1U; }));
+    const auto snapshot = fixture.worker.snapshot();
+    ASSERT_TRUE(snapshot.currentError);
+    EXPECT_EQ(snapshot.currentError->code, "processing_result_invalid");
+    EXPECT_FALSE(fixture.bundleSlot.consumeAfter(0U));
+}
+
+// Equal numeric IDs do not make a substituted raw owner the selected input.
+TEST(ProcessingWorker, RejectsSameIdBundleWithDifferentRawOwner) {
+    ProcessingFixture fixture;
+    auto wrongRawPool = core::BufferPool::create(1U, 4U).value();
+    auto wrongDisplayPool = core::BufferPool::create(1U, 4U).value();
+    fixture.processor.returnNext(makeBundle(*wrongRawPool, *wrongDisplayPool, 1U));
     ASSERT_TRUE(fixture.worker.start().hasValue());
     fixture.publishRaw(1U);
     ASSERT_TRUE(fixture.processor.waitForCall(1U));

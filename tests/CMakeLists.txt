@@ -5,6 +5,8 @@ add_executable(lumora_application_tests
   unit/application/ProcessingWorkerTests.cpp)
 target_link_libraries(lumora_application_tests PRIVATE
   lumora::application lumora::camera_simulator GTest::gtest_main)
+target_include_directories(lumora_application_tests PRIVATE
+  "${PROJECT_SOURCE_DIR}/src/application/src")
 lumora_enable_warnings(lumora_application_tests)
 add_test(NAME Application.CameraSessionStateMachine
   COMMAND lumora_application_tests --gtest_filter=CameraSessionStateMachine.*)
