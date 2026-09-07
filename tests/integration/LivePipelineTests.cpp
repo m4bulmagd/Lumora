@@ -158,6 +158,10 @@ TEST(LivePipeline, OneHundredBoundedLifecycleCyclesReleasePoolsAndResetSessions)
             // The next explicit session binds a fresh exchange and releases the old contextual image.
             ASSERT_TRUE(f.act(Intent::Connect));
         }
+        // Binding acknowledgement permits control-thread retirement; command
+        // completion does not imply that destruction of the old slots finished.
+        ASSERT_TRUE(f.wait([&]{return raw->stats().inUse==0U && display->stats().inUse==0U &&
+            u16->stats().inUse==0U;}));
         EXPECT_EQ(raw->stats().inUse,0U);EXPECT_EQ(display->stats().inUse,0U);EXPECT_EQ(u16->stats().inUse,0U);
     }
 }
