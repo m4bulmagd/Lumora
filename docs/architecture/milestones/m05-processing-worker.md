@@ -100,7 +100,7 @@ The owner subsequently authorized merging the completed M5 work into `main`. The
 | Linux GCC Debug and Release Simulator | [Run 34111147740](https://github.com/m4bulmagd/Lumora/actions/runs/34111147740) completed successfully at 10:26:46 UTC; Debug/Release configure, build, tests and native X11 steps passed. |
 | Windows MSVC Debug and Release Simulator | [Run 34111147739](https://github.com/m4bulmagd/Lumora/actions/runs/34111147739) completed successfully at 10:28:01 UTC; Debug/Release configure, build and tests passed. Optional manual stress steps were skipped, not passed. |
 
-PR #6 was merged at 14:52:45 UTC with an exact-head guard, producing `2031848834c65a9915504e4409ce896069da25ce`; local `main` was then fast-forwarded to the same commit. Tasks 4–5 are published separately in [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) and require their own exact-head cross-platform checks. Task 3's results do not verify that continuation.
+PR #6 was merged at 14:52:45 UTC with an exact-head guard, producing `2031848834c65a9915504e4409ce896069da25ce`; local `main` was then fast-forwarded to the same commit. Tasks 4–5 subsequently passed their own exact-head cross-platform checks and merged separately through [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) as `f01b408`. Their [merged integration checkpoint](m05-live-integration.md#merged-main-verification-and-branch-cleanup-2026-09-07) records that independent evidence and passing post-merge CI; Task 3's results alone do not verify the continuation.
 
 ## Remaining gates
 

@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. Tasks 1–2 were subsequently implemented, reviewed, merged and pushed with explicit authorization; matching Linux/Windows Debug/Release CI passed at `7295fb9`, as recorded in the [Task 2 checkpoint](../../architecture/milestones/m05-acquisition-worker.md#merged-cross-platform-checkpoint-2026-09-07). Task 3 is implemented and locally reviewed; the user's latest approval authorized its push and [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) at `ccabaae`, and continued M5 development without waiting for that CI. Tasks 4–5 proceed locally on `feat/m05-startup-and-integration`, based on `ccabaae`; the Task 3 PR stays unchanged. No further push or merge is implied. Matching Windows evidence and native Windows 11 manual checks remain acceptance gates, not prerequisites for this explicitly authorized continuation.
+**Execution and integration record (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md). Windows stress and matching cross-platform CI passed at `6c054a7`. Tasks 1–2 were implemented, reviewed, merged and pushed with explicit authorization; matching Linux/Windows Debug/Release CI passed at `7295fb9`, as recorded in the [Task 2 checkpoint](../../architecture/milestones/m05-acquisition-worker.md#merged-cross-platform-checkpoint-2026-09-07). The owner then authorized Task 3 publication and local Tasks 4–5 development without waiting for CI, followed by separate authorization to publish and merge the completed work. [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) merged Task 3 as `2031848` after exact-head checks at `ccabaae`; [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) merged Tasks 4–5 as `f01b408` after its own final-head checks passed. The [merged integration checkpoint](../../architecture/milestones/m05-live-integration.md#merged-main-verification-and-branch-cleanup-2026-09-07) records passing post-merge Linux/Windows Debug/Release CI and separately authorized merged-branch cleanup. All task/review work is complete; native Windows 11 manual checks and separate M4/M5 acceptance remain open. No later milestone-entry exception is implied.
 
 ## Global Constraints
 
@@ -221,7 +221,7 @@ git commit -m "feat(app): add isolated acquisition worker"
 
 ### Task 3: Frame processor port and processing worker
 
-**Local checkpoint (2026-09-07):** Implemented and locally verified through review fixes at `3c59b11`; full native-inclusive Linux Debug/Release tests pass. See the [Task 3 record](../../architecture/milestones/m05-processing-worker.md) for exact-source evidence, review verdicts and remaining Windows/full-milestone gates. Tasks 4–5 are not included.
+**Merged checkpoint (2026-09-07):** Implemented, reviewed and merged through PR #6 as `2031848`, after matching Linux/Windows Debug/Release CI passed at `ccabaae`. See the [Task 3 record](../../architecture/milestones/m05-processing-worker.md) for original local evidence, review fixes and exact-head CI. This task's evidence does not independently verify Tasks 4–5 or pass full M5 acceptance.
 
 **Files:**
 - Create: `src/processing/include/lumora/processing/IFrameProcessor.hpp`
@@ -289,7 +289,7 @@ git commit -m "feat(app): add newest-frame processing worker"
 
 ### Task 4: Minimal startup controls and saved preferences
 
-**Local checkpoint (2026-09-07):** Implemented and independently task-reviewed through `5b4bff8`; full native-inclusive Linux Debug/Release33/33 and tests-OFF builds pass. The [Task 4 record](../../architecture/milestones/m05-startup-preferences.md) records the restored test matrix, process limitations, remaining minor review concern and acceptance gates.
+**Merged checkpoint (2026-09-07):** Implemented and independently task-reviewed; the initial `5b4bff8` checkpoint passed native-inclusive Linux Debug/Release33/33 and tests-OFF builds. The remaining test-isolation Minor was resolved in `d113da9`, with scoped re-review clear. Task 4 merged with Task 5 through PR #7 as `f01b408`, with passing post-merge Linux/Windows Debug/Release CI. The [Task 4 record](../../architecture/milestones/m05-startup-preferences.md) preserves the review/fix history and pending native Windows/full-acceptance gates.
 
 **Files:**
 - Create: `src/application/include/lumora/application/StartupPreferences.hpp`
@@ -378,6 +378,8 @@ git commit -m "feat(app): add explicit startup controls and saved preferences"
 
 ### Task 5: LivePipeline orchestration and Qt presentation integration
 
+**Merged checkpoint (2026-09-07):** Implemented, reviewed and merged through PR #7 as `f01b408`; all recorded task/final review findings and the Windows compiler correction are resolved. The [integration record](../../architecture/milestones/m05-live-integration.md#merged-main-verification-and-branch-cleanup-2026-09-07) records local Debug/Release35/35 and passing post-merge Linux/Windows CI. Native Windows 11 checks and separate milestone acceptance remain pending.
+
 **Files:**
 - Create: `src/application/include/lumora/application/LivePipeline.hpp`
 - Create: `src/application/src/LivePipeline.cpp`
@@ -465,7 +467,7 @@ git commit -m "feat(app): connect independent live pipeline"
 
 ## Milestone 5 acceptance gate
 
-Tasks1–5 are implemented; [Task5's checkpoint](../../architecture/milestones/m05-live-integration.md) records source, review fixes, compiler correction and platform evidence. [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) retains exact-head integration checks and merge status. Completed task steps or automated CI do not pass the milestone gate below: native Windows 11 evidence and separately recorded acceptance remain required.
+Tasks 1–5 are implemented, reviewed and merged through `f01b408`; [Task 5's checkpoint](../../architecture/milestones/m05-live-integration.md#merged-main-verification-and-branch-cleanup-2026-09-07) records source, resolved review/compiler findings, final PR-head checks and passing post-merge Linux/Windows Debug/Release CI. Completed task steps or automated CI do not pass the milestone gate below: native Windows 11 evidence and separately recorded acceptance remain required. The acceptance checkboxes are intentionally unchanged by this progress synchronization.
 
 - [ ] Camera/device methods run on exactly one non-UI thread.
 - [ ] Slow processing/display causes categorized replacement, never queue growth.
