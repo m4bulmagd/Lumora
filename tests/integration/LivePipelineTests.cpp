@@ -546,7 +546,24 @@ TEST(LivePipeline, PipelineRetainsOldContextUntilReplacementBindingAcknowledgeme
     ASSERT_TRUE(f.pipeline.post({1,application::Connect{{"SIM-LIVE"}}}).hasValue());
     ASSERT_TRUE(waitUntil([&]{return f.pipeline.snapshot().ordinaryOutcome.has_value();}));
     ASSERT_TRUE(f.pipeline.post({2,application::Disconnect{}}).hasValue());
-    ASSERT_TRUE(waitUntil([&]{return f.pipeline.snapshot().priorityOutcome.has_value();}));
+    const auto disconnected=waitUntil([&]{return f.pipeline.snapshot().priorityOutcome.has_value();});
+    if(!disconnected) {
+        const auto stalled=f.pipeline.snapshot();
+        FAIL() << "cameraState=" << static_cast<int>(stalled.camera->state)
+            << " cameraOutcome=" << (stalled.camera->latestOutcome ? stalled.camera->latestOutcome->requestId : 0U)
+            << " cameraOutcomeError=" << (stalled.camera->latestOutcome && stalled.camera->latestOutcome->error
+                ? stalled.camera->latestOutcome->error->code : "none")
+            << " ordinaryOutcome=" << (stalled.ordinaryOutcome ? stalled.ordinaryOutcome->requestId : 0U)
+            << " ordinaryOutcomeError=" << (stalled.ordinaryOutcome && stalled.ordinaryOutcome->error
+                ? stalled.ordinaryOutcome->error->code : "none")
+            << " priorityOutcome=" << (stalled.priorityOutcome ? stalled.priorityOutcome->requestId : 0U)
+            << " priorityOutcomeError=" << (stalled.priorityOutcome && stalled.priorityOutcome->error
+                ? stalled.priorityOutcome->error->code : "none")
+            << " replacementRequired=" << stalled.camera->sourceReplacementRequired
+            << " contextBound=" << stalled.contextBound
+            << " contextGeneration=" << (stalled.context ? stalled.context->generation : 0U)
+            << " pipelineError=" << (stalled.error ? stalled.error->code : "none");
+    }
     ASSERT_TRUE(f.pipeline.post({3,application::Connect{{"SIM-LIVE"}}}).hasValue());
     ASSERT_TRUE(waitUntil([&]{return f.pipeline.snapshot().context->generation!=old->generation;}));
     old.reset();EXPECT_FALSE(retired.expired());
