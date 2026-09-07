@@ -253,4 +253,4 @@ git commit -m "feat(processing): integrate immutable high-depth frame engine"
 - [ ] Window/level and display mappings pass exhaustive scalar comparison.
 - [ ] Original and Enhanced displays always share the raw frame ID.
 - [ ] No U8 conversion occurs before `DisplayMapper`.
-- [ ] Linux/GCC and Windows/MSVC produce exact normalization, window/level, inversion, and Gray8 mapping results; reordered definitions are rejected.
+- [ ] Linux/GCC and Windows/MSVC produce exact normalization, window/level, and Gray8 mapping results; reordered definitions are rejected. Inversion execution and its cross-platform reference evidence belong to M8 with the other enhancement algorithms.
