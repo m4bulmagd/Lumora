@@ -15,7 +15,8 @@ This is a status and evidence summary, not a replacement for the [PRD](../prd.md
 | M5: independent live pipeline | Tasks 1–5 implemented, reviewed and merged; no open recorded review findings | Pending deferred M4 checks, affected M5 native Windows UI checks and separate acceptance |
 | M6 | Awaiting approved hardware profile; not implemented | Entry and acceptance gates remain in force |
 | M7 | Tasks 1–4 implemented and task-reviewed on `feat/m07-high-bit-depth`; local Debug/Release 41/41; [evidence](architecture/milestones/m07-preflight.md) | Pending matching Windows checks and preceding deferred gates |
-| M8–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
+| M8 | Task 1 authorized under the [simulator continuation](architecture/milestones/m08-tone-stages.md); implementation pending | Deferred gates and M8 acceptance remain open |
+| M9–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
 
 The normal Linux application now provides synthetic live video through the production pipeline: select `SIM-LIVE`, Connect, Apply and review, Confirm, then Start. Pause freezes presentation while acquisition continues. See the [launch guide](development/build-linux.md#launch-the-desktop-application). No physical camera is connected by this composition.
 

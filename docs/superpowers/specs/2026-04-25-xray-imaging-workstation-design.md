@@ -418,6 +418,8 @@ The first release order is:
 - Unsharp-mask sharpening.
 - Optional grayscale inversion.
 
+The [M8 Task 1 clarification](../../architecture/milestones/m08-tone-stages.md#task-1-contracts) defines brightness followed by contrast: round the normalized brightness offset times 65535 (ties away from zero), add in signed arithmetic and saturate to U16, then apply midpoint contrast around 32767.5, saturate and round nearest with positive halves upward. Gamma is `round(pow(v/65535.0, 1/gamma)*65535)` with exact endpoints; inversion is `65535-v`. Configured gamma stages keep an immutable table across frames; execution ownership must also reuse it across activations when gamma is unchanged.
+
 After Original and Enhanced display mapping, the same installation-profile orientation (horizontal/vertical flip and 0/90/180/270-degree rotation without interpolation) is applied to both presentation paths. Orientation is not an enhancement stage or a live operator control. It changes only through an administrator-managed, confirmed stopped-state camera-profile workflow and is always shown in status and capture metadata.
 
 Disabled stages perform no buffer allocation or pixel traversal. The pipeline remains single-frame and sequential initially; OpenCV's measured CPU behavior determines whether its internal thread count should be limited on the target workstation.

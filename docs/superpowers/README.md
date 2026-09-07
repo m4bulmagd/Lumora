@@ -50,7 +50,7 @@ These are intentional deferred inputs, not contradictions and not permission to 
 | External signing | Before any external package | Organization signing identity/certificate custody, timestamp service, protected pipeline, and release authority. |
 | Clinical release | Before enabling a clinical build class | Separately approved Egypt-specific regulatory and clinical program with traceability and release authority. |
 
-M1-M5 may proceed without a selected physical camera. The [2026-09-07 continuation](../architecture/milestones/m07-preflight.md) permits simulator-only M7 implementation while M4/M5 native Windows checks and M6 remain pending. It does not authorize M6 implementation without its profile or acceptance of the deferred milestones.
+M1-M5 may proceed without a selected physical camera. The [2026-09-07 continuation](../architecture/milestones/m07-preflight.md) permits simulator-only M7 implementation while M4/M5 native Windows checks and M6 remain pending. The owner's subsequent approval extends development to [M8 Task 1](../architecture/milestones/m08-tone-stages.md). These exceptions do not authorize M6 implementation without its profile or acceptance of the deferred milestones.
 
 ## M4 verification and scoped deferral (2026-09-07)
 
