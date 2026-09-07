@@ -51,4 +51,6 @@ Commands: `cmake --build --preset linux-gcc-{debug,release}-sim --parallel 3`, `
 
 A fresh Release `lumora_app` build with tests, benchmarks and Basler disabled passed with GCC 15.2.0. Configure/build logs are `production-configure.log` and `production-build.log` under the same QA directory.
 
-Final whole-branch review of `d191097..7c6f8bf` approved Task 1 with no Critical, Important or Minor findings and no required changes. The separate M7 stall-test correction, matching M8 Windows evidence and milestone acceptance remain open.
+Final whole-branch review of `d191097..7c6f8bf` approved Task 1 with no Critical, Important or Minor findings and no required changes. The separately reviewed M7 test-only correction `43a7401` is included locally; its publishing/Windows follow-up, matching M8 Windows evidence and milestone acceptance remain open.
+
+After carrying the reviewed M7 stall-test correction into this branch, the covering Debug LivePipeline suite passed (37 cases, 6.38 s). Release passed the corrected stall test but timed out in the pre-existing `PipelineRetainsOldContextUntilReplacementBindingAcknowledgement` case waiting for a Disconnect outcome. Its failure log is retained as `stall-integration-test-release.log`; diagnosis remains open. The earlier full 42/42 results above identify the earlier source and are not a claim that this later integration check passed.

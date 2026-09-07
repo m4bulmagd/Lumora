@@ -14,7 +14,7 @@ This is a status and evidence summary, not a replacement for the [PRD](../prd.md
 | M4: viewer and latest-frame presentation | Tasks 1–4 merged; automated checks and historical Windows stress passed | Pending native Windows 11 visual/DPI validation and formal closeout |
 | M5: independent live pipeline | Tasks 1–5 implemented, reviewed and merged; no open recorded review findings | Pending deferred M4 checks, affected M5 native Windows UI checks and separate acceptance |
 | M6 | Awaiting approved hardware profile; not implemented | Entry and acceptance gates remain in force |
-| M7 | Tasks 1–4 reviewed and merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8); Linux/GCC and Windows/MSVC PR Debug/Release passed; post-merge stall-test correction in progress | Preceding deferred gates and separate acceptance remain open |
+| M7 | Tasks 1–4 reviewed and merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8); Linux/GCC and Windows/MSVC PR Debug/Release passed; post-merge stall-test correction reviewed locally, follow-up CI pending | Preceding deferred gates and separate acceptance remain open |
 | M8 | Task 1 implemented and task-reviewed on `feat/m08-tone-stages`; Linux Debug/Release 42/42 | Windows evidence, Tasks 2–5, deferred gates and M8 acceptance remain open |
 | M9–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
 
