@@ -121,7 +121,7 @@ At `d191097`, [Linux main CI](https://github.com/m4bulmagd/Lumora/actions/runs/3
 
 Test-only commit `43a7401` addresses the post-merge failure without changing acquisition or freshness behavior. Raw/bundle publication can precede the camera-status snapshot; the test now waits for the acquisition count to cover the presented frame ID before sampling its baseline. It snapshots the prior bundle before stepping manual clocks, advances host before source, and waits for a newer completed bundle when recovering processing/presentation stalls. The exact 499 ms/current, 500 ms/stale, retained contextual frame, stopped camera count and pool-release assertions remain.
 
-The original count mismatch reproduced on Linux Release iteration 6; the separate-clock startup race reproduced in Debug iteration 143. After the final correction, 100 focused repetitions and all 37 LivePipeline cases passed separately in both Debug and Release, with clean builds and whitespace checks. No production code, timeout expansion or sleep was added. Independent review approved spec compliance and quality with no findings. Corresponding Windows CI is pending for this follow-up. Detailed diagnosis and logs remain under `out/qa/m07-2026-09-07/stall-fix/`.
+The original count mismatch reproduced on Linux Release iteration 6; the separate-clock startup race reproduced in Debug iteration 143. After the final correction, 100 focused repetitions and all 37 LivePipeline cases passed separately in both Debug and Release, with clean builds and whitespace checks. No production code, timeout expansion or sleep was added. Independent review approved spec compliance and quality with no findings. Corresponding Windows CI was pending at this local checkpoint; the subsequent PR #9 integration record follows below. Detailed diagnosis and logs remain under `out/qa/m07-2026-09-07/stall-fix/`.
 
 ### Additional context-retirement timeout remains unresolved
 
@@ -129,4 +129,19 @@ A later Linux Release check of the local M8 integration timed out in `PipelineRe
 
 Commit `8c63f36` adds failure-only scalar diagnostics while preserving the original condition and timeout. A discarded request-ID hypothesis did not explain the absent outcome; an unconditional diagnostic snapshot itself retained the old context and was removed. The retained snapshot exists only on fatal failure, so passing runs gain no owner.
 
-Final bounded characterization passed: context test 100/100 in each Linux configuration, prior stall test 10/10 each, and all 37 LivePipeline cases once each. These passing reruns do not resolve the intermittent timeout. The next failure must retain the camera/pipeline outcome and error diagnostics, with thread stacks if available. Reports and logs remain in `out/qa/m07-2026-09-07/context-fix/`. Follow-up publishing and matching Windows verification are pending; milestone acceptance remains open.
+Final bounded characterization passed: context test 100/100 in each Linux configuration, prior stall test 10/10 each, and all 37 LivePipeline cases once each. These passing reruns do not resolve the intermittent timeout. The next failure must retain the camera/pipeline outcome and error diagnostics, with thread stacks if available. Reports and logs remain in `out/qa/m07-2026-09-07/context-fix/`. Follow-up publishing and matching Windows verification were pending at this diagnostic checkpoint; the subsequent PR #9 integration record follows below. Milestone acceptance remains open.
+
+
+## Follow-up PR integration — 2026-09-08
+
+The owner explicitly authorized publishing `fix/m07-stall-test-synchronization` to `m4bulmagd/Lumora`, running CI and merging when both platforms passed. [PR #9](https://github.com/m4bulmagd/Lumora/pull/9) merged verified head `89b095325249436f93c9b120ee0e018ef544115e` as `61d91fb36a0be9a0d56d6ce04b5f68874a7f5283`; the trees match.
+
+| Verification | Debug | Release |
+|---|---|---|
+| Local GCC 15.2.0 | 40/40 headless, 22.78 s; X11 1/1, 0.13 s | 40/40 headless, 18.07 s; X11 1/1, 0.06 s |
+| [Linux PR CI, GCC 13.3.0](https://github.com/m4bulmagd/Lumora/actions/runs/34169085574) | 40/40, 22.14 s; X11 1/1, 0.13 s | 40/40, 17.42 s; X11 1/1, 0.04 s |
+| [Windows PR CI, MSVC 19.44.35228.0](https://github.com/m4bulmagd/Lumora/actions/runs/34169085512) | 40/40, 31.23 s | 40/40, 21.48 s |
+
+Both branch-push runs passed before merge. Post-merge [Linux main CI](https://github.com/m4bulmagd/Lumora/actions/runs/34169533444) and [Windows main CI](https://github.com/m4bulmagd/Lumora/actions/runs/34169533508) also completed successfully at `61d91fb`. Local main was fast-forwarded without discarding changes. Full PR logs and the integration report remain in the retained M7 worktree under `out/qa/m07-2026-09-08/`. The initial local sandboxed X11 attempt could not connect to its display; the host smoke test passed without source changes.
+
+This closes the follow-up publishing and automated platform checks, not the separate intermittent context-retirement timeout. No timeout fix, native Windows 11 manual validation, hardware test, optional stress or milestone acceptance is claimed.

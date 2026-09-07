@@ -51,8 +51,15 @@ Commands: `cmake --build --preset linux-gcc-{debug,release}-sim --parallel 3`, `
 
 A fresh Release `lumora_app` build with tests, benchmarks and Basler disabled passed with GCC 15.2.0. Configure/build logs are `production-configure.log` and `production-build.log` under the same QA directory.
 
-Final whole-branch review of `d191097..7c6f8bf` approved Task 1 with no Critical, Important or Minor findings and no required changes. The separately reviewed M7 test-only correction `43a7401` is included locally; its publishing/Windows follow-up, matching M8 Windows evidence and milestone acceptance remain open.
+Final whole-branch review of `d191097..7c6f8bf` approved Task 1 with no Critical, Important or Minor findings and no required changes. The separately reviewed M7 test-only correction `43a7401` is included locally; its publishing/Windows follow-up was pending at that checkpoint and is now recorded under M7 PR #9. Matching M8 Windows evidence and milestone acceptance remain open.
 
 After carrying the reviewed M7 stall-test correction into this branch, the covering Debug LivePipeline suite passed (37 cases, 6.38 s). Release passed the corrected stall test but timed out in the pre-existing `PipelineRetainsOldContextUntilReplacementBindingAcknowledgement` case waiting for a Disconnect outcome. Its failure log is retained as `stall-integration-test-release.log`; diagnosis remains open. The earlier full 42/42 results above identify the earlier source and are not a claim that this later integration check passed.
 
 Failure-only diagnostics `8c63f36` were subsequently included and independently approved without code findings. The final M8 checkout rebuilt the integration target and passed the affected context test once in Debug and Release; these checks confirm the diagnostic integration, not a fix for the intermittent timeout. Latest diagnosis, 100-run characterization and remaining uncertainty are retained in the linked M7 record.
+
+
+## Authorized integration continuation — 2026-09-08
+
+After M7 PR #9 merged, the owner approved the proposed next steps with “Ok go ahead with M8”: publish and integrate the already completed Task 1 through Linux/Windows CI, then implement bounded Task 2 (U16 CLAHE). This extends the earlier Task-1-only development scope; Tasks 3–5 and M9 remain subsequent work. Manual Windows 11 validation remains deferred.
+
+The existing isolated worktree was retained. Merge `e4fcbb5` incorporates main `61d91fb`, including the reviewed M7 stall-test correction and context-timeout diagnostics. Task 1 source remains `246a73a`; no tone algorithm or public interface changed for publication. Task 1 publishing is authorized; CI results will be recorded against the actual PR head before merge.

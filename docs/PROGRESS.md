@@ -1,8 +1,8 @@
 # Lumora progress
 
-**Updated:** 2026-09-07
+**Updated:** 2026-09-08
 
-**Latest integrated implementation checkpoint:** `d191097ccb5c20bf4f44d9c5ae0440a963bd4bcb` on `main`.
+**Latest integrated implementation checkpoint:** `61d91fb36a0be9a0d56d6ce04b5f68874a7f5283` on `main`.
 
 This is a status and evidence summary, not a replacement for the [PRD](../prd.md), [design and milestone authority](superpowers/README.md#document-authority), or separately recorded acceptance. Documentation-only commits may follow the implementation checkpoint above.
 
@@ -14,7 +14,7 @@ This is a status and evidence summary, not a replacement for the [PRD](../prd.md
 | M4: viewer and latest-frame presentation | Tasks 1–4 merged; automated checks and historical Windows stress passed | Pending native Windows 11 visual/DPI validation and formal closeout |
 | M5: independent live pipeline | Tasks 1–5 implemented, reviewed and merged; no open recorded review findings | Pending deferred M4 checks, affected M5 native Windows UI checks and separate acceptance |
 | M6 | Awaiting approved hardware profile; not implemented | Entry and acceptance gates remain in force |
-| M7 | Tasks 1–4 reviewed and merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8); Linux/GCC and Windows/MSVC PR Debug/Release passed; post-merge stall-test correction reviewed locally, follow-up CI pending | Preceding deferred gates and separate acceptance remain open |
+| M7 | Tasks 1–4 reviewed and merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8); Linux/GCC and Windows/MSVC PR Debug/Release passed; stall-test correction merged through [PR #9](https://github.com/m4bulmagd/Lumora/pull/9) with passing Linux/Windows Debug/Release CI | Preceding deferred gates and separate acceptance remain open |
 | M8 | Task 1 implemented and task-reviewed on `feat/m08-tone-stages`; Linux Debug/Release 42/42 | Windows evidence, Tasks 2–5, deferred gates and M8 acceptance remain open |
 | M9–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
 
@@ -36,7 +36,7 @@ These are recorded implementation results, not new test runs for later documenta
 
 ## M7 integrated verification
 
-[PR #8](https://github.com/m4bulmagd/Lumora/pull/8) merged the reviewed high-depth processing implementation as `d191097`. Its tree equals the verified PR head `34cf24a`: local GCC 15.2.0 passed 40 headless plus one native X11 check in Debug and Release. [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34161362515) passed 40+1 checks per configuration, and [Windows PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34161362517) passed 40/40 per configuration. No PR CI fix was required. The post-merge Windows run later exposed a stall-test synchronization race; test-only correction `43a7401` is locally verified, with follow-up review approved and CI pending. A separate intermittent context-retirement timeout remains unresolved; failure-only diagnostics are retained in `8c63f36`.
+[PR #8](https://github.com/m4bulmagd/Lumora/pull/8) merged the reviewed high-depth processing implementation as `d191097`. Its tree equals the verified PR head `34cf24a`: local GCC 15.2.0 passed 40 headless plus one native X11 check in Debug and Release. [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34161362515) passed 40+1 checks per configuration, and [Windows PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34161362517) passed 40/40 per configuration. No PR CI fix was required. The post-merge Windows run later exposed a stall-test synchronization race; test-only correction `43a7401` and diagnostics `8c63f36` are reviewed and merged through [PR #9](https://github.com/m4bulmagd/Lumora/pull/9) as `61d91fb`, with passing Linux/Windows Debug/Release PR and main CI. A separate intermittent context-retirement timeout remains unresolved; failure-only diagnostics are retained in `8c63f36`.
 
 SIM-LIVE uses Mono12 in U16 through normalization, window/level, terminal Gray8 mapping and the pooled frame engine. The M4 harness remains Mono8. A fresh tests-OFF/Basler-OFF Release app build and all task/final reviews passed. The [execution record](architecture/milestones/m07-preflight.md) retains exact source, commands, run links and evidence limits. Native Windows 11 checks, hardware work and formal acceptance remain pending.
 
