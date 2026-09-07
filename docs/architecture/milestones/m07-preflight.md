@@ -35,4 +35,12 @@ Extend the existing `IFrameProcessor` boundary rather than introducing a second 
 
 Each task adds registered focused tests before implementation and records its failing and passing result. Run complete Linux Debug/Release simulator suites and a tests-OFF/Basler-OFF production build. Reuse only the pinned dependency installation, and record the actual compiler and source used. Windows/MSVC CI and native Windows validation are separate evidence; Linux results do not mark them passed.
 
-Implementation and review results will be appended as they are obtained. No result is implied by this preflight.
+### Tasks 1–2 checkpoint
+
+Contracts/compiler/views are committed in `6bc55ec`, with independent review fixes in `114b469`. The fixes reuse `core::PipelineVersion` and report duplicate unknown stage identifiers. The scoped re-review approved both spec compliance and code quality. Normalization is committed in `3192d62`; independent review approved it, with one minor coverage suggestion for a destination-storage rejection branch carried to final review.
+
+At `3192d62`, GCC 15.2.0 passed all four registered Processing CTest suites in Debug and Release. Builds reused the pinned dependency installation from the retained Linux desktop worktree through `CMAKE_PREFIX_PATH`; no dependency baseline changed. Normalization tests cover exact 8/10/12/16-bit scaling, non-power-of-two maxima, padded/unaligned rows, alias rejection, unchanged input, source provenance and first-invalid-sample diagnostics.
+
+Task 2's initial failing check was a missing-file configuration failure, not a behavioral test failure. After implementation, temporary mutations removing rounding and the excessive-sample guard caused the corresponding tests to fail. Source was restored byte-for-byte and the focused tests passed again. Later tasks require compile-ready stubs and observed assertion failures before implementation.
+
+These are local component results. Tasks 3–4, whole-branch review, complete final suites, Windows/MSVC and milestone acceptance remain pending.

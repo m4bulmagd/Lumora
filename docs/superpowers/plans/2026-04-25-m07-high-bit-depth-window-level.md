@@ -43,7 +43,7 @@
 - Consumes: core image layout/result types and U16 storage.
 - Produces: `StageId`, all initial parameter structs, `StageParameters`, `StageDefinition`, `PipelineDefinition`, `ImageDomain`, `StageTraits`, `IProcessingStage`, and `PipelineCompiler::compile`.
 
-- [ ] **Step 1: Write failing domain/order/configuration tests**
+- [x] **Step 1: Write failing domain/order/configuration tests**
 
 ```cpp
 TEST(PipelineCompiler, RejectsDuplicateMandatoryNormalization) {
@@ -55,13 +55,13 @@ TEST(PipelineCompiler, RejectsDuplicateMandatoryNormalization) {
 }
 ```
 
-- [ ] **Step 2: Verify missing contracts fail**
+- [x] **Step 2: Verify missing contracts fail**
 
 Run: `cmake --build --preset linux-gcc-debug-sim --target lumora_processing_tests`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Define the complete configuration vocabulary once**
+- [x] **Step 3: Define the complete configuration vocabulary once**
 
 ```cpp
 enum class StageId { Normalize, WindowLevel, BrightnessContrast, Gamma,
@@ -80,15 +80,15 @@ Parameter bounds are explicit: window `[1,65535]`, level `[0,65535]`, brightness
 
 `StageTraits` also declares dimension changes, required scratch images, bounded history-frame count, calibration-asset requirement, and execution backend. Initial stages declare zero history, no calibration asset, and CPU execution. Dark-frame, flat-field, bad-pixel, temporal, and GPU stages can therefore extend the registry without changing worker or frame-exchange contracts; their algorithms and assets remain out of this release.
 
-- [ ] **Step 4: Implement compile-time/runtime validation**
+- [x] **Step 4: Implement compile-time/runtime validation**
 
 Every `StageDefinition` parameter variant must match its `StageId`; stage IDs are unique; Normalize is first and mandatory; the only valid order is Normalize -> WindowLevel -> BrightnessContrast -> Gamma -> Clahe -> Denoise -> Sharpen -> Invert. Enabled adjacent domains must match; disabled stages remain serializable but are omitted from execution without changing their canonical positions. Return all validation violations in stable stage order.
 
-- [ ] **Step 5: Test complete parameter boundaries and fixed-order rules**
+- [x] **Step 5: Test complete parameter boundaries and fixed-order rules**
 
 Cover minimum/maximum accepted values, values immediately outside bounds, wrong variant, duplicate IDs, missing normalization, disabled stages, and rejection of every reordered or invalid-domain definition.
 
-- [ ] **Step 6: Commit contracts**
+- [x] **Step 6: Commit contracts**
 
 ```powershell
 git add src/processing tests/unit/processing/PipelineCompilerTests.cpp
@@ -106,7 +106,7 @@ git commit -m "feat(processing): define validated pipeline contracts"
 - Consumes: sensor U8/U16 image view, declared `sampleMaximum`/valid bits, alignment, and a writable canonical U16 view.
 - Produces: `NormalizeStage::process` mapping `[0, sampleMaximum]` to `[0,65535]` deterministically.
 
-- [ ] **Step 1: Write exact bit-depth tests**
+- [x] **Step 1: Write exact bit-depth tests**
 
 ```cpp
 TEST(NormalizeStage, Mono12ScalesDeclaredRangeNotFrameRange) {
@@ -118,19 +118,19 @@ TEST(NormalizeStage, Mono12ScalesDeclaredRangeNotFrameRange) {
 
 Expected values use integer rounding defined as `(value * 65535 + sourceMax / 2) / sourceMax`; do not replace the assertion with a floating tolerance.
 
-- [ ] **Step 2: Verify stage is missing**
+- [x] **Step 2: Verify stage is missing**
 
 Build `lumora_processing_tests`; expect failure.
 
-- [ ] **Step 3: Implement row/stride-aware normalization**
+- [x] **Step 3: Implement row/stride-aware normalization**
 
 Support declared maxima 1 through 65535 with valid/storage consistency, including camera maxima for 8, 10, 12, and 16 bits. Reject any sample above `sampleMaximum` with `sample_exceeds_source_maximum`; diagnostics identify the first failing coordinate. No production path clamps the malformed sample silently.
 
-- [ ] **Step 4: Test non-contiguous rows and temporal stability**
+- [x] **Step 4: Test non-contiguous rows and temporal stability**
 
 Use padded input/output strides and two frames with different observed minima/maxima but the same sample at one coordinate; assert that coordinate produces the same normalized value.
 
-- [ ] **Step 5: Run and commit**
+- [x] **Step 5: Run and commit**
 
 Run: `ctest --preset linux-gcc-debug-sim --output-on-failure -R NormalizeStage`
 
