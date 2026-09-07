@@ -30,6 +30,19 @@ add_library(
 )
 add_library(lumora::core ALIAS lumora_core)
 
+add_library(
+  lumora_processing
+  STATIC
+  processing/include/lumora/processing/IFrameProcessor.hpp
+  processing/include/lumora/processing/Mono8PassThroughProcessor.hpp
+  processing/src/Mono8PassThroughProcessor.cpp
+)
+add_library(lumora::processing ALIAS lumora_processing)
+target_include_directories(lumora_processing PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/processing/include>)
+target_link_libraries(lumora_processing PUBLIC lumora::core)
+lumora_enable_warnings(lumora_processing)
+
 # The camera API deliberately has no Qt, SDK, or transport dependency.
 add_library(
   lumora_camera_api
@@ -62,11 +75,14 @@ add_library(
   application/src/CameraSessionStateMachine.cpp
   application/include/lumora/application/AcquisitionWorker.hpp
   application/src/AcquisitionWorker.cpp
+  application/include/lumora/application/ProcessingWorker.hpp
+  application/src/ProcessingWorker.cpp
 )
 add_library(lumora::application ALIAS lumora_application)
 target_include_directories(lumora_application PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/application/include>)
-target_link_libraries(lumora_application PUBLIC lumora::core lumora::camera_api)
+target_link_libraries(lumora_application PUBLIC
+  lumora::core lumora::camera_api lumora::processing)
 lumora_enable_warnings(lumora_application)
 
 # The generated simulator remains hardware- and UI-independent.
