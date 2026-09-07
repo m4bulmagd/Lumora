@@ -28,7 +28,8 @@ set_tests_properties(Application.StartupPreferences PROPERTIES TIMEOUT 60)
 add_executable(lumora_processing_tests
   unit/processing/Mono8PassThroughProcessorTests.cpp
   unit/processing/PipelineCompilerTests.cpp
-  unit/processing/ImageViewTests.cpp)
+  unit/processing/ImageViewTests.cpp
+  unit/processing/NormalizeStageTests.cpp)
 target_link_libraries(lumora_processing_tests PRIVATE
   lumora::processing GTest::gtest_main)
 lumora_enable_warnings(lumora_processing_tests)
@@ -303,3 +304,6 @@ set_tests_properties(Processing.PipelineCompiler PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.ImageView
   COMMAND lumora_processing_tests --gtest_filter=ImageView.*)
 set_tests_properties(Processing.ImageView PROPERTIES TIMEOUT 60)
+add_test(NAME Processing.NormalizeStage
+  COMMAND lumora_processing_tests --gtest_filter=NormalizeStage.*)
+set_tests_properties(Processing.NormalizeStage PROPERTIES TIMEOUT 60)

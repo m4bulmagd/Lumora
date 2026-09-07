@@ -39,7 +39,9 @@ add_library(
   processing/include/lumora/processing/PipelineCompiler.hpp
   processing/include/lumora/processing/IProcessingStage.hpp
   processing/include/lumora/processing/ImageView.hpp
+  processing/include/lumora/processing/NormalizeStage.hpp
   processing/src/ImageView.cpp
+  processing/src/NormalizeStage.cpp
   processing/src/PipelineCompiler.cpp
   processing/src/Mono8PassThroughProcessor.cpp
 )
