@@ -109,9 +109,12 @@ struct Fixture {
         auto value=context->bundleSlot.consumeAfter(0);
         return value ? value->value : nullptr;
     }
-    bool next() {
+    bool next(core::ManualClock* alternateCameraClock=nullptr) {
         auto previous=latest();
         clock.advance(34ms);
+        if(alternateCameraClock) {
+            alternateCameraClock->advance(clock.steadyNow()-alternateCameraClock->steadyNow());
+        }
         return wait([&]{auto value=latest();return value && (!previous || value->sourceFrameId()>previous->sourceFrameId())
             && value->raw->metadata.hostReceiptTime==clock.steadyNow();});
     }
@@ -433,10 +436,12 @@ TEST(LivePipeline, IndependentCameraProcessingAndPresentationStallsUseCompletedP
             return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::make_unique<StallProcessor>(pool,gate,stall));
         },request(),nullptr,boundary==0 ? &sourceClock : nullptr);
         ReleaseGate release{gate};ASSERT_TRUE(f.begin());
-        sourceClock.advance(34ms);ASSERT_TRUE(f.next());
+        ASSERT_TRUE(f.next(boundary==0 ? &sourceClock : nullptr));
         ASSERT_TRUE(f.wait([&]{auto frame=f.latest();return frame && frame->raw->metadata.hostReceiptTime==f.clock.steadyNow();}));
         ASSERT_TRUE(f.paint());
         auto contextual=f.controller.presenter()->presentedBundle();const auto paintedAt=f.clock.steadyNow();
+        ASSERT_TRUE(f.wait([&]{auto camera=f.pipeline.snapshot().camera;
+            return camera && camera->acquisitionCounters.acquired>=contextual->sourceFrameId();}));
         const auto acquired=f.pipeline.snapshot().camera->acquisitionCounters.acquired;
         if(boundary==1) {
             stall.store(true);f.clock.advance(34ms);ASSERT_TRUE(gate.wait());
@@ -454,8 +459,13 @@ TEST(LivePipeline, IndependentCameraProcessingAndPresentationStallsUseCompletedP
         if(boundary==0) EXPECT_EQ(f.pipeline.snapshot().camera->acquisitionCounters.acquired,acquired);
         else ASSERT_TRUE(f.wait([&]{return f.pipeline.snapshot().camera->acquisitionCounters.acquired>acquired;}));
         stall.store(false);gate.release();
-        if(boundary==0) sourceClock.advance(f.clock.steadyNow()-sourceClock.steadyNow()+34ms);
-        ASSERT_TRUE(f.next());ASSERT_TRUE(f.paint());
+        if(boundary==0) {
+            ASSERT_TRUE(f.next(&sourceClock));
+        } else {
+            ASSERT_TRUE(f.wait([&]{auto frame=f.latest();
+                return frame && frame->sourceFrameId()>contextual->sourceFrameId();}));
+        }
+        ASSERT_TRUE(f.paint());
         EXPECT_EQ(f.view.status().freshness,ui::FrameFreshness::Current);
         auto raw=f.pipeline.snapshot().context->rawPool;auto display=f.pipeline.snapshot().context->displayPool;
         contextual.reset();f.controller.shutdown();
@@ -536,7 +546,24 @@ TEST(LivePipeline, PipelineRetainsOldContextUntilReplacementBindingAcknowledgeme
     ASSERT_TRUE(f.pipeline.post({1,application::Connect{{"SIM-LIVE"}}}).hasValue());
     ASSERT_TRUE(waitUntil([&]{return f.pipeline.snapshot().ordinaryOutcome.has_value();}));
     ASSERT_TRUE(f.pipeline.post({2,application::Disconnect{}}).hasValue());
-    ASSERT_TRUE(waitUntil([&]{return f.pipeline.snapshot().priorityOutcome.has_value();}));
+    const auto disconnected=waitUntil([&]{return f.pipeline.snapshot().priorityOutcome.has_value();});
+    if(!disconnected) {
+        const auto stalled=f.pipeline.snapshot();
+        FAIL() << "cameraState=" << static_cast<int>(stalled.camera->state)
+            << " cameraOutcome=" << (stalled.camera->latestOutcome ? stalled.camera->latestOutcome->requestId : 0U)
+            << " cameraOutcomeError=" << (stalled.camera->latestOutcome && stalled.camera->latestOutcome->error
+                ? stalled.camera->latestOutcome->error->code : "none")
+            << " ordinaryOutcome=" << (stalled.ordinaryOutcome ? stalled.ordinaryOutcome->requestId : 0U)
+            << " ordinaryOutcomeError=" << (stalled.ordinaryOutcome && stalled.ordinaryOutcome->error
+                ? stalled.ordinaryOutcome->error->code : "none")
+            << " priorityOutcome=" << (stalled.priorityOutcome ? stalled.priorityOutcome->requestId : 0U)
+            << " priorityOutcomeError=" << (stalled.priorityOutcome && stalled.priorityOutcome->error
+                ? stalled.priorityOutcome->error->code : "none")
+            << " replacementRequired=" << stalled.camera->sourceReplacementRequired
+            << " contextBound=" << stalled.contextBound
+            << " contextGeneration=" << (stalled.context ? stalled.context->generation : 0U)
+            << " pipelineError=" << (stalled.error ? stalled.error->code : "none");
+    }
     ASSERT_TRUE(f.pipeline.post({3,application::Connect{{"SIM-LIVE"}}}).hasValue());
     ASSERT_TRUE(waitUntil([&]{return f.pipeline.snapshot().context->generation!=old->generation;}));
     old.reset();EXPECT_FALSE(retired.expired());
