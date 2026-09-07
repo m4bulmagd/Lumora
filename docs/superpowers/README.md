@@ -72,3 +72,7 @@ The owner subsequently approved [Task 3: frame processor and processing worker](
 ## M7 simulator continuation (2026-09-07)
 
 The [M7 execution record](../architecture/milestones/m07-preflight.md) records the owner-authorized simulator continuation while M4/M5 native Windows checks and M6 hardware work remain pending. Tasks 1–4 are implemented and reviewed, then merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8) as `d191097`: configuration validation, U16 normalization, window/level, terminal Gray8 mapping and the pooled live engine. Local and CI Linux Debug/Release each passed 41/41 checks; Windows/MSVC passed 40/40 per configuration at the exact PR head. The tests-OFF/Basler-OFF Release app and whole-branch review passed. Preceding deferred gates and separate acceptance remain open.
+
+## M8 Task 1 simulator continuation (2026-09-07)
+
+The owner approved the [bounded tone-stage continuation](../architecture/milestones/m08-tone-stages.md) after M7: U16 brightness/contrast, immutable cached gamma and inversion with exhaustive tests. Implementation `246a73a` passed independent task review, Linux Debug/Release 42/42 application checks and a tests-disabled Release build. Final review remains pending. Live activation/composition, cross-activation cache retention, remaining algorithms, whole-frame allocation and Windows performance evidence belong to later work; no milestone acceptance is claimed.
