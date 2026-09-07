@@ -10,7 +10,7 @@
 
 **Final review-fix source:** `3c59b11041cdef2750356bf07ecc7fb859c40576`
 
-**Status:** Implemented, independently reviewed and verified locally. Task review, final Standards/Spec reviews and scoped fix reviews have no open findings. Subsequently pushed by explicit authorization as [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) at `ccabaae`; not merged or accepted as a milestone.
+**Status:** Implemented, independently reviewed and verified on Linux and Windows. Task review, final Standards/Spec reviews and scoped fix reviews have no open findings. [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) at `ccabaae` was merged into `main` on 2026-09-07 as `2031848834c65a9915504e4409ce896069da25ce`. This is not full milestone acceptance.
 
 ## Scope and contracts
 
@@ -18,7 +18,7 @@ The owner approved Task 3 after the [merged Tasks 1–2 cross-platform checkpoin
 
 This task supplies the Qt-free frame processor port, minimal full-range Mono8-to-Gray8 pass-through processor, and separately owned newest-frame processing worker. Raw pixels and metadata remain immutable; display pixels use a separate pool lease. The worker consumes slot revisions, publishes matching bundles, records bounded error/drop facts, and stops/joins without detaching. A finite in-flight processor call finishes and its unpublished output is discarded on cancellation.
 
-No startup UI, saved preferences, production live composition, high-depth normalization, enhancement stages, clinical/patient features or dependency changes are included in this task. Tasks 4–5 own the remaining startup and visible live integration. The later push and M5 continuation authorization is recorded below; no merge is authorized. M7–M8 replace the temporary Mono8 processor through the same port.
+No startup UI, saved preferences, production live composition, high-depth normalization, enhancement stages, clinical/patient features or dependency changes are included in this task. Tasks 4–5 own the remaining startup and visible live integration. The later push, continuation and merge authorization is recorded below. M7–M8 replace the temporary Mono8 processor through the same port.
 
 ## Implemented boundary
 
@@ -87,8 +87,21 @@ The plan required counters/current errors without specifying an observation meth
 
 If the observation shape proves inadequate, revise this small API before Task 5/M11 consumes it. Incorrect aggregation would otherwise misstate dropped frames. This is a clarified integration contract, not new UI behavior or acceptance evidence.
 
-## Remaining gates
+## Publication and continuation history
 
-Matching Windows evidence for Task 3 remains pending in this record; the green `7295fb9` runs cover only Tasks 1–2. Before the authorized push at `ccabaae`, fresh full native-inclusive Linux runs passed 30/30 Debug (16.41 s) and 30/30 Release (13.63 s). PR #6 targets main at that exact Task 3 head. The owner explicitly requested continued M5 work without waiting for its CI, so startup controls/preferences and visible production live composition proceed on the separate `feat/m05-startup-and-integration` branch based on `ccabaae`. This is development authorization, not Windows verification, another push or a merge.
+At initial publication, matching Windows evidence for Task 3 was pending; the green `7295fb9` runs covered only Tasks 1–2. Before the authorized push at `ccabaae`, fresh full native-inclusive Linux runs passed 30/30 Debug (16.41 s) and 30/30 Release (13.63 s). PR #6 targeted main at that exact Task 3 head. The owner requested continued M5 work without waiting for its CI, so startup controls/preferences and production live composition proceeded on the separate `feat/m05-startup-and-integration` branch based on `ccabaae`. That earlier development authorization did not itself authorize another push or merge; the subsequent approval and evidence follow.
+
+## Merged cross-platform checkpoint (2026-09-07)
+
+The owner subsequently authorized merging the completed M5 work into `main`. The PR-event runs were inspected for exact head `ccabaae3bdff84c28e78be3de745cb3d30768cff` before merging:
+
+| Platform | Exact-head PR CI evidence |
+|---|---|
+| Linux GCC Debug and Release Simulator | [Run 34111147740](https://github.com/m4bulmagd/Lumora/actions/runs/34111147740) completed successfully at 10:26:46 UTC; Debug/Release configure, build, tests and native X11 steps passed. |
+| Windows MSVC Debug and Release Simulator | [Run 34111147739](https://github.com/m4bulmagd/Lumora/actions/runs/34111147739) completed successfully at 10:28:01 UTC; Debug/Release configure, build and tests passed. Optional manual stress steps were skipped, not passed. |
+
+PR #6 was merged at 14:52:45 UTC with an exact-head guard, producing `2031848834c65a9915504e4409ce896069da25ce`; local `main` was then fast-forwarded to the same commit. Tasks 4–5 are published separately in [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) and require their own exact-head cross-platform checks. Task 3's results do not verify that continuation.
+
+## Remaining gates
 
 The [M4 native Windows 11 deferral](m04-deferred-windows-validation.md) remains open. No M4/M5 acceptance, installer/hardware validation, performance guarantee or authorization for clinical use follows from this checkpoint.

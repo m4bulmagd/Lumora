@@ -10,7 +10,7 @@
 
 **Reviewed registration fix:** `5b4bff87fe0ca3ece179dbaf9afbebe9bc212d20`
 
-**Status:** Implemented and locally verified; the independent task review's blocking finding is resolved and scoped re-review is clear. The deferred test-isolation Minor was corrected in the final Tasks4–5 review fix `d113da9`, with scoped re-review clear. Windows and milestone acceptance remain pending.
+**Status:** Implemented and locally verified; the independent task review's blocking finding is resolved and scoped re-review is clear. The deferred test-isolation Minor was corrected in the final Tasks4–5 review fix `d113da9`, with scoped re-review clear. Published together with Task 5 in [PR #7](https://github.com/m4bulmagd/Lumora/pull/7); its [integration checkpoint](m05-live-integration.md#integration-verification-and-windows-compiler-correction-2026-09-07) records subsequent exact-source platform evidence. Native Windows 11 checks and full milestone acceptance remain pending.
 
 ## Scope and authorization
 

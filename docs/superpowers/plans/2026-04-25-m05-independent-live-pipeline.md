@@ -465,7 +465,7 @@ git commit -m "feat(app): connect independent live pipeline"
 
 ## Milestone 5 acceptance gate
 
-Tasks1–5 are implemented; [Task5's checkpoint](../../architecture/milestones/m05-live-integration.md) records its local source, review fixes and Linux evidence. Completed task steps do not pass the milestone gate below: matching Windows/native evidence and separately recorded acceptance remain required.
+Tasks1–5 are implemented; [Task5's checkpoint](../../architecture/milestones/m05-live-integration.md) records source, review fixes, compiler correction and platform evidence. [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) retains exact-head integration checks and merge status. Completed task steps or automated CI do not pass the milestone gate below: native Windows 11 evidence and separately recorded acceptance remain required.
 
 - [ ] Camera/device methods run on exactly one non-UI thread.
 - [ ] Slow processing/display causes categorized replacement, never queue growth.

@@ -14,11 +14,11 @@
 
 **Final reviewed implementation source:** `d113da90421b68de13507a609b76fe33e55f4b0a`
 
-**Status:** Implemented, independently Linux-verified and reviewed through `d113da9`. Task reviews, both task fix rounds, final Standards/Spec review fixes and the scoped final re-review are complete, with no open findings. Windows verification and full-M5 acceptance remain pending.
+**Status:** Implemented and reviewed through `d113da9`, with the subsequent compiler-only correction reviewed and verified at `5e1c1ec`. Task reviews, both task fix rounds, final Standards/Spec review fixes and scoped re-reviews have no open findings. Exact-source Linux/GCC and Windows/MSVC Debug/Release CI passed; native Windows 11 checks and full M5 acceptance remain pending.
 
 ## Scope and authorization
 
-The owner authorized continuing M5 locally without waiting for the Task 3 CI run. [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) remains the separate Task 3 checkpoint at `ccabaae`; this continuation does not change that PR or authorize another push or merge.
+The owner initially authorized continuing M5 locally without waiting for the Task 3 CI run. That continuation did not authorize a further push or merge. On 2026-09-07 the owner subsequently authorized merging the completed M5 work into `main`: [PR #6](https://github.com/m4bulmagd/Lumora/pull/6) was merged after exact-head Linux/Windows CI passed, and Tasks 4–5 were published separately in [PR #7](https://github.com/m4bulmagd/Lumora/pull/7). The continuation requires its own matching cross-platform checks before merge; milestone acceptance is separate.
 
 Task 5 connects the existing acquisition/processing workers, [startup preferences and panel](m05-startup-preferences.md), and paint-aware presenter through the [approved ownership and startup contract](m05-preflight.md). The normal application receives a synthetic MovingBar source: full-range Mono8, 640 x 480, 30 FPS, continuous RealTime pacing and seed `0x4C554D4F`. The application must not link the non-shipping M4 viewer harness. Basler hardware, high-depth processing, the full parameter editor and automatic recovery remain M6, M7, M9 and M12 respectively.
 
@@ -83,8 +83,31 @@ At unchanged `d113da9`, the controller independently passed **35/35 native-inclu
 
 The scoped final re-review confirmed all three unique findings addressed with no new breakage. Standards has zero open findings: translated warning bodies and the shared test-isolation concern are resolved. Spec has zero open findings: final capture of an unpolled successful confirmation and that same test concern are resolved. No second broad review or additional fix wave was used. These findings enforce existing requirements rather than changing startup consent or adding a new release capability.
 
-All continuation changes are committed locally on `feat/m05-startup-and-integration`; the Task3 branch/PR remains separate. The worktree and verification records are retained for the user's next integration decision. No additional push, merge, CI polling or milestone acceptance was performed.
+At the end of the local review, all continuation changes were committed on `feat/m05-startup-and-integration`; Task3's branch/PR remained separate. The worktree and verification records were retained for the user's next integration decision. No additional push, merge, CI polling or milestone acceptance was performed during that earlier review checkpoint. The subsequent authorized publication and cross-platform evidence are recorded below.
+
+## Integration verification and Windows compiler correction (2026-09-07)
+
+Before publication at `97b74977af42718ce0be3f451b67d930e4ffe157`, fresh local builds and the full native-inclusive commands above passed **35/35 Debug (22.24 s)** and **35/35 Release (17.86 s)**. PR #7 then ran its own Linux/Windows CI. The initial [Linux PR run](https://github.com/m4bulmagd/Lumora/actions/runs/34135725607) passed; the [Windows PR run](https://github.com/m4bulmagd/Lumora/actions/runs/34135725644) and independent push run failed while compiling `LivePipeline.cpp`, before runtime tests.
+
+MSVC `/W4 /WX` reported C4456/C2220: the ordinary `command` local inside the `else` branch shadowed the priority `command` declared in the enclosing `if` initializer. The existing Linux warning set did not enable that diagnostic. A focused compile of the actual source with `-Wshadow -Werror` reproduced the same two declaration locations and exit 1. Because the diagnostic identified one precise declaration collision, no speculative multi-cause search or runtime-behavior regression was substituted for the compiler reproduction.
+
+Fix `5e1c1ecc73d5a0ce0774fd81d532413fa7ced458` renames only the priority local and its use to `priorityCommand`. It changes no control flow, public API, runtime policy, dependency or warning flags. The exact same focused command then passed:
+
+```bash
+g++ -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -Wshadow -fsyntax-only -Isrc/application/include -Isrc/camera/api/include -Isrc/core/include -Isrc/processing/include -Iout/build/linux-gcc-debug-sim/src/generated src/application/src/LivePipeline.cpp
+```
+
+Full local native-inclusive Debug and Release builds/tests at this fix passed **35/35 (22.39 s)** and **35/35 (17.84 s)** respectively. Separate tests-OFF/Basler-OFF production Debug and Release app rebuilds also passed. Independent scoped review of `97b7497..5e1c1ec` found no Critical, Important or Minor issues: both declaration and sole use were changed, with unchanged name resolution, lifetimes, moves, locking and cancellation. This is compiler RED/GREEN and unchanged-behavior regression evidence, not a new behavioral TDD claim. The existing Windows build remains the permanent regression gate; no test or warning was disabled. The initial failed runs remain historical evidence.
+
+The following PR-event runs both report exact head `5e1c1ecc73d5a0ce0774fd81d532413fa7ced458`, completed successfully, and retain successful configure/build/test steps:
+
+| Platform | Exact-source CI evidence |
+|---|---|
+| Linux, GCC 13.3.0 | [Run 34136247078](https://github.com/m4bulmagd/Lumora/actions/runs/34136247078): Debug **34/34 (21.45 s)** plus native X11 **1/1 (0.16 s)**; Release **34/34 (17.15 s)** plus native X11 **1/1 (0.04 s)**. Completed at 15:07:24 UTC. |
+| Windows, MSVC 19.44.35228.0 | [Run 34136247037](https://github.com/m4bulmagd/Lumora/actions/runs/34136247037): Debug **34/34 (29.85 s)** and Release **34/34 (20.76 s)**. Completed at 15:09:29 UTC. Optional ten-minute stress steps were skipped, not passed. |
+
+Linux's 35 local entries include its native desktop test; Windows has 34 standard entries and no Linux desktop entry. Neither difference indicates a missing standard suite. The documentation follow-up changes no source, tests, CMake, dependency or workflow files. [PR #7](https://github.com/m4bulmagd/Lumora/pull/7) retains the final documentation head's separate checks and merge event; those checks must pass before merging rather than borrowing success from this earlier source head.
 
 ## Remaining platform and acceptance gates
 
-Matching Windows/MSVC Debug/Release CI and affected native UI checks remain required. The [deferred M4 Windows 11 visual/DPI gate](m04-deferred-windows-validation.md) is still open. Linux Xvfb paint/window checks do not establish physical-monitor appearance, Windows scaling, installer or hardware acceptance. Final persistence can wait for filesystem I/O; the camera's controlled stop budget is not a whole-application-exit guarantee. Full M5 acceptance must be recorded separately after all required evidence exists.
+Matching Windows/MSVC Debug/Release CI is verified above; affected native Windows UI checks remain required. The [deferred M4 Windows 11 visual/DPI gate](m04-deferred-windows-validation.md) is still open. Linux Xvfb paint/window checks and hosted Windows CI do not establish physical-monitor appearance, Windows scaling, installer or hardware acceptance. Final persistence can wait for filesystem I/O; the camera's controlled stop budget is not a whole-application-exit guarantee. Full M5 acceptance must be recorded separately after all required evidence exists.
