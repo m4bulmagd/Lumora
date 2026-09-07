@@ -6,7 +6,7 @@
 
 **Review-fix source:** `1dc19e65381a87fa6660f82fed0a593d9de4a9cb`
 
-**Status:** Implemented, verified and task-reviewed locally; final Standards/Spec review pending. Windows CI and full M5 acceptance pending. Not a milestone acceptance record.
+**Status:** Implemented, verified and reviewed locally; task review and final Standards/Spec review are clear. Windows CI and full M5 acceptance pending. Not a milestone acceptance record.
 
 The [M5 plan](../../superpowers/plans/2026-04-25-m05-independent-live-pipeline.md) and [preflight contracts](m05-preflight.md) define this task. Development continues under the [M4 Windows 11 manual-validation deferral](m04-deferred-windows-validation.md); those checks remain pending, not passed. Nothing was pushed or merged for this checkpoint.
 
@@ -70,6 +70,8 @@ At exact fix source `1dc19e6`, the controller rebuilt and reran the full command
 
 Independent scoped re-review verified both findings addressed and no new Critical/Important breakage. It structurally checked the final-Start deferral and confirmed priority results are published last. A duplicate-ID concern was withdrawn after checking the pre-existing public rule: request IDs must not be reused while an earlier completion can still arrive. Under that supported-input contract, completing interrupted Start cannot clear the distinct deferred Stop/Disconnect barrier. Task review has no open findings; the narrow-path test limitation remains recorded above.
 
+Final independent checkpoint review examined the complete `f0bd99d...4ce17fd` change, including implementation, fixes and documentation. **Standards: PASS, zero findings or optional concerns. Spec: PASS, zero findings.** Both reviews preserve the explicit process/test-evidence limitations and later-task boundaries; neither treats Linux evidence as Windows or milestone acceptance. No source/build/test change followed the independently verified `1dc19e6` code.
+
 ## Contract decisions and integration costs
 
 1. Add latest discovery/acquisition facts, a validated initial-state factory, and priority-only/closed mailbox reads. These make the required worker behavior observable without extra command history. If their shape proves inadequate, revise these small interfaces before the UI/session owner consumes them.
@@ -80,6 +82,6 @@ Independent scoped re-review verified both findings addressed and no new Critica
 
 ## Remaining gates
 
-Final Standards/Spec review is pending. Matching Windows/MSVC CI has not run for this source. Native Windows 11 checks remain deferred; neither M4 nor M5 is fully accepted. No installer, hardware, throughput/latency, long-duration soak or clinical validation is supplied by these tests.
+Matching Windows/MSVC CI has not run for this source. Native Windows 11 checks remain deferred; neither M4 nor M5 is fully accepted. No installer, hardware, throughput/latency, long-duration soak or clinical validation is supplied by these tests.
 
 The next planned implementation step is **M5 Task 3: frame processor port and processing worker**.
