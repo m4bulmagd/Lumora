@@ -44,6 +44,7 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
     auto* cameras = new QComboBox(this);
     cameras->setObjectName(QStringLiteral("cameraSelectionCombo"));
     cameras->setAccessibleName(tr("Camera selection"));
+    cameras->setPlaceholderText(tr("Select a camera"));
     cameras->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     cameras->setMinimumContentsLength(10);
     layout->addWidget(cameras);
@@ -160,14 +161,27 @@ void CameraStartupPanel::updatePresentation() {
             : tr("Not available"));
 
     auto* cameras = findChild<QComboBox*>(QStringLiteral("cameraSelectionCombo"));
-    cameras->clear();
+    QStringList labels;
+    QStringList identities;
     if (status) {
         for (const auto& descriptor : status->discoveredDescriptors) {
             const auto display = tr("%1 %2 — %3")
                 .arg(QString::fromStdString(descriptor.identity.manufacturer),
                     QString::fromStdString(descriptor.identity.model),
                     QString::fromStdString(descriptor.identity.serial));
-            cameras->addItem(display, QString::fromStdString(descriptor.id.value));
+            labels.push_back(display);
+            identities.push_back(QString::fromStdString(descriptor.id.value));
+        }
+    }
+    bool discoveryChanged = cameras->count() != labels.size();
+    for (int index = 0; !discoveryChanged && index < cameras->count(); ++index) {
+        discoveryChanged = cameras->itemText(index) != labels.at(index)
+            || cameras->itemData(index).toString() != identities.at(index);
+    }
+    if (discoveryChanged) {
+        cameras->clear();
+        for (qsizetype index = 0; index < labels.size(); ++index) {
+            cameras->addItem(labels.at(index), identities.at(index));
         }
     }
     if (presentation_.selectedCameraId) {
@@ -179,6 +193,8 @@ void CameraStartupPanel::updatePresentation() {
                 break;
             }
         }
+    } else {
+        cameras->setCurrentIndex(-1);
     }
 
     const auto cameraState = status ? status->state
@@ -228,8 +244,7 @@ void CameraStartupPanel::updatePresentation() {
     cameras->setEnabled(ordinaryEnabled);
     findChild<QPushButton*>(QStringLiteral("refreshCameraButton"))
         ->setEnabled(ordinaryEnabled
-            && (cameraState == application::CameraSessionState::Disconnected
-                || cameraState == application::CameraSessionState::Error));
+            && cameraState == application::CameraSessionState::Disconnected);
     findChild<QPushButton*>(QStringLiteral("connectCameraButton"))
         ->setEnabled(ordinaryEnabled && selectedAvailable
             && (cameraState == application::CameraSessionState::Disconnected
@@ -247,12 +262,12 @@ void CameraStartupPanel::updatePresentation() {
         ->setEnabled(globallyEnabled
             && cameraState == application::CameraSessionState::Streaming);
     findChild<QPushButton*>(QStringLiteral("disconnectCameraButton"))
-        ->setEnabled(globallyEnabled && status
-            && cameraState != application::CameraSessionState::Disconnected
-            && cameraState != application::CameraSessionState::Discovering
-            && cameraState != application::CameraSessionState::ShuttingDown);
+        ->setEnabled(globallyEnabled
+            && cameraState != application::CameraSessionState::ShuttingDown
+            && (presentation_.ordinaryOperationPending
+                || (status && cameraState != application::CameraSessionState::Disconnected)));
     findChild<QPushButton*>(QStringLiteral("retryCameraButton"))
-        ->setEnabled(ordinaryEnabled && status
+        ->setEnabled(ordinaryEnabled && status && status->desiredIdentity
             && (cameraState == application::CameraSessionState::Error
                 || cameraState == application::CameraSessionState::Reconnecting));
     auto* resumeLive = findChild<QPushButton*>(QStringLiteral("resumeLiveButton"));

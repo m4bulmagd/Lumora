@@ -168,6 +168,7 @@ TEST(CameraStartupPanel, ControlsEmitIntentsWithoutOptimisticStateChanges) {
 
     auto failed = std::make_shared<application::CameraStatusSnapshot>();
     failed->state = application::CameraSessionState::Error;
+    failed->desiredIdentity = camera::CameraId{"camera-1"};
     presentation.cameraStatus = failed;
     panel.setPresentation(presentation);
     panel.findChild<QPushButton*>(QStringLiteral("retryCameraButton"))->click();

@@ -80,6 +80,8 @@ add_library(
   application/src/ProcessingWorker.cpp
   application/include/lumora/application/StartupPreferences.hpp
   application/src/StartupPreferences.cpp
+  application/include/lumora/application/LivePipeline.hpp
+  application/src/LivePipeline.cpp
 )
 add_library(lumora::application ALIAS lumora_application)
 target_include_directories(lumora_application PUBLIC
@@ -188,6 +190,8 @@ add_library(
   ui/include/lumora/ui/WorkstationView.hpp
   ui/src/ImageViewport.cpp
   ui/src/CameraStartupPanel.cpp
+  ui/include/lumora/ui/WorkstationController.hpp
+  ui/src/WorkstationController.cpp
   ui/src/FramePresenter.cpp
   ui/src/MainWindow.cpp
   ui/src/ViewportTransform.cpp
@@ -204,16 +208,20 @@ target_include_directories(
 )
 
 target_link_libraries(lumora_ui PUBLIC lumora::application lumora::core Qt6::Widgets)
+target_link_libraries(lumora_ui PRIVATE lumora::configuration)
 target_compile_definitions(lumora_ui PUBLIC LUMORA_RELEASE_CLASS_EVALUATION=1)
 set_target_properties(lumora_ui PROPERTIES AUTOMOC ON AUTORCC ON AUTOUIC ON)
 lumora_enable_warnings(lumora_ui)
 
-add_executable(lumora_app app/main.cpp)
+add_executable(lumora_app app/main.cpp app/SimulatorComposition.hpp app/SimulatorComposition.cpp)
 target_link_libraries(
   lumora_app
   PRIVATE
     lumora::diagnostics
     lumora::ui
+    lumora::application
+    lumora::camera_simulator
+    lumora::configuration
 )
 lumora_enable_warnings(lumora_app)
 

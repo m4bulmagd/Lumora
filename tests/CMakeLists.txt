@@ -38,6 +38,7 @@ add_executable(
   lumora_ui_tests
   support/QtTestMain.cpp
   unit/ui/CameraStartupPanelTests.cpp
+  unit/ui/WorkstationControllerTests.cpp
   unit/ui/FramePresenterTests.cpp
   unit/ui/ImageViewportTests.cpp
   unit/ui/MainWindowSmokeTests.cpp
@@ -84,11 +85,12 @@ add_test(
   NAME CameraStartupPanel
   COMMAND lumora_ui_tests --gtest_filter=CameraStartupPanel.*
 )
+add_test(NAME WorkstationController COMMAND lumora_ui_tests --gtest_filter=WorkstationController.*)
 # Surface stalled Qt startup promptly on unattended CI runners.
 # Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
 # does not make the installed Qt platform plugins discoverable by itself.
 set_tests_properties(
-  MainWindowSmoke ViewportTransform ImageViewport WorkstationView FramePresenter CameraStartupPanel
+  MainWindowSmoke ViewportTransform ImageViewport WorkstationView FramePresenter CameraStartupPanel WorkstationController
   PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
@@ -98,18 +100,24 @@ add_executable(
   lumora_integration_tests
   support/QtTestMain.cpp
   integration/SimulatedViewerTests.cpp
+  integration/LivePipelineTests.cpp
+  "${PROJECT_SOURCE_DIR}/src/app/SimulatorComposition.cpp"
 )
 target_include_directories(
   lumora_integration_tests
   PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/support"
     "${PROJECT_SOURCE_DIR}/tools/viewer-harness"
+    "${PROJECT_SOURCE_DIR}/src/app"
 )
 target_link_libraries(
   lumora_integration_tests
-  PRIVATE lumora::ui lumora_viewer_harness_support Qt6::Widgets GTest::gtest
+  PRIVATE lumora::ui lumora::configuration lumora::camera_simulator lumora_viewer_harness_support Qt6::Widgets GTest::gtest
 )
 lumora_enable_warnings(lumora_integration_tests)
+add_test(NAME LivePipeline COMMAND lumora_integration_tests --gtest_filter=LivePipeline.*)
+set_tests_properties(LivePipeline PROPERTIES TIMEOUT 180
+  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
 
 add_test(
   NAME SimulatedViewer
