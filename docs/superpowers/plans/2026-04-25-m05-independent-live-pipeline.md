@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. The user authorized Task 1 development while native Windows 11 manual checks remain pending; this is not M4/M5 acceptance or authorization to push. Task 1 is implemented locally at `51cdc04`; see its [execution evidence](../../architecture/milestones/m05-camera-state-mailbox.md). Tasks 2–5 remain later work.
+**Execution authorization (2026-09-07):** Read the [M5 preflight contracts](../../architecture/milestones/m05-preflight.md) and [scoped M4 deferral](../../architecture/milestones/m04-deferred-windows-validation.md) before execution. Windows stress and matching cross-platform CI passed at `6c054a7`. The user authorized Task 1 and subsequently Task 2 development while native Windows 11 manual checks remain pending; this is not M4/M5 acceptance or authorization to push. Task 1 is implemented and reviewed locally; see its [execution evidence](../../architecture/milestones/m05-camera-state-mailbox.md). Task 2 is implemented locally; its [checkpoint](../../architecture/milestones/m05-acquisition-worker.md) records verification and review status. Tasks 3–5 remain later work.
 
 ## Global Constraints
 
@@ -138,6 +138,13 @@ git commit -m "feat(app): add camera state machine and command mailbox"
 - Create: `src/application/include/lumora/application/AcquisitionWorker.hpp`
 - Create: `src/application/src/AcquisitionWorker.cpp`
 - Create: `tests/unit/application/AcquisitionWorkerTests.cpp`
+- Modify: `src/application/include/lumora/application/ApplicationState.hpp`
+- Modify: `src/application/include/lumora/application/CameraSessionStateMachine.hpp`
+- Modify: `src/application/src/CameraSessionStateMachine.cpp`
+- Modify: `src/application/include/lumora/application/CameraCommandMailbox.hpp`
+- Modify: `src/application/src/CameraCommandMailbox.cpp`
+- Modify: `tests/unit/application/CameraSessionStateMachineTests.cpp`
+- Modify: `tests/unit/application/CameraCommandMailboxTests.cpp`
 - Modify: `src/CMakeLists.txt`
 - Modify: `tests/CMakeLists.txt`
 
@@ -145,7 +152,9 @@ git commit -m "feat(app): add camera state machine and command mailbox"
 - Consumes: `ICameraProvider`, `CameraCommandMailbox`, raw `BufferPool`, `LatestValueSlot<RawFrame>`, `IClock`, and a latest `CameraStatusSnapshot` slot.
 - Produces: start/join lifecycle, command execution, bounded 250 ms retrieval, raw publication, and categorized acquisition counters.
 
-- [ ] **Step 1: Write failing ownership and stale-replacement tests**
+Task 2's consumer-driven interface clarifications are in the preflight: latest discovery/acquisition status, validated initial-state construction, priority-only mailbox checks/close observation, and explicit fresh-context replacement. Retry on a fresh Reconnecting worker opens the retained identity once to idle; the Task 5 owner retires an old context before forwarding an action that creates a replacement device. The first successful Apply fixes this worker's mode; composition selects that initial mode and matching pools.
+
+- [x] **Step 1: Write failing ownership and stale-replacement tests**
 
 ```cpp
 TEST(AcquisitionWorker, AllDeviceCallsOccurOnWorkerThread) {
@@ -162,7 +171,7 @@ TEST(AcquisitionWorker, AllDeviceCallsOccurOnWorkerThread) {
 
 `AcquisitionFixture` owns the recorder, provider, clock, raw pool, mailbox, raw/status slots, and worker in dependency order; its destructor requests stop and joins before dependencies die. Its provider creates a **closed** fake on the worker, and recording covers provider discovery/create plus device construction, every method, and destruction. `connectApplyConfirmAndStart()` posts the full explicit command sequence and awaits each successful status; `waitForAcquiredCount(n)` awaits the counter with a bounded condition-variable watchdog. Both return bool for fatal assertions; no sleep or hidden UI-thread device setup.
 
-- [ ] **Step 2: Register and run the failing worker suite**
+- [x] **Step 2: Register and run the failing worker suite**
 
 Append the worker source and test to the existing application targets and register `Application.AcquisitionWorker`; reconfigure/build, then run:
 
@@ -172,7 +181,7 @@ ctest --preset linux-gcc-debug-sim --no-tests=error --output-on-failure -R '^App
 
 Expected: the ownership, admission, or publication assertion fails before behavior is implemented.
 
-- [ ] **Step 3: Implement worker loop and command execution**
+- [x] **Step 3: Implement worker loop and command execution**
 
 ```cpp
 class AcquisitionWorker final {
@@ -195,15 +204,15 @@ The constructor borrows dependencies; it creates no device and performs no camer
 
 While idle use mailbox `waitPop(stopToken)`; while streaming use `tryPop()` with the bounded priority-first batch, then `retrieve(250ms, rawPool, stopToken)`. Recheck stop/priority before retrieval and before Start. Publish successful validated frames, release failures immediately, and never sleep while holding a device result or pool lock. Check cancellation before publication even if retrieval returned a frame. Catch worker exceptions into typed errors, clean up on the owning thread, and report failed cleanup honestly.
 
-- [ ] **Step 4: Handle pool exhaustion and replacement explicitly**
+- [x] **Step 4: Handle pool exhaustion and replacement explicitly**
 
 If the camera returns `ResourceExhaustion`, increment `droppedNoRawBuffer`. If raw publication replaces an unconsumed frame, increment `droppedBeforeProcessing`. Neither case changes camera state.
 
-- [ ] **Step 5: Test start/stop/disconnect/shutdown paths**
+- [x] **Step 5: Test start/stop/disconnect/shutdown paths**
 
 Use scripted simulator/fakes to cover commands while idle/streaming, timeout counts 1/2/3 and valid-frame reset, malformed frames, pool exhaustion, settings rejection, removal, manual Retry, Disconnect, full-mailbox priority, confirmation guards, and shutdown during retrieve. Assert acquisition stop/join during cancellable retrieval completes within 250 ms + 250 ms scheduling allowance; this is not a bound on arbitrary driver or filesystem calls. Rerun the focused suite at green and confirm every case is registered.
 
-- [ ] **Step 6: Commit acquisition worker**
+- [x] **Step 6: Commit acquisition worker**
 
 ```powershell
 git add src/application tests/unit/application/AcquisitionWorkerTests.cpp src/CMakeLists.txt tests/CMakeLists.txt

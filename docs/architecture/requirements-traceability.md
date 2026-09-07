@@ -89,7 +89,7 @@ M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with pas
 | `CMake.StressEvidence` | CTest stress-only selection, successful-output retention, failure/missing-test propagation, and preservation of previous evidence | Fast infrastructure fixture check; not a 600-second stress or hosted Windows result |
 | Native Linux checks and tests-disabled build | XCB exposure, synthetic render inspection, harness excluded from normal app links and install scope | Local-only engineering evidence; not physical-display or Windows validation |
 
-The [M3 record](milestones/m03-camera-api-simulator.md) retains every M3 acceptance criterion. The [M4 record](milestones/m04-preflight.md) separates completed automated verification from deferred native Windows 11 validation. M5 Task 1 development is authorized under the scoped exception; later M5 tasks and M6–M14 remain planned; production live composition, Windows installer validation (M13), and hardware acceptance (M14) are not supplied by the test harness.
+The [M3 record](milestones/m03-camera-api-simulator.md) retains every M3 acceptance criterion. The [M4 record](milestones/m04-preflight.md) separates completed automated verification from deferred native Windows 11 validation. M5 Task 1 is implemented locally, and subsequent Task 2 development is authorized under the scoped exception. Tasks 3–5 and M6–M14 remain planned; production live composition, Windows installer validation (M13), and hardware acceptance (M14) are not supplied by the test harness.
 
 ## Milestone 5 Task 1 verification map (local only)
 
@@ -100,5 +100,15 @@ The [M3 record](milestones/m03-camera-api-simulator.md) retains every M3 accepta
 | Build/registration | Qt-free application linkage, explicit suites/watchdogs, tests-OFF/Basler-OFF application and state library build | Full Linux 27/27 Debug and Release; Windows CI for new source pending |
 
 See the [Task 1 checkpoint](milestones/m05-camera-state-mailbox.md) for source, commands, independent review, counts and limitations. M5 Tasks 2–5 and native checks are not passed by this partial implementation.
+
+## Milestone 5 Task 2 verification map (local only)
+
+| Test/check | Requirement covered | Evidence boundary |
+|---|---|---|
+| `Application.AcquisitionWorker` | Exclusive provider/device ownership; explicit configuration/confirmation/start; revision/session guards; latest-only raw publication; categorized failure/drop policy; single-attempt same-ID Retry; priority cleanup and direct cancellation | 28 tests at `1dc19e6`; Linux Debug/Release verified; the checkpoint records the narrow final-Start priority-path coverage limitation; production composition and source-context handoff remain Task 5 |
+| Extended state/mailbox suites | Validated device-free initial state, priority-only selection preserving ordinary FIFO, closed-mailbox observation | Five state and 23 mailbox cases; 56 total application tests passing locally |
+| Build/registration | Qt-free worker linkage, three explicit Application suites with 60-second watchdogs, tests-OFF/Basler-OFF library/application build | Full Linux 28/28 Debug and Release; Windows CI for this source pending |
+
+See the [Task 2 checkpoint](milestones/m05-acquisition-worker.md) for exact source, commands, process limitations, contract decisions and review status. Tasks 3–5, automatic recovery in M12, native Windows checks and full milestone acceptance remain outstanding.
 
 No row in this file represents clinical validation, regulatory evidence, or authorization for diagnostic use.

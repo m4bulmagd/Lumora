@@ -6,7 +6,7 @@
 
 ## Authorization and limits
 
-The project owner asked to defer the manual check and move on, then approved the proposal to record that deferral and start M5 Task 1. M5 development may therefore proceed while the M4 native Windows 11 visual/DPI checks remain **pending, not passed**. Current execution scope is the camera state machine and priority mailbox; no push is authorized by this decision.
+The project owner asked to defer the manual check and move on, then approved the proposal to record that deferral and start M5 Task 1. M5 development may therefore proceed while the M4 native Windows 11 visual/DPI checks remain **pending, not passed**. The initial execution scope was the camera state machine and priority mailbox; subsequent task approvals are recorded in the [M5 plan](../../superpowers/plans/2026-04-25-m05-independent-live-pipeline.md). No push is authorized by this deferral.
 
 This is a scoped exception to the normal M4-to-M5 entry order, not a general milestone waiver. Full M4 and M5 acceptance remain open until their evidence exists. Native Windows 11 validation must be completed before Windows release acceptance. Linux/GCC and matching Windows/MSVC CI, later UI checks, installer/upgrade, camera/NIC, performance, licensing/signing, and the separate future clinical-release program are unchanged. The software remains evaluation-only, with no real patient data or diagnostic-use authorization.
 
