@@ -1,8 +1,8 @@
-# M7 simulator development preflight
+# M7 simulator development and verification
 
 **Date:** 2026-09-07
 
-**Status:** Development continuation; not milestone acceptance.
+**Status:** Tasks 1–4 implemented and independently task-reviewed on `feat/m07-high-bit-depth`; local verification passed. Whole-branch review and milestone acceptance remain separate.
 
 ## Development sequence and authority
 
@@ -49,4 +49,49 @@ Window/level and terminal display mapping are committed in `0eeb0b3`. Independen
 
 Compile-ready placeholders first produced observable failures in both stage and mapper tests. After implementation, GCC 15.2.0 passed all six registered Processing CTest suites in Debug and Release at `0eeb0b3` (51 individual processing cases). No floating tolerance replaces the exact pixel assertions.
 
-These are local component results. Task 4, whole-branch review, complete final suites, Windows/MSVC and milestone acceptance remain pending.
+### Task 4 and complete local verification
+
+The pooled engine and live integration are committed in `aaf93f0cf90246529ff58cd1fa5acc8321b73e5d`. Independent task review approved spec compliance and quality with no findings. The production route now publishes immutable raw samples, canonical Enhanced U16, and paired Original/Enhanced Gray8 displays from one frame and one configuration snapshot. Enabled unavailable M8 stages cannot activate. Failed activation retains the previous configuration.
+
+The engine shares normalization and window/level work where both views need it. Its two U16 and two Gray8 workspace leases come from bounded pools; published buffers are sealed and replaced through those pools. Timings identify shared work or Original-only window/level explicitly. Pixel processing never falls back to heap image storage.
+
+LivePipeline uses one checked resource plan with 10 native raw, 9 U16 and 16 Gray8 buffers. It passes the prepared layout and both output pools to the processor factory, and the prepared camera mode to acquisition. The acquisition constructor keeps optional first-successful-Apply binding for standalone callers; production always supplies a prepared mode. Complete descriptor and ROI matching prevent drift from the prepared resources, while valid input padding and exposure/gain/FPS readback behavior remain supported.
+
+Shipping SIM-LIVE is now Mono12 in U16 at 640x480, configured for 30 FPS. The existing Original label has translated `Original (display mapped)` help explaining that raw samples stay unchanged. This is help on an existing label, not an M9 processing editor. A saved M5 Mono8 request differs from the fixed M7 request and correctly keeps startup disconnected until explicit selection, Connect, Apply/review, Confirm and Start.
+
+Nine engine tests first failed against compile-ready placeholders. Separate native-depth acquisition and live tests then failed against the old Mono8 behavior. During integration, two test assumptions were corrected: capability bounds had rejected ROI offsets before the prepared-mode guard, and a changed saved request correctly remained disconnected instead of probing automatically. Production validation and startup behavior were preserved. Final focused Debug/Release verification passed 148 cases in ten suites, including retained raw/U16/display bytes, configuration snapshots, all four bit depths, overflow, pool recovery, source replacement, and the existing 100-cycle/stall/shutdown tests.
+
+At source `aaf93f0`, with no uncommitted source or test changes:
+
+| Verification | Debug | Release |
+|---|---|---|
+| Complete headless CTest | 40/40, 22.87 s | 40/40, 17.98 s |
+| Native Linux XCB window smoke | 1/1, 0.16 s | 1/1, 0.07 s |
+| Total registered checks | 41/41 | 41/41 |
+| Tests-OFF/Basler-OFF application | — | Fresh configure and build passed |
+
+All builds used GCC 15.2.0 and the pinned dependency prefix recorded above. The production executable contains FrameProcessingEngine, with no pass-through processor symbol, test/harness target or test/pylon link dependency. Full build logs contain no warning/error diagnostics. An initial production configure supplied an unused desktop-test option; removing that irrelevant option produced the clean final configuration without a source change.
+
+Commands used from the feature worktree:
+
+```bash
+cmake --build --preset linux-gcc-debug-sim --parallel 3
+cmake --build --preset linux-gcc-release-sim --parallel 3
+ctest --preset linux-gcc-debug-sim --output-on-failure --no-tests=error -LE desktop
+ctest --preset linux-gcc-release-sim --output-on-failure --no-tests=error -LE desktop
+xvfb-run -a ctest --preset linux-gcc-debug-sim --output-on-failure --no-tests=error -L desktop
+xvfb-run -a ctest --preset linux-gcc-release-sim --output-on-failure --no-tests=error -L desktop
+cmake --fresh -S . -B out/build/m07-production -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++ \
+  -DCMAKE_PREFIX_PATH=/home/mo/code/Lumora/.worktrees/linux-desktop/out/vcpkg_installed/x64-linux-dynamic \
+  -DLUMORA_BUILD_TESTS=OFF -DLUMORA_ENABLE_BASLER=OFF -DLUMORA_BUILD_BENCHMARKS=OFF
+cmake --build out/build/m07-production --target lumora_app --parallel 3
+```
+
+Local execution logs, detailed task reports and the production link/symbol audit are retained in ignored `out/qa/m07-2026-09-07/`. Xvfb ran outside the execution sandbox because the unchanged baseline could not open its display sockets inside it. This verifies XCB window exposure, not physical-monitor appearance or Windows validation. Ten-minute stress and hardware/performance acceptance were not rerun.
+
+### Review and remaining gates
+
+All four independent task reviews are approved. Two minor coverage suggestions from Tasks 2–3 are carried to final review: direct destination-storage rejection for normalization, and direct degenerate-window/source-storage rejection checks for mapping. They are not known implementation failures. Whole-branch review is pending.
+
+The branch is not merged or pushed. Matching Windows/MSVC checks, deferred M4/M5 native Windows validation and acceptance, and M6 profile/hardware work remain pending. Linux results do not close any of those gates or accept M7. M8 enhancement algorithms and later UI, capture, performance and distribution work remain separate milestones.

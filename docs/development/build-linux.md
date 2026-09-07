@@ -84,7 +84,7 @@ cmake --build --preset linux-gcc-debug-sim --target run-lumora
 
 Use `linux-gcc-release-sim` for Release. This development-only target selects `xcb` and the matching Debug/Release Qt plugin directory for this process; it does not require a global Qt environment setting. It runs until you close the window. Launching the binary directly may require an explicit platform-plugin path with a vcpkg build.
 
-The M5 development application displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls disabled until a frame is actually presented. Its production composition supplies a synthetic 640x480 full-range Mono8 moving bar at 30 FPS; no physical camera or patient data is involved. See the [Task 5 checkpoint](../architecture/milestones/m05-live-integration.md) for current verification/review status. A successful launch does not establish milestone acceptance or clinical validation.
+The M7 development application displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls disabled until a frame is actually presented. Its production composition supplies a synthetic 640x480 Mono12 moving bar configured for 30 FPS. Raw samples use U16 storage; normalization and window/level remain U16 until the terminal Gray8 display mapper. See the [M7 execution record](../architecture/milestones/m07-preflight.md) for branch and verification status. No physical camera or patient data is involved. A successful launch does not establish milestone acceptance or clinical validation.
 
 For a first run:
 
@@ -96,7 +96,9 @@ For a first run:
 
 The viewer's **Pause / Live** button freezes/resumes the displayed image while acquisition continues. Camera **Stop** stops acquisition while retaining the connected device; **Start** can restart its still-confirmed settings. **Disconnect** closes the device and cancels pending startup/Resume intent. The last image can remain as context with the existing paused/stale indication. Explicit **Refresh** after Disconnect binds a fresh waiting source and clears that contextual image; it discovers cameras but does not reconnect. In Error, use Retry only when a desired camera identity is retained, or Disconnect then Refresh to restart discovery.
 
-Preferences are saved in the background after successful confirmation. On a later run, an unchanged saved simulator identity may connect idle for capability checks and offer **Resume Live**. That startup action still needs an explicit click and rechecks Apply/readback before streaming. Capability or actual-setting changes require review, Confirm and Start; a load/save warning is not durable confirmation. **Resume Live** is distinct from the viewer's **Live** button. No startup path silently streams.
+Preferences are saved in the background after successful confirmation. On a later run, matching saved identity and requested settings allow the application to connect idle for capability checks and potentially offer **Resume Live**. That startup action still needs an explicit click and rechecks Apply/readback before streaming. Capability or actual-setting changes require review, Confirm and Start; a load/save warning is not durable confirmation. **Resume Live** is distinct from the viewer's **Live** button. No startup path silently streams.
+
+Upgrading from the M5 Mono8 simulator to M7 Mono12 changes the reported capabilities. An older saved Mono8 request keeps startup disconnected: explicitly select **SIM-LIVE**, **Connect**, **Apply** and review, then **Confirm** and **Start**. It cannot authorize an unchanged-settings Resume. The separate M4 harness below still uses Mono8.
 
 The sidebar scrolls when needed, keeping the evaluation banner and viewer Pause/Live control outside the startup scroll area. Use a graphical session to assess actual appearance; the M4 harness below remains a separate non-shipping test tool.
 

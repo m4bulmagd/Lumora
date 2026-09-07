@@ -17,7 +17,7 @@ M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with pas
 | DES-7 | §7 Camera and viewer state machines | Simulator lifecycle, presenter and production startup/controller integration | M5 local and CI verification at `5e1c1ec` | M5 Debug/Release CI verified at `5e1c1ec` | Scheduled automatic recovery remains M12 |
 | DES-8 | §8 Threading model | Joined camera/processing/control workers, UI presenter and background preferences; no per-frame queued Qt signal | M5 composed ownership/stalls locally and CI tested | M5 composed suites verified at `5e1c1ec` | Review complete; full acceptance remains separate |
 | DES-9 | §9 Frame memory ownership and bounded buffering | Fixed production pools, capacity-one exchanges, acknowledged context replacement, final zero leases | M5 reviewed/local and CI verification | M5 Debug/Release CI verified at `5e1c1ec` | No full M5 or performance acceptance |
-| DES-10 | §10 Processing pipeline | Qt-free processor port and minimal full-range Mono8 Original pass-through | Task 3 local and CI verification | Task 3 verified at `ccabaae`, merged as `2031848` | High-depth mapping/enhancements remain M7–M8; no full pipeline acceptance |
+| DES-10 | §10 Processing pipeline | M5 processor port; M7 branch adds validated configuration, U16 mapping and paired pooled engine | M7 41/41 Debug/Release at `aaf93f0` | M5 verified; M7 pending | M7 task reviews passed; M8 algorithms and full acceptance remain pending |
 | DES-11 | §11 Rendering and workstation UI | M4 viewer plus production startup sidebar, explicit camera selection, translated warnings and synthetic live video | M5 controller/panel local and CI tests; native XCB QA passed | M5 CI verified at `5e1c1ec`; native Windows visual/DPI pending | M4 unaccepted; complete parameter editor M9 |
 | DES-12 | §12 Capture and future recording | M10 capture plan; recording requires its own approved specification | Not run | Not run | Planned/deferred |
 | DES-13 | §13 Configuration and presets | Schema2 migration, background preferences and explicit first/saved-run controller flow | Tasks4–5 reviewed, locally and CI verified | Tasks4–5 Debug/Release CI verified at `5e1c1ec` | Profiles/full editor M9; admission is not persistence |
@@ -153,14 +153,17 @@ See the [Task 4 checkpoint](milestones/m05-startup-preferences.md) for exact com
 
 See the [Task 5 checkpoint](milestones/m05-live-integration.md) for source, commands, TDD/characterization distinctions, review findings and remaining gates. None of these rows accepts the full M5 milestone.
 
-## Milestone 7 component verification map (development branch)
+## Milestone 7 verification map (development branch)
 
 | Test/check | Requirement covered | Evidence boundary |
 |---|---|---|
 | `Processing.PipelineCompiler`, `Processing.ImageView` | Fixed order, owned immutable configuration, complete parameter/domain validation, bounded borrowed views and alias checks | Reviewed Tasks 1–3 source through `0eeb0b3`; local Debug/Release only |
 | `Processing.NormalizeStage` | Exact declared-maximum scaling for native U8/U16, source immutability, temporal stability, padded/unaligned rows and malformed-sample diagnostics | Nine cases; deterministic integer arithmetic; mutation evidence distinguished from initial setup-only failure |
 | `Processing.WindowLevelStage`, `Processing.DisplayMapper` | Canonical U16 window/level, clipped endpoints, fractional settings, exhaustive independent reference comparisons and terminal Gray8 mapping | Fourteen cases; behavioral RED then Debug/Release GREEN; Windows exact-reference evidence pending |
+| `Processing.FrameProcessingEngine` | Paired source/revision, raw and retained output immutability, atomic activation, bounded workspace, failure recovery and Original semantics | Nine cases; reviewed `aaf93f0`; local Debug/Release |
+| Native-depth `LivePipeline` and prepared `AcquisitionWorker` cases | Real 8/10/12/16-bit simulator flow, checked 44/54-byte resource sizing, prepared descriptor/ROI enforcement, source replacement and explicit startup after saved-mode changes | Existing lifecycle/stall/100-cycle cases retained; 148 focused cases in ten suites pass |
+| Full builds and native smoke | All simulator tests, real XCB exposure, tests-OFF/Basler-OFF app and absence of test/harness/pass-through/pylon production linkage | Debug 40+1 and Release 40+1 passed at `aaf93f0`; fresh production build passed; Windows pending |
 
-The [M7 execution record](milestones/m07-preflight.md) retains commits, review status and test commands. Task 4 engine/live integration, whole-branch verification and milestone acceptance remain pending. M8 algorithms are not supplied by the configuration vocabulary.
+The [M7 execution record](milestones/m07-preflight.md) retains commits, task reviews, commands and evidence limitations. Whole-branch review and milestone acceptance remain pending. M8 algorithms are not supplied by the configuration vocabulary.
 
 No row in this file represents clinical validation, regulatory evidence, or authorization for diagnostic use.

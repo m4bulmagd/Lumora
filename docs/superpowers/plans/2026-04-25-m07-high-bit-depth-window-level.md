@@ -206,7 +206,7 @@ git commit -m "feat(processing): add U16 window level and display mapping"
 - Consumes: compiled pipeline, raw/processing/display pools, Normalize, WindowLevel, DisplayMapper, and `IFrameProcessor`.
 - Produces: `ProcessingPipeline::activate`, `FrameProcessingEngine::process`, atomic configuration revision, and paired Original/Enhanced bundles.
 
-- [ ] **Step 1: Write failing original-preservation and pairing tests**
+- [x] **Step 1: Write failing original-preservation and pairing tests**
 
 ```cpp
 TEST(FrameProcessingEngine, ProcessingCannotChangeRawSamples) {
@@ -219,27 +219,27 @@ TEST(FrameProcessingEngine, ProcessingCannotChangeRawSamples) {
 }
 ```
 
-- [ ] **Step 2: Verify engine is missing**
+- [x] **Step 2: Verify engine is missing**
 
 Build `lumora_processing_tests`; expect failure.
 
-- [ ] **Step 3: Implement preallocated workspace and pipeline swap**
+- [x] **Step 3: Implement preallocated workspace and pipeline swap**
 
 `ProcessingWorkspace` acquires two U16 leases for ping-pong execution and two Gray8 leases for Original/Enhanced evaluation display. Resolution changes require a stopped-state `prepare(layout)` call. `activate` compiles a complete fixed-order definition then swaps an immutable compiled pipeline under a short mutex/atomic shared pointer between frames.
 
-- [ ] **Step 4: Implement Original and Enhanced routes**
+- [x] **Step 4: Implement Original and Enhanced routes**
 
 Original executes Normalize, the configured WindowLevel, and DisplayMapper and is described as `Original (display mapped)`. Enhanced executes the full fixed-order enabled pipeline and DisplayMapper. Neither route mutates RawFrame; installation orientation is a shared presentation transform introduced in Milestone 8, not a processing stage.
 
-- [ ] **Step 5: Replace production pass-through processor**
+- [x] **Step 5: Replace production pass-through processor**
 
 Wire `FrameProcessingEngine` into `LivePipeline`. Retain the Mono8 pass-through only as a focused test fixture, not production composition.
 
-- [ ] **Step 6: Run integration tests at every valid bit depth**
+- [x] **Step 6: Run integration tests at every valid bit depth**
 
 Stream simulator frames at 8/10/12/16 valid bits, assert paired IDs, exact raw hashes, valid U8 displays, configuration revision changes only between frames, and pool counts return after shutdown.
 
-- [ ] **Step 7: Commit high-depth engine**
+- [x] **Step 7: Commit high-depth engine**
 
 ```powershell
 git add src/processing src/app/main.cpp tests/unit/processing/FrameProcessingEngineTests.cpp tests/integration
@@ -248,9 +248,11 @@ git commit -m "feat(processing): integrate immutable high-depth frame engine"
 
 ## Milestone 7 acceptance gate
 
-- [ ] Known 8/10/12/16-bit inputs produce exact canonical values.
-- [ ] Raw hashes remain unchanged through Original and Enhanced processing.
-- [ ] Window/level and display mappings pass exhaustive scalar comparison.
-- [ ] Original and Enhanced displays always share the raw frame ID.
-- [ ] No U8 conversion occurs before `DisplayMapper`.
+Local implementation evidence at `aaf93f0` covers the checked criteria below. This does not record milestone acceptance; matching Windows and preceding deferred gates remain open. See the [execution record](../../architecture/milestones/m07-preflight.md).
+
+- [x] Known 8/10/12/16-bit inputs produce exact canonical values.
+- [x] Raw hashes remain unchanged through Original and Enhanced processing.
+- [x] Window/level and display mappings pass exhaustive scalar comparison.
+- [x] Original and Enhanced displays always share the raw frame ID.
+- [x] No U8 conversion occurs before `DisplayMapper`.
 - [ ] Linux/GCC and Windows/MSVC produce exact normalization, window/level, and Gray8 mapping results; reordered definitions are rejected. Inversion execution and its cross-platform reference evidence belong to M8 with the other enhancement algorithms.
