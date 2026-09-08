@@ -122,6 +122,15 @@ core::Result<void> WindowLevelStage::process(
             "The clipped window endpoints must describe a positive interval.");
     }
 
+    if (lower == 0.0 && upper == 65535.0) {
+        for (std::uint32_t y = 0U; y < source.layout().height(); ++y) {
+            const auto sourceRow = source.row(y);
+            const auto destinationRow = destination.row(y);
+            std::memcpy(destinationRow.data(), sourceRow.data(), sourceRow.size());
+        }
+        return core::Result<void>::success();
+    }
+
     for (std::uint32_t y = 0U; y < source.layout().height(); ++y) {
         const auto sourceRow = source.row(y);
         const auto destinationRow = destination.row(y);
