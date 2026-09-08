@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-08
 
-**Status:** Standalone functional implementation `f5d6642` and test correction `88a9ad8` passed independent task review. Twelve CLAHE cases pass in Linux Debug/Release; full Linux application verification passed. Final branch review and matching Windows CI remain pending. M8 acceptance remains open.
+**Status:** Standalone functional implementation `f5d6642` and test correction `88a9ad8` passed independent task review. Twelve CLAHE cases pass in Linux Debug/Release; full Linux application verification passed. Final branch review passed; Linux/Windows CI is in progress on [PR #11](https://github.com/m4bulmagd/Lumora/pull/11). M8 acceptance remains open.
 
 ## Authority and scope
 
@@ -49,3 +49,9 @@ A fresh `out/build/m08-clahe-production` Release configuration with tests, bench
 The initial review identified a Windows warnings-as-errors risk in a Linux-only fixture helper and a missing test that isolated overlap in padding. Test-only correction `88a9ad8` guards the helper consistently and adds a 2x2 case with disjoint active rows but overlapping complete payloads, checking that rejection preserves every backing byte. It also narrows the A–B–A test comment to the behavior its assertions establish.
 
 Incremental Debug and Release processing-test builds passed after that correction, and all twelve `ClaheStage.*` cases passed (0.833 s and 0.178 s). The scoped review confirmed every finding addressed with no new issues. Production source was unchanged, so the full-application and fresh-production evidence above still applies. Reports and fix logs remain under `.superpowers/sdd/2026-04-25-m08-modular-enhancements/` and `out/qa/m08-task2/round1-fix-*`.
+
+## Final branch review and CI
+
+The independent final review of `d6f94e1..dd08b3f` approved the bounded standalone implementation with no Critical, Important or Minor findings, conditional on matching branch CI. It reviewed all fourteen changed files and the retained local evidence. Allocation, designated Windows references/tolerances, performance and live composition remain open.
+
+[PR #11](https://github.com/m4bulmagd/Lumora/pull/11) runs the Linux/GCC and Windows/MSVC Debug/Release simulator workflows. The initial [Linux run](https://github.com/m4bulmagd/Lumora/actions/runs/34173425084) failed compilation because GCC 13 flags two copied structured bindings in test loops under warnings-as-errors; local GCC 15 builds had passed. The correction binds those test pairs by const reference without changing test assertions, production behavior or warning policy. Final CI results and merge evidence are recorded in the pull request; a passing hosted job does not replace designated-workstation reference or native Windows 11 acceptance.

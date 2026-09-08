@@ -188,7 +188,7 @@ TEST(ClaheStage, FactoryAcceptsBoundariesAndRejectsInvalidConfiguration) {
         tightLayout(32U, 32U, StorageType::UInt8));
     ASSERT_FALSE(result.hasValue());
     EXPECT_EQ(result.error().code, "clahe_layout_storage_mismatch");
-    for (const auto [width, height] : {
+    for (const auto& [width, height] : {
              std::pair{7U, 8U}, std::pair{8U, 7U}}) {
         result = ClaheStage::create({2.0, 8U}, tightLayout(width, height));
         ASSERT_FALSE(result.hasValue());
@@ -297,7 +297,7 @@ TEST(ClaheStage, RejectsIncompatibleViewsAndEveryPayloadOverlapBeforeWriting) {
 
     const auto paddedLayout = ImageLayout::create(
         4U, 4U, 10U, StorageType::UInt16, 40U).value();
-    for (const auto [sourceOffset, destinationOffset] : {
+    for (const auto& [sourceOffset, destinationOffset] : {
              std::pair{8U, 8U}, std::pair{8U, 9U}, std::pair{8U, 16U}}) {
         std::array<std::byte, 96> shared{};
         shared.fill(std::byte{0x4B});

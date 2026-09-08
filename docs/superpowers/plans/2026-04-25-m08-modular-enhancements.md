@@ -130,7 +130,7 @@ Validate UInt16/CanonicalU16 domains, equal source/destination extents, prepared
 
 Test grids 2, 8 and 32; divisible/non-divisible dimensions including exactly one divisible axis; uniform 0/midrange/65535, full U16 dynamic range, invalid clip including NaN/infinity, grid boundaries, too-small preparation, overflow rejection, prepared-extent mismatch, storage/domain errors, full/partial/padding-only overlap, even padded and odd strides, unaligned starts, and A–B–A image reuse through one configured object. Every rejected process call preserves the destination. Compare the portable hand-calculated case exactly. Pinned OpenCV 4.12.0 reflects both axes whenever either is indivisible, including a full grid span on an already-divisible axis; preserve that behavior. Source metadata with fewer valid bits must not alter already canonical pixels.
 
-- [ ] **Step 5: Verify and review the bounded implementation**
+- [x] **Step 5: Verify and review the bounded implementation**
 
 Run the focused `ClaheStage.*` cases and all Processing CTest entries in Debug/Release, then root runs the complete application suites and tests-disabled build. Retain actual RED/GREEN commands, outputs and clean-build evidence. Do not claim zero allocations: pinned OpenCV allocates per tile and per apply even after cache warm-up. Do not claim Windows-reference acceptance from Linux fixtures. Independent task and whole-branch review must assess the code, reference provenance and explicitly pending gates.
 
