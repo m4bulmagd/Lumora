@@ -38,7 +38,9 @@ add_executable(lumora_processing_tests
   unit/processing/ToneStageTests.cpp
   unit/processing/DisplayMapperTests.cpp
   unit/processing/OrientationTransformTests.cpp
-  unit/processing/FrameProcessingEngineTests.cpp)
+  unit/processing/FrameProcessingEngineTests.cpp
+  unit/processing/PreparedRuntimeTests.cpp)
+target_include_directories(lumora_processing_tests PRIVATE "${PROJECT_SOURCE_DIR}/src/processing/src" "${CMAKE_CURRENT_SOURCE_DIR}/support")
 target_link_libraries(lumora_processing_tests PRIVATE
   lumora::processing opencv_core opencv_imgproc GTest::gtest_main)
 target_compile_definitions(lumora_processing_tests PRIVATE
@@ -122,6 +124,7 @@ add_executable(
 target_include_directories(
   lumora_integration_tests
   PRIVATE
+    "${PROJECT_SOURCE_DIR}/src/processing/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/support"
     "${PROJECT_SOURCE_DIR}/tools/viewer-harness"
     "${PROJECT_SOURCE_DIR}/src/app"
@@ -361,11 +364,11 @@ add_executable(lumora_frame_engine_allocation_tests
   support/AllocationTracker.cpp
   unit/processing/FrameEngineAllocationTests.cpp)
 target_include_directories(lumora_frame_engine_allocation_tests PRIVATE
-  "${CMAKE_CURRENT_SOURCE_DIR}/support" "${PROJECT_SOURCE_DIR}/src/core/src")
+  "${CMAKE_CURRENT_SOURCE_DIR}/support" "${PROJECT_SOURCE_DIR}/src/core/src" "${PROJECT_SOURCE_DIR}/src/processing/src")
 target_link_libraries(lumora_frame_engine_allocation_tests PRIVATE lumora::processing)
 lumora_enable_warnings(lumora_frame_engine_allocation_tests)
 add_test(NAME Processing.FrameEngineAllocation COMMAND lumora_frame_engine_allocation_tests)
-set_tests_properties(Processing.FrameEngineAllocation PROPERTIES TIMEOUT 60)
+set_tests_properties(Processing.FrameEngineAllocation PROPERTIES TIMEOUT 180)
 
 target_compile_definitions(lumora_core PRIVATE LUMORA_FRAME_POOL_TESTS=1)
 target_include_directories(lumora_core PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")

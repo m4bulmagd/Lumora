@@ -46,23 +46,22 @@ public:
           blockStride_(blockStride),
           storage_(static_cast<std::byte*>(::operator new(
               totalBytes, std::align_val_t{alignof(std::max_align_t)}))),
-          sealedReferences_(std::make_unique<std::atomic_size_t[]>(capacity)) {
-        freeBlocks_.reserve(capacity_);
+          sealedReferences_(std::make_unique<std::atomic_size_t[]>(capacity)),
+          freeBlocks_(std::make_unique<std::size_t[]>(capacity)), freeCount_(capacity) {
         for (std::size_t index = 0U; index < capacity_; ++index) {
-            freeBlocks_.push_back(capacity_ - index - 1U);
+            freeBlocks_[index] = capacity_ - index - 1U;
             sealedReferences_[index].store(0U, std::memory_order_relaxed);
         }
     }
 
     [[nodiscard]] std::optional<std::size_t> tryAcquire() noexcept {
         std::lock_guard lock(mutex_);
-        if (freeBlocks_.empty()) {
+        if (freeCount_ == 0U) {
             ++acquisitionFailures_;
             return std::nullopt;
         }
 
-        const auto blockIndex = freeBlocks_.back();
-        freeBlocks_.pop_back();
+        const auto blockIndex = freeBlocks_[--freeCount_];
         ++inUse_;
         highWaterMark_ = std::max(highWaterMark_, inUse_);
         return blockIndex;
@@ -114,7 +113,7 @@ public:
             capacity_,
             bytesPerBuffer_,
             inUse_,
-            freeBlocks_.size(),
+            freeCount_,
             highWaterMark_,
             acquisitionFailures_,
         };
@@ -124,9 +123,9 @@ private:
     void releaseBlock(std::size_t blockIndex) noexcept {
         std::lock_guard lock(mutex_);
         assert(inUse_ > 0U);
-        assert(freeBlocks_.size() < capacity_);
+        assert(freeCount_ < capacity_);
         --inUse_;
-        freeBlocks_.push_back(blockIndex);
+        freeBlocks_[freeCount_++] = blockIndex;
     }
 
     const std::size_t capacity_;
@@ -141,7 +140,8 @@ private:
     std::unique_ptr<std::byte, AlignedDelete> storage_;
     std::unique_ptr<std::atomic_size_t[]> sealedReferences_;
     mutable std::mutex mutex_;
-    std::vector<std::size_t> freeBlocks_;
+    std::unique_ptr<std::size_t[]> freeBlocks_;
+    std::size_t freeCount_;
     std::size_t inUse_{0U};
     std::size_t highWaterMark_{0U};
     std::size_t acquisitionFailures_{0U};
@@ -272,16 +272,14 @@ void WritableBufferLease::reset() noexcept {
 BufferPool::BufferPool(std::shared_ptr<detail::BufferPoolState> state) noexcept
     : state_(std::move(state)) {}
 
-Result<std::shared_ptr<BufferPool>> BufferPool::create(
-    std::size_t capacity,
-    std::size_t bytesPerBuffer) {
+Result<BufferPoolPlan> BufferPool::plan(std::size_t capacity, std::size_t bytesPerBuffer) {
     if (capacity == 0U) {
-        return Result<std::shared_ptr<BufferPool>>::failure(poolError(
+        return Result<BufferPoolPlan>::failure(poolError(
             "buffer_pool_zero_capacity",
             "A buffer pool must contain at least one block."));
     }
     if (bytesPerBuffer == 0U) {
-        return Result<std::shared_ptr<BufferPool>>::failure(poolError(
+        return Result<BufferPoolPlan>::failure(poolError(
             "buffer_pool_zero_block_size",
             "A buffer-pool block must contain at least one byte."));
     }
@@ -291,21 +289,36 @@ Result<std::shared_ptr<BufferPool>> BufferPool::create(
     const auto padding = remainder == 0U ? 0U : blockAlignment - remainder;
     const auto blockStride = checkedAdd(bytesPerBuffer, padding);
     if (!blockStride.hasValue()) {
-        return Result<std::shared_ptr<BufferPool>>::failure(poolError(
+        return Result<BufferPoolPlan>::failure(poolError(
             "buffer_pool_size_overflow",
             "Aligning the requested block size overflows size_t."));
     }
 
     const auto totalBytes = checkedMultiply(capacity, blockStride.value());
     if (!totalBytes.hasValue()) {
-        return Result<std::shared_ptr<BufferPool>>::failure(poolError(
+        return Result<BufferPoolPlan>::failure(poolError(
             "buffer_pool_size_overflow",
             "The requested capacity times block size overflows size_t."));
     }
 
+    const auto bookkeeping = checkedMultiply(capacity, sizeof(std::size_t) + sizeof(std::atomic_size_t));
+    const auto fixed = sizeof(detail::BufferPoolState) + sizeof(BufferPool);
+    if (!bookkeeping.hasValue()) return Result<BufferPoolPlan>::failure(poolError(
+        "buffer_pool_size_overflow", "Pool bookkeeping size overflows size_t."));
+    auto required = checkedAdd(totalBytes.value(), bookkeeping.value());
+    if (required.hasValue()) required = checkedAdd(required.value(), fixed);
+    if (!required.hasValue()) return Result<BufferPoolPlan>::failure(poolError(
+        "buffer_pool_size_overflow", "Complete pool storage overflows size_t."));
+    return Result<BufferPoolPlan>::success({capacity, bytesPerBuffer, blockStride.value(),
+        totalBytes.value(), bookkeeping.value(), fixed, required.value()});
+}
+
+Result<std::shared_ptr<BufferPool>> BufferPool::create(std::size_t capacity, std::size_t bytesPerBuffer) {
+    auto planned = plan(capacity, bytesPerBuffer);
+    if (!planned.hasValue()) return Result<std::shared_ptr<BufferPool>>::failure(planned.error());
     try {
         auto state = std::make_shared<detail::BufferPoolState>(
-            capacity, bytesPerBuffer, blockStride.value(), totalBytes.value());
+            capacity, bytesPerBuffer, planned.value().blockStride, planned.value().pixelStorageBytes);
         return Result<std::shared_ptr<BufferPool>>::success(
             std::shared_ptr<BufferPool>(new BufferPool(std::move(state))));
     } catch (const std::bad_alloc&) {

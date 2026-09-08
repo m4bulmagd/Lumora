@@ -98,6 +98,8 @@ struct ProcessingWorker::Impl final {
             }
             rawRevision = raw->revision;
             auto bundle = processor->process(raw->value);
+            auto processorStatus=processor->status();
+            { std::lock_guard lock(snapshotMutex); snapshot.processorStatus=std::move(processorStatus); }
             if (token.stop_requested()) {
                 break;
             }

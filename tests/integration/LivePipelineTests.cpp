@@ -1,5 +1,7 @@
 #include "ViewportTestSupport.hpp"
 #include "SimulatorComposition.hpp"
+#include "FrameEngineTestAccess.hpp"
+#include <QLabel>
 #include <lumora/application/LivePipeline.hpp>
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
@@ -125,6 +127,118 @@ struct Fixture {
         return controller.presenter()->presentedBundle()!=nullptr;
     }
 };
+class LiveEnhancementFault final : public processing::detail::EngineHooks {
+public:
+    std::atomic<bool> fail{true};
+    core::Result<void> before(processing::ProcessingOperation operation,std::span<std::byte>) override {
+        if(operation==processing::ProcessingOperation::Invert && fail.load())
+            return core::Result<void>::failure({core::ErrorCategory::Processing,"live_enhancement_failure","Enhancement failed.","Persistent diagnostic",true});
+        return core::Result<void>::success();
+    }
+};
+TEST(LivePipeline, ProcessingRetryIsGenerationCheckedPendingWithoutFramesAndNeverReconnects) {
+    auto hook=std::make_shared<LiveEnhancementFault>();
+    Fixture f(std::make_unique<MemoryIo>(),options(),[hook](core::BufferPool& p,core::BufferPool& d,const core::ImageLayout& source) {
+        auto definition=processing::defaultPipeline(); definition.stages.back().enabled=true;
+        auto made=processing::detail::FrameEngineTestAccess::create(p,d,source,definition,{},hook);
+        if(!made.hasValue()) return core::Result<std::unique_ptr<processing::IFrameProcessor>>::failure(made.error());
+        return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::move(made).value());
+    });
+    f.view.show(); ASSERT_TRUE(f.begin());
+    for(std::uint64_t failures=1;failures<=3;++failures) {
+        f.clock.advance(34ms);
+        ASSERT_TRUE(f.wait([&]{return f.pipeline.snapshot().processing.processorStatus.enhancementFailures>=failures;}));
+    }
+    auto* warning=f.view.findChild<QLabel*>(QStringLiteral("processingWarning"));
+    auto* retry=f.view.findChild<QPushButton*>(QStringLiteral("processingRetryButton"));
+    ASSERT_NE(warning,nullptr); ASSERT_NE(retry,nullptr);
+    // The control snapshot may advance just after the controller's poll. Wait
+    // for the rendered warning and completed publication before clicking Retry.
+    ASSERT_TRUE(f.wait([&]{return warning->isVisible() && retry->isEnabled() && f.latest();}));
+    const auto before=f.pipeline.snapshot();
+    ASSERT_TRUE(before.context); EXPECT_EQ(f.latest()->enhanced,nullptr);
+    auto stale=f.pipeline.requestProcessingRetry(before.context->generation+1);
+    ASSERT_FALSE(stale.hasValue()); EXPECT_EQ(stale.error().code,"stale_processing_session");
+    const auto frame=f.latest()->sourceFrameId();
+    retry->click();
+    ASSERT_TRUE(f.wait([&]{return f.pipeline.snapshot().processingRetryPending;}));
+    EXPECT_FALSE(retry->isEnabled()); EXPECT_TRUE(warning->isVisible());
+    EXPECT_EQ(f.latest()->sourceFrameId(),frame);
+    EXPECT_EQ(f.pipeline.snapshot().camera->sessionGeneration,before.camera->sessionGeneration);
+    // Admission is visible immediately, before the control thread delivers it.
+    // Do not spend the sole recovery frame before that dispatch has completed.
+    ASSERT_TRUE(f.wait([&]{return f.pipeline.snapshot().processing.processorStatus.retryPending;}));
+    hook->fail=false;
+    ASSERT_TRUE(f.next());
+    ASSERT_TRUE(f.wait([&]{
+        const auto snapshot=f.pipeline.snapshot();
+        return snapshot.processingAvailable && !snapshot.processingRetryPending
+            && snapshot.processing.processorStatus.retriesConsumed==1U
+            && f.latest()->enhanced && !warning->isVisible();
+    }));
+    const auto recovered=f.pipeline.snapshot();
+    SCOPED_TRACE(::testing::Message() << "available=" << recovered.processingAvailable
+        << " pending=" << recovered.processingRetryPending
+        << " enginePending=" << recovered.processing.processorStatus.retryPending
+        << " error=" << (recovered.error ? recovered.error->code : "none")
+        << " cameraReplacement=" << recovered.camera->sourceReplacementRequired);
+    EXPECT_NE(f.latest()->enhanced,nullptr);
+    EXPECT_EQ(recovered.context,before.context);
+    EXPECT_EQ(recovered.processing.processorStatus.retriesConsumed,1U);
+}
+TEST(LivePipeline, SessionReplacementClearsWarningAndRejectsTheOldProcessingRetryGeneration) {
+    auto hook=std::make_shared<LiveEnhancementFault>();
+    Fixture f(std::make_unique<MemoryIo>(),options(),[hook](core::BufferPool& p,core::BufferPool& d,const core::ImageLayout& source) {
+        auto definition=processing::defaultPipeline(); definition.stages.back().enabled=true;
+        auto made=processing::detail::FrameEngineTestAccess::create(p,d,source,definition,{},hook);
+        if(!made.hasValue()) return core::Result<std::unique_ptr<processing::IFrameProcessor>>::failure(made.error());
+        return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::move(made).value());
+    });
+    f.view.show(); ASSERT_TRUE(f.begin());
+    for(std::uint64_t failures=1;failures<=3;++failures) {
+        f.clock.advance(34ms); ASSERT_TRUE(f.wait([&]{return f.pipeline.snapshot().processing.processorStatus.enhancementFailures>=failures;}));
+    }
+    auto* warning=f.view.findChild<QLabel*>(QStringLiteral("processingWarning")); ASSERT_NE(warning,nullptr);
+    ASSERT_TRUE(f.wait([&]{return warning->isVisible();}));
+    const auto generation=f.pipeline.snapshot().context->generation;
+    ASSERT_TRUE(f.act(Intent::Stop)); ASSERT_TRUE(f.pipeline.requestProcessingRetry(generation).hasValue());
+    ASSERT_TRUE(f.act(Intent::Disconnect)); ASSERT_TRUE(f.act(Intent::Connect));
+    ASSERT_GT(f.pipeline.snapshot().context->generation,generation);
+    ASSERT_TRUE(f.wait([&]{return !warning->isVisible();}));
+    auto rejected=f.pipeline.requestProcessingRetry(generation); ASSERT_FALSE(rejected.hasValue());
+    EXPECT_EQ(rejected.error().code,"stale_processing_session");
+    EXPECT_FALSE(f.pipeline.snapshot().processingRetryPending);
+    EXPECT_EQ(f.pipeline.snapshot().processing.processorStatus.enhancementFailures,0U);
+    EXPECT_EQ(f.pipeline.snapshot().processing.processorStatus.retriesConsumed,0U);
+}
+TEST(LivePipeline, DefaultAdmissionIncludesTheRawPoolAndCompletePreparedEngineCoverage) {
+    Fixture f; ASSERT_TRUE(f.initialize());
+    auto resources=f.pipeline.snapshot().resources; ASSERT_TRUE(resources);
+    EXPECT_FALSE(resources->customProcessorStorageUnknown);
+    EXPECT_EQ(resources->externalSessionBytes,core::BufferPool::plan(10,48).value().requiredStorageBytes);
+    EXPECT_GT(resources->frameObjectBytes,0U);
+    EXPECT_EQ(resources->activationReserveBytes,3U*resources->activationEnvelopeBytes);
+    EXPECT_EQ(resources->requiredStorageBytes,resources->fixedStorageBytes+resources->activationReserveBytes+resources->gammaCacheReserveBytes);
+    EXPECT_LE(resources->requiredStorageBytes,resources->storageBudgetBytes);
+    EXPECT_FALSE(f.pipeline.requestProcessingRetry(f.pipeline.snapshot().context->generation+1).hasValue());
+}
+
+TEST(LivePipeline, ResourceRejectionExposesRequestedStorageBeforeFactoryOrContext) {
+    core::ManualClock clock; camera::sim::SimulatedCameraProvider provider(options(),clock);
+    processing::ProcessingPreparationOptions preparation; preparation.storageBudgetBytes=1;
+    std::atomic<int> factories{};
+    application::LivePipeline pipeline(provider,clock,request(),[&](core::BufferPool&,core::BufferPool&,const core::ImageLayout&) {
+        ++factories; return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success({});
+    },preparation);
+    auto started=pipeline.start(); EXPECT_FALSE(started.hasValue());
+    EXPECT_EQ(factories.load(),0);
+    const auto snapshot=pipeline.snapshot(); EXPECT_EQ(snapshot.context,nullptr);
+    ASSERT_TRUE(snapshot.resources.has_value());
+    EXPECT_GT(snapshot.resources->requiredStorageBytes,1U);
+    EXPECT_EQ(snapshot.resources->storageBudgetBytes,1U);
+    EXPECT_TRUE(snapshot.resources->customProcessorStorageUnknown);
+}
+
 TEST(LivePipeline, PauseKeepsAcquiringAndResumeJumpsToNewest) {
     Fixture f;
     ASSERT_TRUE(f.begin());

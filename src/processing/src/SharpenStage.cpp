@@ -1,4 +1,5 @@
 #include <lumora/processing/SharpenStage.hpp>
+#include "StageStorage.hpp"
 
 #include "DetailStageSupport.hpp"
 
@@ -88,6 +89,10 @@ struct SharpenStage::Impl final {
     std::unique_ptr<double[]> intermediate;
     std::unique_ptr<double[]> coefficients;
 };
+
+std::size_t detail::StageStorage::sharpenOwnerBytes() noexcept {
+    return sizeof(SharpenStage) + sizeof(SharpenStage::Impl);
+}
 
 SharpenStage::SharpenStage(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 SharpenStage::~SharpenStage() = default;

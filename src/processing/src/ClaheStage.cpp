@@ -45,6 +45,7 @@
 // samples directly from byte views, and performs no scheduler or backend dispatch.
 
 #include <lumora/processing/ClaheStage.hpp>
+#include "StageStorage.hpp"
 
 #include <lumora/core/CheckedMath.hpp>
 
@@ -314,6 +315,10 @@ struct ClaheStage::Impl final {
     std::vector<std::uint32_t> reflectedX;
     std::vector<std::uint32_t> reflectedY;
 };
+
+std::size_t detail::StageStorage::claheOwnerBytes() noexcept {
+    return sizeof(ClaheStage) + sizeof(ClaheStage::Impl);
+}
 
 ClaheStage::ClaheStage(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 ClaheStage::~ClaheStage() = default;

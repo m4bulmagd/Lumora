@@ -1,4 +1,5 @@
 #include <lumora/processing/DenoiseStage.hpp>
+#include "StageStorage.hpp"
 
 #include "DetailStageSupport.hpp"
 
@@ -95,6 +96,10 @@ struct DenoiseStage::Impl final {
     std::unique_ptr<double[]> intermediate;
     std::unique_ptr<double[]> coefficients;
 };
+
+std::size_t detail::StageStorage::denoiseOwnerBytes() noexcept {
+    return sizeof(DenoiseStage) + sizeof(DenoiseStage::Impl);
+}
 
 DenoiseStage::DenoiseStage(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 DenoiseStage::~DenoiseStage() = default;

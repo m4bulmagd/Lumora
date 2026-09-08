@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lumora/ui/WorkstationStatus.hpp>
+#include <lumora/processing/ProcessorStatus.hpp>
 
 #include <QWidget>
 
@@ -19,10 +20,12 @@ public:
     [[nodiscard]] ViewerState viewerState() const noexcept;
     [[nodiscard]] const WorkstationStatus& status() const noexcept;
     void setStatus(WorkstationStatus status);
+    void setProcessingStatus(processing::ProcessorStatus status, bool retryPending = false);
 
 signals:
     void pauseRequested();
     void resumeRequested();
+    void processingRetryRequested();
 
 private:
     void updateStatusPresentation();
@@ -30,6 +33,7 @@ private:
     QWidget* sidebar_{nullptr};
     ImageViewport* imageViewport_{nullptr};
     WorkstationStatus status_;
+    processing::ProcessorStatus processingStatus_;
 };
 
 }  // namespace lumora::ui

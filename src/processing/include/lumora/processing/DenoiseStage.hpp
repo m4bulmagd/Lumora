@@ -6,6 +6,7 @@
 #include <memory>
 
 namespace lumora::processing {
+namespace detail { struct StageStorage; }
 
 // Prepared instances own fixed scratch and belong to one processing worker.
 // Parameters and extents are immutable; process mutates scratch and is not concurrent.
@@ -28,6 +29,7 @@ public:
         const core::SourcePixelFormat& sourceFormat) const override;
 
 private:
+    friend struct detail::StageStorage;
     struct Impl;
     explicit DenoiseStage(std::unique_ptr<Impl> impl);
     std::unique_ptr<Impl> impl_;

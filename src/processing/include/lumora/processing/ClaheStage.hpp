@@ -6,6 +6,7 @@
 #include <memory>
 
 namespace lumora::processing {
+namespace detail { struct StageStorage; }
 
 // A separate candidate may be prepared on the control thread while a prior stage
 // processes. Each fixed-size prepared object belongs to one sequential worker and
@@ -37,6 +38,7 @@ public:
         const core::SourcePixelFormat& sourceFormat) const override;
 
 private:
+    friend struct detail::StageStorage;
     struct Impl;
     explicit ClaheStage(std::unique_ptr<Impl> impl);
     std::unique_ptr<Impl> impl_;

@@ -80,6 +80,14 @@ WorkstationController::WorkstationController(application::LivePipeline& pipeline
     const auto bind=[this,&panel](auto signal,Intent intent) {
         connect(&panel,signal,this,[this,intent]{(void)dispatch(intent);});
     };
+    connect(&view,&WorkstationView::processingRetryRequested,this,[this] {
+        auto& d=*impl_;
+        if(d.stopped || !d.context) return;
+        if(d.pipeline.requestProcessingRetry(d.context->generation).hasValue()) {
+            auto snapshot=d.pipeline.snapshot();
+            d.view.setProcessingStatus(snapshot.processing.processorStatus,snapshot.processingRetryPending);
+        }
+    });
     bind(&CameraStartupPanel::refreshRequested,Intent::Refresh);
     bind(&CameraStartupPanel::connectRequested,Intent::Connect);
     bind(&CameraStartupPanel::applyRequested,Intent::Apply);
@@ -106,6 +114,7 @@ void WorkstationController::poll() {
         (void)d.pipeline.acknowledgeContext(d.context->generation);
     }
     if(d.presenter) d.presenter->refresh();
+    d.view.setProcessingStatus(snapshot.processing.processorStatus,snapshot.processingRetryPending);
     d.presentation.cameraStatus=std::move(snapshot.camera);
     std::optional<Intent> continueResume;
     if(snapshot.ordinaryOutcome && d.pending==snapshot.ordinaryOutcome->requestId) {

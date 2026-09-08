@@ -2,6 +2,7 @@
 
 #include <lumora/core/CheckedMath.hpp>
 #include <lumora/processing/IFrameProcessor.hpp>
+#include <lumora/processing/OrientationTransform.hpp>
 
 #include <utility>
 
@@ -24,7 +25,7 @@ core::Result<core::ImageLayout> tightLayout(const core::ImageLayout& source,
 ProcessingWorkspace::ProcessingWorkspace(core::BufferPool& processingPool, core::BufferPool& displayPool) noexcept
     : processingPool_(processingPool), displayPool_(displayPool) {}
 
-core::Result<void> ProcessingWorkspace::prepare(const core::ImageLayout& sourceLayout) {
+core::Result<void> ProcessingWorkspace::prepare(const core::ImageLayout& sourceLayout,core::Orientation orientation,std::size_t orientationBytes) {
     using Result = core::Result<void>;
     auto canonical = tightLayout(sourceLayout, core::StorageType::UInt16, 2U);
     if (!canonical.hasValue()) return Result::failure(canonical.error());
@@ -36,15 +37,19 @@ core::Result<void> ProcessingWorkspace::prepare(const core::ImageLayout& sourceL
     if (displayPool_.stats().bytesPerBuffer < display.value().payloadBytes()) {
         return Result::failure(resourceError("display_buffer_too_small", "Gray8 pool blocks do not fit the prepared image."));
     }
+    auto oriented = OrientationTransform::outputLayout(display.value(), core::DisplayStorage::Gray8, orientation);
+    if (!oriented.hasValue()) return Result::failure(oriented.error());
+    if (orientationBytes) orientationScratch_ = std::make_unique<std::byte[]>(orientationBytes);
     auto ready = replenish();
     if (!ready.hasValue()) return ready;
     sourceLayout_ = sourceLayout;
     canonicalLayout_ = canonical.value();
-    displayLayout_ = display.value();
+    nativeDisplayLayout_ = display.value();
+    displayLayout_ = oriented.value();
     return Result::success();
 }
 
-core::Result<void> ProcessingWorkspace::replenish() {
+core::Result<void> ProcessingWorkspace::replenish(bool enhanced) {
     using Result = core::Result<void>;
     // Keep acquisitions transactional: shortage in either pool releases every
     // newly acquired lease, while the previous private workspace stays intact.
@@ -57,7 +62,7 @@ core::Result<void> ProcessingWorkspace::replenish() {
                 std::string(processingBufferPoolExhaustedCode), "No pooled canonical U16 buffer is available."));
         }
     }
-    for (std::size_t index = 0; index < display.size(); ++index) {
+    for (std::size_t index = 0; index < (enhanced ? display.size() : 1U); ++index) {
         if (!display_[index]) {
             display[index] = displayPool_.tryAcquire();
             if (!display[index]) return Result::failure(resourceError(

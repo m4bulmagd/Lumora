@@ -4,6 +4,7 @@
 #include <lumora/application/ProcessingWorker.hpp>
 
 #include <functional>
+#include <lumora/processing/ProcessingPreparation.hpp>
 
 namespace lumora::application {
 
@@ -28,14 +29,17 @@ struct LivePipelineSnapshot final {
     std::optional<CameraCommandOutcome> ordinaryOutcome;
     std::optional<CameraCommandOutcome> priorityOutcome;
     ProcessingWorkerSnapshot processing;
+    std::optional<processing::ProcessingResources> resources;
+    bool processingRetryPending{false};
+    bool processingAvailable{false};
     std::optional<core::Error> error;
 };
 
 // Provider and clock outlive the pipeline. The owner serializes start/shutdown;
 // post, snapshot and acknowledgement are safe concurrently and never join or
 // allocate pools. The control thread provisions the exact immutable native request
-// with checked 10 raw / 9 U16 / 16 Gray8 pools (44 bytes per U8 source pixel,
-// 54 bytes per U16 source pixel).
+// with admitted aligned 10 raw / 9 U16 / 16 Gray8 pools and prepared resources.
+// The budget covers one session; legacy custom private storage is marked unknown.
 class LivePipeline final {
 public:
     // Runs on the control thread. The returned processor may borrow both pools
@@ -46,13 +50,15 @@ public:
         core::BufferPool& processingPool, core::BufferPool& displayPool,
         const core::ImageLayout& sourceLayout)>;
     LivePipeline(camera::ICameraProvider& provider, core::IClock& clock,
-                 camera::CameraConfiguration fixedRequest, ProcessorFactory factory = {});
+                 camera::CameraConfiguration fixedRequest, ProcessorFactory factory = {},
+                 processing::ProcessingPreparationOptions options = {});
     ~LivePipeline();
     LivePipeline(const LivePipeline&) = delete;
     LivePipeline& operator=(const LivePipeline&) = delete;
     [[nodiscard]] core::Result<void> start();
     [[nodiscard]] core::Result<void> post(CameraCommand command);
     [[nodiscard]] LivePipelineSnapshot snapshot() const;
+    [[nodiscard]] core::Result<void> requestProcessingRetry(std::uint64_t sessionGeneration);
     // The consumer resets its presenter first, then acknowledges this generation.
     // The control thread releases the retiring context after acknowledgement.
     [[nodiscard]] core::Result<void> acknowledgeContext(std::uint64_t generation);

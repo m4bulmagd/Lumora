@@ -34,6 +34,31 @@ void sendKey(
     QCoreApplication::processEvents();
 }
 
+TEST(WorkstationView, EnhancementWarningCoexistsWithFreshnessAndKeepsRetryPending) {
+    WorkstationView view; view.show();
+    lumora::processing::ProcessorStatus processing;
+    processing.mode=lumora::processing::ProcessorMode::OriginalOnlyLatched;
+    processing.retrySupported=true;
+    view.setProcessingStatus(processing);
+    auto* warning=view.findChild<QLabel*>(QStringLiteral("processingWarning"));
+    auto* retry=view.findChild<QPushButton*>(QStringLiteral("processingRetryButton"));
+    ASSERT_NE(warning,nullptr); ASSERT_NE(retry,nullptr);
+    EXPECT_TRUE(warning->isVisible()); EXPECT_TRUE(retry->isEnabled());
+    EXPECT_EQ(warning->textFormat(),Qt::PlainText);
+    int requests=0;
+    QObject::connect(&view,&WorkstationView::processingRetryRequested,&view,[&]{++requests;});
+    retry->click(); EXPECT_EQ(requests,1);
+    for(auto freshness:{FrameFreshness::Current,FrameFreshness::Stale,FrameFreshness::WaitingForFrame}) {
+        view.setStatus({ViewerState::Paused,freshness,{}, {}});
+        EXPECT_TRUE(warning->isVisible());
+        EXPECT_EQ(view.status().freshness,freshness);
+    }
+    view.setProcessingStatus(processing,true);
+    EXPECT_TRUE(warning->isVisible()); EXPECT_FALSE(retry->isEnabled());
+    retry->click(); EXPECT_EQ(requests,1);
+    view.setProcessingStatus({}); EXPECT_FALSE(warning->isVisible()); EXPECT_FALSE(retry->isVisible());
+}
+
 TEST(WorkstationView, ImageAreaDominatesInitialLayout) {
     WorkstationView view;
     view.resize(1280, 800);

@@ -59,6 +59,11 @@ add_library(
   processing/src/ProcessingPipeline.cpp
   processing/src/ProcessingWorkspace.cpp
   processing/src/FrameProcessingEngine.cpp
+  processing/src/FrameExecution.cpp
+  processing/src/ProcessingPreparation.cpp
+  processing/src/PreparedStageFactory.cpp
+  processing/src/FrameEngineTestAccess.cpp
+  processing/src/ProcessorStatus.cpp
   processing/src/ImageView.cpp
   processing/src/NormalizeStage.cpp
   processing/src/WindowLevelStage.cpp
@@ -123,6 +128,7 @@ add_library(
   application/src/StartupPreferences.cpp
   application/include/lumora/application/LivePipeline.hpp
   application/src/LivePipeline.cpp
+  application/src/LiveResourcePreparation.cpp
 )
 add_library(lumora::application ALIAS lumora_application)
 target_include_directories(lumora_application PUBLIC

@@ -50,8 +50,21 @@ private:
     std::size_t blockIndex_{0U};
 };
 
+// Accounted requested storage; excludes allocator headers and the two bounded
+// STL shared-control blocks belonging to the existing state/facade owners.
+struct BufferPoolPlan final {
+    std::size_t capacity{};
+    std::size_t bytesPerBuffer{};
+    std::size_t blockStride{};
+    std::size_t pixelStorageBytes{};
+    std::size_t bookkeepingStorageBytes{};
+    std::size_t fixedStorageBytes{};
+    std::size_t requiredStorageBytes{};
+};
+
 class BufferPool final {
 public:
+    [[nodiscard]] static Result<BufferPoolPlan> plan(std::size_t capacity, std::size_t bytesPerBuffer);
     [[nodiscard]] static Result<std::shared_ptr<BufferPool>> create(
         std::size_t capacity,
         std::size_t bytesPerBuffer);

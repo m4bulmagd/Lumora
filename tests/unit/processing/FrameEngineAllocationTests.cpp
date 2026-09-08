@@ -1,4 +1,5 @@
 #include "AllocationTracker.hpp"
+#include "FrameEngineTestAccess.hpp"
 #include "FrameObjectPoolState.hpp"
 #include "FrameObjectPoolTestSupport.hpp"
 #include <lumora/core/LatestValueSlot.hpp>
@@ -102,6 +103,74 @@ bool arenaExhaustionHasNoHeapFallback() {
         counts.allocations, counts.deallocations);
     return correct && counts.allocations == 0 && counts.deallocations == 0;
 }
+bool enginePreparationFailuresReleaseResources() {
+    const auto layout=core::ImageLayout::create(4,1,8,core::StorageType::UInt16,8).value();
+    auto p=core::BufferPool::create(9,8).value(); auto d=core::BufferPool::create(16,4).value();
+    auto definition=processing::defaultPipeline(); definition.stages[3].enabled=true;
+    const auto before=core::detail::testing::poolCounters();
+    test::beginAllocationTracking();
+    auto baseline=processing::FrameProcessingEngine::create(*p,*d,layout,definition);
+    const auto allocations=test::endAllocationMeasurement().allocations;
+    if(!baseline.hasValue()) return false;
+    baseline.value().reset();
+    for(std::size_t failure=0;failure<allocations;++failure) {
+        test::failOneAllocationAfter(failure);
+        auto failed=processing::FrameProcessingEngine::create(*p,*d,layout,definition);
+        test::cancelAllocationFailure();
+        if(failed.hasValue()) return false;
+        const auto after=core::detail::testing::poolCounters();
+        if(p->stats().inUse!=0 || d->stats().inUse!=0 || before.liveStates!=after.liveStates || before.liveSlabs!=after.liveSlabs || after.liveProbeAllocations!=0) return false;
+    }
+    std::printf("Complete engine preparation failure injection: %zu allocation sites reclaimed all unpublished resources.\n",allocations);
+    return true;
+}
+class LatchFault final : public processing::detail::EngineHooks {
+public:
+    core::Result<void> before(processing::ProcessingOperation operation,std::span<std::byte>) override {
+        if(operation==processing::ProcessingOperation::Invert) return core::Result<void>::failure(
+            {core::ErrorCategory::Processing,"allocation_probe_latch","Enhancement paused.","Injected before measurement.",true});
+        return core::Result<void>::success();
+    }
+};
+bool completeSchedule(bool orientation,bool fallback) {
+    const auto layout=core::ImageLayout::create(8,8,16,core::StorageType::UInt16,128).value();
+    auto rawPool=core::BufferPool::create(1,128).value(); auto lease=rawPool->tryAcquire();
+    for(auto& byte:lease->bytes()) byte=std::byte{0};
+    const core::SourcePixelFormat format{"Mono16",0x01100007U,16,65535,core::SourcePacking::Unpacked,core::BitAlignment::LeastSignificant,core::StorageType::UInt16};
+    auto settings=core::AcquisitionSettingsSnapshot::create({"Test","Numeric","1","virtual",{}},format,{0,0,8,8},30,30,{},{}).value();
+    auto raw=core::RawFrame::create(1,layout,std::move(*lease).seal(),{{},{},{},{},std::move(settings)}).value();
+    auto p=core::BufferPool::create(9,128).value(); auto d=core::BufferPool::create(16,64).value();
+    auto definition=processing::defaultPipeline(); for(auto& stage:definition.stages) stage.enabled=true;
+    definition.stages[4].parameters=processing::ClaheParameters{2,2};
+    processing::ProcessingPreparationOptions options;
+    if(orientation) options.orientation={true,false,core::Rotation::Degrees90};
+    auto hooks=fallback ? std::make_shared<LatchFault>() : std::shared_ptr<LatchFault>{};
+    auto made=processing::detail::FrameEngineTestAccess::create(*p,*d,layout,definition,options,hooks);
+    if(!made.hasValue()) return false;
+    auto& engine=*made.value();
+    if(fallback) { if(engine.process(raw).hasValue() || engine.process(raw).hasValue()) return false; }
+    auto sentinel=engine.process(raw); if(!sentinel.hasValue()) return false;
+    core::LatestValueSlot<core::FrameBundle> latest;
+    std::array<std::shared_ptr<const core::FrameBundle>,5> retained{};
+    auto cycle=[&](std::size_t index) {
+        retained[index%retained.size()].reset();
+        auto output=engine.process(raw);
+        if(!output.hasValue() || static_cast<bool>(output.value()->enhanced)==fallback) return false;
+        auto published=latest.publish(output.value());
+        retained[index%retained.size()]=std::move(output).value();
+        return published.revision!=0;
+    };
+    for(std::size_t i=0;i<100;++i) if(!cycle(i)) return false;
+    bool successful=true;
+    test::beginAllocationTracking();
+    for(std::size_t i=0;i<1000;++i) successful=cycle(i) && successful;
+    for(auto& owner:retained) owner.reset();
+    (void)latest.publish(sentinel.value());
+    const auto measured=test::endAllocationMeasurement();
+    std::printf("Complete prepared publication: orientation=%d fallback=%d success=%d allocations=%zu bytes=%zu deallocations=%zu frames=1000\n",
+        orientation ? 1 : 0,fallback ? 1 : 0,successful ? 1 : 0,measured.allocations,measured.allocatedBytes,measured.deallocations);
+    return successful && measured.allocations==0 && measured.deallocations==0;
+}
 }  // namespace
 int main() {
     if (!preparationFailuresReleaseResources() || !arenaExhaustionHasNoHeapFallback()
@@ -154,5 +223,8 @@ int main() {
     const auto counts = test::endAllocationMeasurement();
     std::printf("Engine publication/retention/release: success=%d allocations=%zu bytes=%zu deallocations=%zu over 1000 frames after 100 warmups\n",
         successful ? 1 : 0, counts.allocations, counts.allocatedBytes, counts.deallocations);
-    return successful && counts.allocations == 0U ? 0 : 3;
+    if(!successful || counts.allocations!=0U) return 3;
+    if(!enginePreparationFailuresReleaseResources()) return 6;
+    for(bool oriented:{false,true}) for(bool fallback:{false,true}) if(!completeSchedule(oriented,fallback)) return 5;
+    return 0;
 }
