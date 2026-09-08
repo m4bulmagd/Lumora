@@ -75,4 +75,9 @@ The [M7 execution record](../architecture/milestones/m07-preflight.md) records t
 
 ## M8 Task 1 simulator continuation (2026-09-07)
 
-The owner approved the [bounded tone-stage continuation](../architecture/milestones/m08-tone-stages.md) after M7: U16 brightness/contrast, immutable cached gamma and inversion with exhaustive tests. Implementation `246a73a` passed independent task review, Linux Debug/Release 42/42 application checks and a tests-disabled Release build. Final whole-branch review is approved without findings. Live activation/composition, cross-activation cache retention, remaining algorithms, whole-frame allocation and Windows performance evidence belong to later work; no milestone acceptance is claimed.
+The owner approved the [bounded tone-stage continuation](../architecture/milestones/m08-tone-stages.md) after M7: U16 brightness/contrast, immutable cached gamma and inversion with exhaustive tests. Implementation `246a73a` passed independent task review, Linux Debug/Release 42/42 application checks and a tests-disabled Release build. Final whole-branch review is approved without findings. [PR #10](https://github.com/m4bulmagd/Lumora/pull/10) merged Task 1 as `d6f94e1` after Linux/GCC and Windows/MSVC Debug/Release CI passed; both post-merge main jobs also passed. Live activation/composition, cross-activation cache retention, remaining algorithms, whole-frame allocation and Windows performance evidence belong to later work; no milestone acceptance is claimed.
+
+
+## M8 Task 2 CLAHE continuation (2026-09-08)
+
+The owner approved bounded [U16 CLAHE development](../architecture/milestones/m08-clahe.md) after Task 1 integration. The prepared, single-worker stage preserves the existing const interface and supports padded/unaligned U16 views through aligned bridge buffers. A provisional Linux fixture does not supply the designated Windows reference; reviewed cross-platform tolerances and OpenCV's known per-apply allocations remain explicit acceptance gaps. Tasks 3–5 and M9 UI are subsequent work.
