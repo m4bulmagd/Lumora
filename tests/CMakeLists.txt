@@ -39,7 +39,7 @@ add_executable(lumora_processing_tests
   unit/processing/OrientationTransformTests.cpp
   unit/processing/FrameProcessingEngineTests.cpp)
 target_link_libraries(lumora_processing_tests PRIVATE
-  lumora::processing GTest::gtest_main)
+  lumora::processing opencv_core opencv_imgproc GTest::gtest_main)
 target_compile_definitions(lumora_processing_tests PRIVATE
   LUMORA_CLAHE_REFERENCE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/reference/processing/clahe-reference.json")
 lumora_enable_warnings(lumora_processing_tests)

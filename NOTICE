@@ -5,4 +5,8 @@ This product includes third-party software. Each dependency retains its own
 copyright and license terms. Distribution bundles must include the notices
 required by Qt, OpenCV, GoogleTest, spdlog, and their transitive dependencies.
 
+Lumora's prepared U16 CLAHE contains source adapted from OpenCV 4.12.0.
+The complete copied-source BSD notice, provenance, source hashes, and adaptation
+statement are distributed in THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt.
+
 Lumora evaluation builds are not medical devices and are not for clinical use.

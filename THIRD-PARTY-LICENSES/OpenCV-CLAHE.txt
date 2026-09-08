@@ -1,0 +1,66 @@
+OpenCV CLAHE adapted source notice and provenance
+=================================================
+
+Lumora includes a U16-only sequential prepared CLAHE implementation adapted
+from OpenCV 4.12.0, vcpkg port-version 9:
+
+https://github.com/opencv/opencv/blob/4.12.0/modules/imgproc/src/clahe.cpp
+
+Local inspected source path:
+modules/imgproc/src/clahe.cpp
+
+Adaptation scope: fixed owned LUT, histogram, interpolation and reflection
+arrays; direct reflected byte access for U16 images; no OpenCV scheduler or
+backend dispatch; pinned OpenCV LUT, interpolation and rounding arithmetic.
+Lumora continues to use OpenCV's inline scalar saturate_cast helper.
+
+Inspected source SHA256 values:
+
+5a17940a5ee36f064c14617d58b61dca2cf078f003504ab8eed526269b3ba345  modules/imgproc/src/clahe.cpp
+81719ea26aef77deda817c751a90b7c61049821aaf67e915654b2305caaa942d  modules/core/include/opencv2/core/fast_math.hpp
+bf418a3f44d575b17c18af968dbe3e2c8bd0663c22f8dcb53c4b0f77b5db14ba  modules/core/include/opencv2/core/saturate.hpp
+5af2f5b62e4dd635e9c8287db3723b814e77adf12db7395b6fa73fef45215032  modules/core/src/copy.cpp
+
+The complete notice from modules/imgproc/src/clahe.cpp follows.
+
+/*M///////////////////////////////////////////////////////////////////////////////////////
+//
+//  IMPORTANT: READ BEFORE DOWNLOADING, COPYING, INSTALLING OR USING.
+//
+//  By downloading, copying, installing or using the software you agree to this license.
+//  If you do not agree to this license, do not download, install,
+//  copy or use the software.
+//
+//
+//                           License Agreement
+//                For Open Source Computer Vision Library
+//
+// Copyright (C) 2013, NVIDIA Corporation, all rights reserved.
+// Copyright (C) 2014, Itseez Inc., all rights reserved.
+// Third party copyrights are property of their respective owners.
+//
+// Redistribution and use in source and binary forms, with or without modification,
+// are permitted provided that the following conditions are met:
+//
+//   * Redistribution's of source code must retain the above copyright notice,
+//     this list of conditions and the following disclaimer.
+//
+//   * Redistribution's in binary form must reproduce the above copyright notice,
+//     this list of conditions and the following disclaimer in the documentation
+//     and/or other materials provided with the distribution.
+//
+//   * The name of the copyright holders may not be used to endorse or promote products
+//     derived from this software without specific prior written permission.
+//
+// This software is provided by the copyright holders and contributors "as is" and
+// any express or implied warranties, including, but not limited to, the implied
+// warranties of merchantability and fitness for a particular purpose are disclaimed.
+// In no event shall the copyright holders or contributors be liable for any direct,
+// indirect, incidental, special, exemplary, or consequential damages
+// (including, but not limited to, procurement of substitute goods or services;
+// loss of use, data, or profits; or business interruption) however caused
+// and on any theory of liability, whether in contract, strict liability,
+// or tort (including negligence or otherwise) arising in any way out of
+// the use of this software, even if advised of the possibility of such damage.
+//
+//M*/

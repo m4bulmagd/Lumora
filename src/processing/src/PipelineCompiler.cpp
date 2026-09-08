@@ -33,8 +33,7 @@ std::vector<StageTraits> stageRegistry() {
     for (int i = 0; i < 8; ++i) registry.push_back({static_cast<StageId>(i),
         i == 0 ? ImageDomain::SensorNative : ImageDomain::CanonicalU16,
         ImageDomain::CanonicalU16, false,
-        i == static_cast<int>(StageId::Clahe) ? 2U
-            : (i == static_cast<int>(StageId::Denoise)
+        (i == static_cast<int>(StageId::Denoise)
                     || i == static_cast<int>(StageId::Sharpen))
                 ? 4U
                 : 0U});
