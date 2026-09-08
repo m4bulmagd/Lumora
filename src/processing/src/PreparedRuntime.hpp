@@ -2,6 +2,7 @@
 #include <lumora/processing/FrameProcessingEngine.hpp>
 #include <lumora/processing/IProcessingStage.hpp>
 #include "PreparedOwner.hpp"
+#include "PreparedCpuExecutor.hpp"
 #include "FrameEngineTestAccess.hpp"
 #include <array>
 #include <mutex>
@@ -42,6 +43,8 @@ struct EngineState final {
     std::shared_ptr<core::FrameObjectPool> objects;
     std::mutex preparationMutex;
     mutable std::mutex stateMutex;
+    // Declared before all borrowing runtime/stage handles: destroyed after them.
+    std::unique_ptr<PreparedCpuExecutor> cpuExecutor;
     std::shared_ptr<const PreparedRuntime> active;
     std::shared_ptr<const PreparedRuntime> inFlight;
     StageHandle gammaCache;

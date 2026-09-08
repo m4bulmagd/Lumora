@@ -54,6 +54,14 @@ void HeapTrace::stop() noexcept {
     if(armed_) {muntrace();armed_=false;}
 #endif
 }
+QJsonObject HeapTrace::helperControlResult(std::size_t executionSlots) {
+    if(armed_ || executionSlots<1 || executionSlots>4) throw Error(5,"Cannot parse an armed/invalid helper control trace");
+    const auto bytes=readFile(active_);const auto c=parseTrace(bytes);const auto helpers=executionSlots-1;
+    const bool passed=c.events==helpers*2 && c.allocations==helpers && c.releases==helpers && c.reportedBytes==helpers*256+helpers*(helpers+1)/2 && !c.allocationFailures && !c.reallocOld && !c.reallocNew && !c.reallocFailures;
+    if(!passed) throw Error(5,"Persistent helper glibc positive control failed");
+    // The callback mask supplies slot attribution; mtrace itself has no thread IDs.
+    return {{"status","passed"},{"tracePath",qs(active_.string())},{"traceSha256",qs(sha256(bytes))},{"events",traceCounts(c)}};
+}
 QJsonObject HeapTrace::result(std::uint32_t cycles,bool smoke) {
     if(armed_) throw Error(5,"Cannot parse an armed trace");
     const auto bytes=readFile(active_);const auto counts=parseTrace(bytes);

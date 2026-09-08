@@ -8,6 +8,7 @@ namespace lumora::processing::detail {
 class EngineHooks {
 public:
     virtual ~EngineHooks() = default;
+    virtual void beforeCpuThreadStart(std::size_t) {}
     virtual core::Result<std::shared_ptr<const IProcessingStage>> prepare(
         const StageDefinition&, const core::ImageLayout&, std::size_t scratchBytes);
     virtual core::Result<void> before(ProcessingOperation,std::span<std::byte>) { return core::Result<void>::success(); }
@@ -16,6 +17,8 @@ struct FrameEngineTestAccess final {
     static core::Result<std::unique_ptr<FrameProcessingEngine>> create(
         core::BufferPool&,core::BufferPool&,const core::ImageLayout&,const PipelineDefinition&,
         ProcessingPreparationOptions,std::shared_ptr<EngineHooks>);
+    using CpuWork = void (*)(void*,std::size_t slot,std::size_t begin,std::size_t end) noexcept;
+    static void runCpu(FrameProcessingEngine&,std::size_t itemCount,void* context,CpuWork) noexcept;
     static std::weak_ptr<const IProcessingStage> stage(FrameProcessingEngine&,StageId);
 };
 }

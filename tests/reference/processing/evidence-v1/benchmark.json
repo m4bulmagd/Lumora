@@ -1,0 +1,2392 @@
+{
+  "artifactType": "lumora.processing.benchmark",
+  "complete": false,
+  "failure": null,
+  "generatedUtc": "2026-09-08T11:35:10.042Z",
+  "rows": [
+    {
+      "allocation": {
+        "armedRegion": "named prepared stage only; preexisting input/output remain alive through post-region hashing",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "not_applicable",
+        "measuredFingerprint": null,
+        "provenance": "complete P5 U16 output after measurement; standalone output buffer retained",
+        "value": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "verificationCycles": 0
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": false,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": false,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": false,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "scratchBytes": 0,
+          "separateHarnessImageBytes": 1048576,
+          "stageOwnerBytes": 8
+        },
+        "candidateRequiredBytes": null,
+        "exclusions": [
+          "allocator_headers",
+          "standalone_source_destination_payloads_reported_separately",
+          "caller_pattern_image_configuration_samples_JSON_and_facade_storage"
+        ],
+        "fixedBytes": null,
+        "gammaCacheReserveBytes": null,
+        "limitBytes": 268435456,
+        "limitScope": "standalone_scratch_only",
+        "requiredBytes": 8,
+        "scope": "standalone_stage",
+        "threeOwnerReserveBytes": null
+      },
+      "rowId": "normalize",
+      "scope": "standalone_stage",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 500.02586883832436,
+        "median": 1922541.5,
+        "p95NearestRank": 2554619,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 999948265
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 13320192,
+        "beforeBytes": 13606912,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    },
+    {
+      "allocation": {
+        "armedRegion": "named prepared stage only; preexisting input/output remain alive through post-region hashing",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "not_applicable",
+        "measuredFingerprint": null,
+        "provenance": "complete P5 U16 output after measurement; standalone output buffer retained",
+        "value": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "verificationCycles": 0
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": true,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": false,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": false,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "scratchBytes": 0,
+          "separateHarnessImageBytes": 1048576,
+          "stageOwnerBytes": 24
+        },
+        "candidateRequiredBytes": null,
+        "exclusions": [
+          "allocator_headers",
+          "standalone_source_destination_payloads_reported_separately",
+          "caller_pattern_image_configuration_samples_JSON_and_facade_storage"
+        ],
+        "fixedBytes": null,
+        "gammaCacheReserveBytes": null,
+        "limitBytes": 268435456,
+        "limitScope": "standalone_scratch_only",
+        "requiredBytes": 24,
+        "scope": "standalone_stage",
+        "threeOwnerReserveBytes": null
+      },
+      "rowId": "window_level",
+      "scope": "standalone_stage",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 36466.82288567367,
+        "median": 26670,
+        "p95NearestRank": 32330,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 13711093
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 14974976,
+        "beforeBytes": 14974976,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    },
+    {
+      "allocation": {
+        "armedRegion": "named prepared stage only; preexisting input/output remain alive through post-region hashing",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "not_applicable",
+        "measuredFingerprint": null,
+        "provenance": "complete P5 U16 output after measurement; standalone output buffer retained",
+        "value": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "verificationCycles": 0
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": false,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": true,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": false,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "scratchBytes": 0,
+          "separateHarnessImageBytes": 1048576,
+          "stageOwnerBytes": 24
+        },
+        "candidateRequiredBytes": null,
+        "exclusions": [
+          "allocator_headers",
+          "standalone_source_destination_payloads_reported_separately",
+          "caller_pattern_image_configuration_samples_JSON_and_facade_storage"
+        ],
+        "fixedBytes": null,
+        "gammaCacheReserveBytes": null,
+        "limitBytes": 268435456,
+        "limitScope": "standalone_scratch_only",
+        "requiredBytes": 24,
+        "scope": "standalone_stage",
+        "threeOwnerReserveBytes": null
+      },
+      "rowId": "brightness_contrast",
+      "scope": "standalone_stage",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 573.3361860707276,
+        "median": 1693382.5,
+        "p95NearestRank": 2087068,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 872088684
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 15040512,
+        "beforeBytes": 15040512,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    },
+    {
+      "allocation": {
+        "armedRegion": "named prepared stage only; preexisting input/output remain alive through post-region hashing",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "not_applicable",
+        "measuredFingerprint": null,
+        "provenance": "complete P5 U16 output after measurement; standalone output buffer retained",
+        "value": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "verificationCycles": 0
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": false,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": false,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": true,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": false,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "scratchBytes": 0,
+          "separateHarnessImageBytes": 1048576,
+          "stageOwnerBytes": 131088
+        },
+        "candidateRequiredBytes": null,
+        "exclusions": [
+          "allocator_headers",
+          "standalone_source_destination_payloads_reported_separately",
+          "caller_pattern_image_configuration_samples_JSON_and_facade_storage"
+        ],
+        "fixedBytes": null,
+        "gammaCacheReserveBytes": null,
+        "limitBytes": 268435456,
+        "limitScope": "standalone_scratch_only",
+        "requiredBytes": 131088,
+        "scope": "standalone_stage",
+        "threeOwnerReserveBytes": null
+      },
+      "rowId": "gamma",
+      "scope": "standalone_stage",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 2219.7154038952863,
+        "median": 421440.5,
+        "p95NearestRank": 594368,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 225254102
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 15040512,
+        "beforeBytes": 15040512,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    },
+    {
+      "allocation": {
+        "armedRegion": "named prepared stage only; preexisting input/output remain alive through post-region hashing",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "not_applicable",
+        "measuredFingerprint": null,
+        "provenance": "complete P5 U16 output after measurement; standalone output buffer retained",
+        "value": "32b31ad609190b3d321e47196f953b6deaf98e8f584a139d40ae7156bfeb93ff",
+        "verificationCycles": 0
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": false,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": false,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": true,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": false,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "scratchBytes": 8663040,
+          "separateHarnessImageBytes": 1048576,
+          "stageOwnerBytes": 248
+        },
+        "candidateRequiredBytes": null,
+        "exclusions": [
+          "allocator_headers",
+          "standalone_source_destination_payloads_reported_separately",
+          "caller_pattern_image_configuration_samples_JSON_and_facade_storage"
+        ],
+        "fixedBytes": null,
+        "gammaCacheReserveBytes": null,
+        "limitBytes": 268435456,
+        "limitScope": "standalone_scratch_only",
+        "requiredBytes": 8663288,
+        "scope": "standalone_stage",
+        "threeOwnerReserveBytes": null
+      },
+      "rowId": "clahe",
+      "scope": "standalone_stage",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 66.12234184444914,
+        "median": 14917821.5,
+        "p95NearestRank": 17684120,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 7561740647
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 23498752,
+        "beforeBytes": 23498752,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    },
+    {
+      "allocation": {
+        "armedRegion": "named prepared stage only; preexisting input/output remain alive through post-region hashing",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "not_applicable",
+        "measuredFingerprint": null,
+        "provenance": "complete P5 U16 output after measurement; standalone output buffer retained",
+        "value": "e7898a3ac69446edd95aaf0d92091a341acaa590391d0e53aa599cbd9af08050",
+        "verificationCycles": 0
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": false,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": false,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": true,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "scratchBytes": 2097176,
+          "separateHarnessImageBytes": 1048576,
+          "stageOwnerBytes": 64
+        },
+        "candidateRequiredBytes": null,
+        "exclusions": [
+          "allocator_headers",
+          "standalone_source_destination_payloads_reported_separately",
+          "caller_pattern_image_configuration_samples_JSON_and_facade_storage"
+        ],
+        "fixedBytes": null,
+        "gammaCacheReserveBytes": null,
+        "limitBytes": 268435456,
+        "limitScope": "standalone_scratch_only",
+        "requiredBytes": 2097240,
+        "scope": "standalone_stage",
+        "threeOwnerReserveBytes": null
+      },
+      "rowId": "denoise_gaussian",
+      "scope": "standalone_stage",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 946.697795680641,
+        "median": 921495.5,
+        "p95NearestRank": 1537794,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 528151647
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 17346560,
+        "beforeBytes": 17346560,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    },
+    {
+      "allocation": {
+        "armedRegion": "named prepared stage only; preexisting input/output remain alive through post-region hashing",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "not_applicable",
+        "measuredFingerprint": null,
+        "provenance": "complete P5 U16 output after measurement; standalone output buffer retained",
+        "value": "52820a3780fc42b813efc322727fc70e80c29359e41fbfff33f15cc6d4b4cace",
+        "verificationCycles": 0
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": false,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": false,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": true,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "median",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "scratchBytes": 0,
+          "separateHarnessImageBytes": 1048576,
+          "stageOwnerBytes": 64
+        },
+        "candidateRequiredBytes": null,
+        "exclusions": [
+          "allocator_headers",
+          "standalone_source_destination_payloads_reported_separately",
+          "caller_pattern_image_configuration_samples_JSON_and_facade_storage"
+        ],
+        "fixedBytes": null,
+        "gammaCacheReserveBytes": null,
+        "limitBytes": 268435456,
+        "limitScope": "standalone_scratch_only",
+        "requiredBytes": 64,
+        "scope": "standalone_stage",
+        "threeOwnerReserveBytes": null
+      },
+      "rowId": "denoise_median",
+      "scope": "standalone_stage",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 13.813127768405069,
+        "median": 73014965,
+        "p95NearestRank": 76841983,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 36197449874
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 18395136,
+        "beforeBytes": 18395136,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    },
+    {
+      "allocation": {
+        "armedRegion": "named prepared stage only; preexisting input/output remain alive through post-region hashing",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "not_applicable",
+        "measuredFingerprint": null,
+        "provenance": "complete P5 U16 output after measurement; standalone output buffer retained",
+        "value": "9249dafe748cdc810033832b09789636035b71feadb8100242699f9169f7466d",
+        "verificationCycles": 0
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": false,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": false,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": false,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": true,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "scratchBytes": 28728,
+          "separateHarnessImageBytes": 1048576,
+          "stageOwnerBytes": 80
+        },
+        "candidateRequiredBytes": null,
+        "exclusions": [
+          "allocator_headers",
+          "standalone_source_destination_payloads_reported_separately",
+          "caller_pattern_image_configuration_samples_JSON_and_facade_storage"
+        ],
+        "fixedBytes": null,
+        "gammaCacheReserveBytes": null,
+        "limitBytes": 268435456,
+        "limitScope": "standalone_scratch_only",
+        "requiredBytes": 28808,
+        "scope": "standalone_stage",
+        "threeOwnerReserveBytes": null
+      },
+      "rowId": "sharpen",
+      "scope": "standalone_stage",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 344.1630571877718,
+        "median": 2841011,
+        "p95NearestRank": 3323916,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 1452799740
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 18395136,
+        "beforeBytes": 18395136,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    },
+    {
+      "allocation": {
+        "armedRegion": "named prepared stage only; preexisting input/output remain alive through post-region hashing",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "not_applicable",
+        "measuredFingerprint": null,
+        "provenance": "complete P5 U16 output after measurement; standalone output buffer retained",
+        "value": "9fd9b74984ae1b3a7ccc8c78b0cd67a837d31c8156edb0f35c32d025a13d6505",
+        "verificationCycles": 0
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": false,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": false,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": false,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": false,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": true,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "scratchBytes": 0,
+          "separateHarnessImageBytes": 1048576,
+          "stageOwnerBytes": 16
+        },
+        "candidateRequiredBytes": null,
+        "exclusions": [
+          "allocator_headers",
+          "standalone_source_destination_payloads_reported_separately",
+          "caller_pattern_image_configuration_samples_JSON_and_facade_storage"
+        ],
+        "fixedBytes": null,
+        "gammaCacheReserveBytes": null,
+        "limitBytes": 268435456,
+        "limitScope": "standalone_scratch_only",
+        "requiredBytes": 16,
+        "scope": "standalone_stage",
+        "threeOwnerReserveBytes": null
+      },
+      "rowId": "invert",
+      "scope": "standalone_stage",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 2079.1831365173725,
+        "median": 466445,
+        "p95NearestRank": 558548,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 240479057
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 18395136,
+        "beforeBytes": 18395136,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    },
+    {
+      "allocation": {
+        "armedRegion": "preexisting RawFrame; full Standard paired displays, orientation, pooled publication/consume, five-owner retention, cycle eviction and final ring/sentinel release",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "FNV1a uint64;16 evenly spaced bytes per each of3 payloads each measured cycle; included in timing",
+        "measuredFingerprint": "b539d8b619117b3b",
+        "provenance": "one extra unmeasured verification cycle; concatenated canonical P5 EnhancedU16, OriginalGray8 and EnhancedGray8",
+        "value": "e831b5a6b4834bbcdaffcb6af5830f43f0b47794ee8a77a430c3bc42f2f31fa5",
+        "verificationCycles": 1
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": true,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": true,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": true,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": true,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": true,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": true,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "activationEnvelopeBytes": 175757842,
+          "actualRetainedStageBytes": 10940928,
+          "displayPoolBytes": 4194704,
+          "engineStateBytes": 5672,
+          "externalSessionBytes": 524448,
+          "frameObjectBytes": 18496,
+          "orientationBytes": 0,
+          "processingPoolBytes": 4718880
+        },
+        "candidateRequiredBytes": 10945664,
+        "exclusions": [
+          "allocator_headers",
+          "BufferPool_two_and_FrameObjectPool_three_STL_owner_controls",
+          "compiler_probe_temporaries",
+          "retained_error_diagnostic_strings",
+          "earlier_session_frames",
+          "RawFrame_metadata_and_shared_owner_controls",
+          "tool_input_samples_JSON_retention_slot_sentinel_owner_storage"
+        ],
+        "fixedBytes": 9462200,
+        "gammaCacheReserveBytes": 135184,
+        "limitBytes": 536870912,
+        "limitScope": "session_accounted_storage",
+        "requiredBytes": 536870910,
+        "scope": "prepared_session",
+        "threeOwnerReserveBytes": 527273526
+      },
+      "rowId": "full_standard_identity",
+      "scope": "full_frame",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 41.71349912473962,
+        "median": 23761240,
+        "p95NearestRank": 26371505,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 11986527395
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 31580160,
+        "beforeBytes": 31580160,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    },
+    {
+      "allocation": {
+        "armedRegion": "preexisting RawFrame; full Standard paired displays, orientation, pooled publication/consume, five-owner retention, cycle eviction and final ring/sentinel release",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "checksum": {
+        "algorithm": "sha256",
+        "fingerprintMethod": "FNV1a uint64;16 evenly spaced bytes per each of3 payloads each measured cycle; included in timing",
+        "measuredFingerprint": "a02dabe8d676ba4b",
+        "provenance": "one extra unmeasured verification cycle; concatenated canonical P5 EnhancedU16, OriginalGray8 and EnhancedGray8",
+        "value": "cddef4149141069c62a8120322d13da678d1ed25235e9a1d7174b805c83dfe44",
+        "verificationCycles": 1
+      },
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "baf078c6a04acd4b6ab01b4d778bc37e60deffceb12dd4fb9d7679b98a7e8d1b",
+        "version": 1
+      },
+      "measuredFrames": 500,
+      "orientation": {
+        "flipHorizontal": true,
+        "flipVertical": false,
+        "rotation": "degrees90"
+      },
+      "orientedDimensions": {
+        "height": 512,
+        "width": 512
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": true,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": true,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": true,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": true,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": true,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": true,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "activationEnvelopeBytes": 175670461,
+          "actualRetainedStageBytes": 10940928,
+          "displayPoolBytes": 4194704,
+          "engineStateBytes": 5672,
+          "externalSessionBytes": 524448,
+          "frameObjectBytes": 18496,
+          "orientationBytes": 262144,
+          "processingPoolBytes": 4718880
+        },
+        "candidateRequiredBytes": 10945664,
+        "exclusions": [
+          "allocator_headers",
+          "BufferPool_two_and_FrameObjectPool_three_STL_owner_controls",
+          "compiler_probe_temporaries",
+          "retained_error_diagnostic_strings",
+          "earlier_session_frames",
+          "RawFrame_metadata_and_shared_owner_controls",
+          "tool_input_samples_JSON_retention_slot_sentinel_owner_storage"
+        ],
+        "fixedBytes": 9724344,
+        "gammaCacheReserveBytes": 135184,
+        "limitBytes": 536870912,
+        "limitScope": "session_accounted_storage",
+        "requiredBytes": 536870911,
+        "scope": "prepared_session",
+        "threeOwnerReserveBytes": 527011383
+      },
+      "rowId": "full_standard_nonidentity",
+      "scope": "full_frame",
+      "size": 512,
+      "smoke": false,
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 512,
+          "width": 512
+        },
+        "packing": "unpacked",
+        "payloadBytes": 524288,
+        "sampleMaximum": 65535,
+        "strideBytes": 1024,
+        "validBits": 16
+      },
+      "timing": {
+        "fps": 34.898246388720324,
+        "median": 28484287,
+        "p95NearestRank": 30771217,
+        "sampleCount": 500,
+        "unit": "nanoseconds",
+        "wallElapsed": 14327367468
+      },
+      "warmUpFrames": 100,
+      "workingSet": {
+        "afterBytes": 31842304,
+        "beforeBytes": 31842304,
+        "metric": "linux_resident_bytes",
+        "source": "proc_self_statm"
+      }
+    }
+  ],
+  "runStatus": "incomplete",
+  "schemaVersion": 1,
+  "workload": {
+    "kind": "standard",
+    "measuredFrames": 500,
+    "requestedSizes": [
+      512,
+      1024,
+      2048
+    ],
+    "warmUpFrames": 100
+  }
+}

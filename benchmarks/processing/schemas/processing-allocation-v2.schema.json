@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "processing-allocation-v2.schema.json",
+  "$comment": "Structural owned-artifact schema. EvidenceValidation.cpp additionally enforces canonical definitions/ordered row products, all cross-field arithmetic, duplicate decoded JSON keys, and on-disk payload and reviewed attachment integrity. Validation is not authority to designate or accept a workstation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "runStatus",
+    "complete",
+    "smoke",
+    "generatedUtc",
+    "rows",
+    "failure"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "artifactType": {
+      "const": "lumora.processing.allocation-proof"
+    },
+    "runStatus": {
+      "enum": [
+        "complete",
+        "incomplete"
+      ]
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "smoke": {
+      "type": "boolean"
+    },
+    "generatedUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rowId",
+          "pipelineDefinition",
+          "input",
+          "sourceDescriptor",
+          "orientation",
+          "orientedDimensions",
+          "provenance",
+          "execution",
+          "resourcePlan",
+          "warmUpFrames",
+          "measuredCycles",
+          "positiveControl",
+          "measuredRegion",
+          "heapTrace",
+          "processingErrors",
+          "drops",
+          "complete",
+          "helperControl"
+        ],
+        "properties": {
+          "rowId": {
+            "enum": [
+              "full_standard_identity",
+              "full_standard_nonidentity"
+            ]
+          },
+          "pipelineDefinition": {
+            "$ref": "common.schema.json#/$defs/pipeline"
+          },
+          "input": {
+            "$ref": "common.schema.json#/$defs/input"
+          },
+          "sourceDescriptor": {
+            "$ref": "common.schema.json#/$defs/source"
+          },
+          "orientation": {
+            "$ref": "common.schema.json#/$defs/orientation"
+          },
+          "orientedDimensions": {
+            "$ref": "common.schema.json#/$defs/dimensions"
+          },
+          "provenance": {
+            "$ref": "common.schema.json#/$defs/provenance"
+          },
+          "execution": {
+            "$ref": "common.schema.json#/$defs/execution"
+          },
+          "resourcePlan": {
+            "$ref": "common.schema.json#/$defs/sessionResourceV2"
+          },
+          "warmUpFrames": {
+            "enum": [
+              2,
+              100
+            ]
+          },
+          "measuredCycles": {
+            "enum": [
+              20,
+              1000
+            ]
+          },
+          "positiveControl": {
+            "$ref": "common.schema.json#/$defs/positiveControl"
+          },
+          "measuredRegion": {
+            "$ref": "common.schema.json#/$defs/measuredRegion"
+          },
+          "heapTrace": {
+            "$ref": "common.schema.json#/$defs/heapTrace"
+          },
+          "processingErrors": {
+            "const": 0
+          },
+          "drops": {
+            "const": 0
+          },
+          "complete": {
+            "const": true
+          },
+          "helperControl": {
+            "$ref": "common.schema.json#/$defs/helperControl"
+          }
+        }
+      },
+      "maxItems": 2
+    },
+    "failure": {
+      "$ref": "common.schema.json#/$defs/failure"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "complete": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "runStatus": {
+            "const": "complete"
+          },
+          "failure": {
+            "type": "null"
+          },
+          "rows": {
+            "minItems": 2
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "runStatus": {
+            "const": "incomplete"
+          }
+        }
+      }
+    }
+  ]
+}

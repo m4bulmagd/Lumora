@@ -1,3 +1,4 @@
+#include "PreparedCpuExecutor.hpp"
 #include "FrameEngineTestAccess.hpp"
 #include "FrameObjectPoolTestSupport.hpp"
 #include "PreparedOwner.hpp"
@@ -206,4 +207,66 @@ TEST(FrameProcessingEngine, NewOwnerAllocatorRejectsOversizedReboundRequestsBefo
     auto* allocation=rebound.allocate(1); ASSERT_NE(allocation,nullptr); rebound.deallocate(allocation,1);
 }
 }
+TEST(FrameProcessingEngine, CpuExecutionOptionsAreAdmittedFrozenAndAccountedExactlyOnce) {
+    const auto layout=core::ImageLayout::create(4,2,8,core::StorageType::UInt16,16).value();
+    for(auto slots:{0U,5U}) {
+        ProcessingPreparationOptions options; options.cpuExecutionSlots=slots;
+        auto a=FrameProcessingEngine::plan({9,16},{16,8},layout,defaultPipeline(),options);
+        ASSERT_TRUE(a.error); EXPECT_EQ(a.error->code,"invalid_cpu_execution_slots"); EXPECT_FALSE(a.plan);
+    }
+    for(auto slots:{1U,4U}) {
+        ProcessingPreparationOptions options; options.cpuExecutionSlots=slots; options.activationEnvelopeBytes=1000000;
+        const auto a=FrameProcessingEngine::plan({9,16},{16,8},layout,defaultPipeline(),options);
+        ASSERT_FALSE(a.error); const auto& r=a.resources;
+        EXPECT_EQ(r.cpuExecutionSlots,slots); EXPECT_EQ(r.cpuHelperThreads,slots-1);
+        EXPECT_EQ(r.cpuExecutorBytes,sizeof(detail::PreparedCpuExecutor));
+        EXPECT_EQ(r.fixedStorageBytes,r.externalSessionBytes+r.processingPoolBytes+r.displayPoolBytes+r.frameObjectBytes+r.orientationBytes+r.engineStateBytes+r.cpuExecutorBytes);
+        auto p=core::BufferPool::create(9,16).value(),d=core::BufferPool::create(16,8).value();
+        auto engine=FrameProcessingEngine::create(*p,*d,*a.plan).value();
+        ASSERT_TRUE(engine->activate(gamma()).hasValue()); EXPECT_EQ(engine->resources().cpuExecutionSlots,slots);
+        options.storageBudgetBytes=r.requiredStorageBytes-1;
+        EXPECT_TRUE(FrameProcessingEngine::plan({9,16},{16,8},layout,defaultPipeline(),options).error);
+    }
+}
+TEST(FrameProcessingEngine, CpuStartupFailuresAreTypedAndActivationNeverStartsHelpers) {
+    struct Hook : detail::EngineHooks { unsigned starts{}; std::size_t failAt{2}; void beforeCpuThreadStart(std::size_t slot) override { ++starts; if(slot==failAt) throw std::runtime_error("injected"); } };
+    const auto layout=core::ImageLayout::create(4,2,8,core::StorageType::UInt16,16).value();
+    auto p=core::BufferPool::create(9,16).value(),d=core::BufferPool::create(16,8).value(); auto hook=std::make_shared<Hook>();
+    auto failed=detail::FrameEngineTestAccess::create(*p,*d,layout,defaultPipeline(),{},hook);
+    ASSERT_FALSE(failed.hasValue()); EXPECT_EQ(failed.error().code,"processing_cpu_executor_startup_failed"); EXPECT_EQ(hook->starts,2U);
+    hook->starts=0;hook->failAt=0;
+    auto engine=detail::FrameEngineTestAccess::create(*p,*d,layout,defaultPipeline(),{},hook).value();
+    EXPECT_EQ(hook->starts,3U); EXPECT_EQ(engine->resources().cpuHelperThreads,3U);
+    ASSERT_TRUE(engine->activate(gamma()).hasValue()); EXPECT_EQ(hook->starts,3U);
+}
+
+TEST(FrameProcessingEngine, BorrowingStageDestructorsStillHaveTheirLiveExecutor) {
+    struct Lifetime {
+        FrameProcessingEngine* engine{};
+        std::atomic<unsigned> mask{},destructors{};
+        static void work(void* p,std::size_t slot,std::size_t,std::size_t) noexcept {static_cast<Lifetime*>(p)->mask.fetch_or(1U<<slot);}
+    } lifetime;
+    struct Borrower : IProcessingStage {
+        std::shared_ptr<const IProcessingStage> inner; Lifetime& lifetime;
+        Borrower(std::shared_ptr<const IProcessingStage> stage,Lifetime& context):inner(std::move(stage)),lifetime(context) {}
+        ~Borrower() override { if(lifetime.engine) {detail::FrameEngineTestAccess::runCpu(*lifetime.engine,4,&lifetime,Lifetime::work);++lifetime.destructors;} }
+        StageId id() const noexcept override {return inner->id();}
+        const StageTraits& traits() const noexcept override {return inner->traits();}
+        core::Result<void> process(const ImageView& source,MutableImageView output,const core::SourcePixelFormat& format) const override {return inner->process(source,output,format);}
+    };
+    struct Hook : detail::EngineHooks {
+        Lifetime& lifetime;explicit Hook(Lifetime& context):lifetime(context) {}
+        core::Result<std::shared_ptr<const IProcessingStage>> prepare(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t scratch) override {
+            auto inner=EngineHooks::prepare(stage,layout,scratch);if(!inner.hasValue()) return inner;
+            return core::Result<std::shared_ptr<const IProcessingStage>>::success(std::make_shared<Borrower>(inner.value(),lifetime));
+        }
+    };
+    auto p=core::BufferPool::create(9,16).value(),d=core::BufferPool::create(16,8).value();
+    auto layout=core::ImageLayout::create(4,2,8,core::StorageType::UInt16,16).value();
+    auto hook=std::make_shared<Hook>(lifetime);
+    auto engine=detail::FrameEngineTestAccess::create(*p,*d,layout,gamma(),{},hook).value();
+    lifetime.engine=engine.get();engine.reset();
+    EXPECT_EQ(lifetime.destructors,1U);EXPECT_EQ(lifetime.mask,15U);
+}
+
 }

@@ -4,6 +4,7 @@
 #include <lumora/core/LatestValueSlot.hpp>
 #include <lumora/processing/FrameProcessingEngine.hpp>
 #include <array>
+#include <atomic>
 namespace lumora::evidence {
 core::ImageLayout layoutFor(std::uint32_t w,std::uint32_t h,bool gray8=false);
 core::SourcePixelFormat monoFormat(bool mono12=false);
@@ -26,6 +27,18 @@ public:
     QJsonObject resources() const;
     processing::PipelineDefinition definition;
 };
+// Fresh caller-owned context, initialized before trace/tracker arming.
+struct HelperAllocationControlContext {
+    std::atomic<unsigned> mask{};
+    std::array<unsigned,4> calls{};
+    std::atomic<bool> failed{};
+};
+struct HelperAllocationControlResult {
+    std::size_t executionSlots{};
+    unsigned observedHelperMask{};
+    unsigned callbackInvocations{};
+    bool successful{};
+};
 class Session {
     std::shared_ptr<core::BufferPool> rawPool_,processingPool_,displayPool_;
     std::shared_ptr<const core::RawFrame> raw_;
@@ -42,6 +55,7 @@ public:
     std::shared_ptr<const core::FrameBundle> verificationOutput();
     QJsonObject resources() const;
     bool healthy() const;
+    HelperAllocationControlResult helperAllocationControl(HelperAllocationControlContext&) noexcept;
 };
 Image displayImage(const core::DisplayFrame&);
 std::string fullChecksum(const core::FrameBundle&);

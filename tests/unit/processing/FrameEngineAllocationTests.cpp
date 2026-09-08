@@ -347,6 +347,35 @@ int main(int argc, char** argv) {
     auto processingPool = core::BufferPool::create(9U, 8U).value();
     auto displayPool = core::BufferPool::create(16U, 4U).value();
     auto engine = processing::FrameProcessingEngine::create(*processingPool, *displayPool, layout).value();
+    struct HelperControl {
+        std::atomic<unsigned> mask{};
+        std::atomic<bool> failed{};
+        static void run(void* opaque,std::size_t slot,std::size_t,std::size_t) noexcept {
+            auto& c=*static_cast<HelperControl*>(opaque);
+            if(!slot) return;
+            c.mask.fetch_or(1U<<slot);
+            try {
+                void* (*volatile allocate)(std::size_t)=::operator new;
+                void (*volatile release)(void*) noexcept=::operator delete;
+                auto* p=allocate(256+slot); release(p);
+            } catch(...) { c.failed=true; }
+        }
+    } helperControl;
+    test::beginAllocationTracking();
+    processing::detail::FrameEngineTestAccess::runCpu(*engine,4,&helperControl,HelperControl::run);
+    const auto helperCounts=test::endAllocationMeasurement();
+    std::printf("Helper control: mask=%u calls=%zu bytes=%zu releases=%zu\n",helperControl.mask.load(),helperCounts.allocations,helperCounts.allocatedBytes,helperCounts.deallocations);
+    if(helperControl.failed || helperControl.mask!=14 || helperCounts.allocations!=3 || helperCounts.allocatedBytes!=774 || helperCounts.deallocations!=3) return 7;
+    struct Arithmetic {
+        std::array<std::size_t,4> sums{};
+        static void run(void* p,std::size_t slot,std::size_t begin,std::size_t end) noexcept {
+            auto& a=*static_cast<Arithmetic*>(p); for(auto i=begin;i<end;++i) a.sums[slot]+=i;
+        }
+    } arithmetic;
+    test::beginAllocationTracking();
+    for(unsigned i=0;i<100;++i) processing::detail::FrameEngineTestAccess::runCpu(*engine,16,&arithmetic,Arithmetic::run);
+    const auto arithmeticCounts=test::endAllocationMeasurement();
+    if(arithmeticCounts.allocations || arithmeticCounts.allocatedBytes || arithmeticCounts.deallocations || arithmetic.sums[0]+arithmetic.sums[1]+arithmetic.sums[2]+arithmetic.sums[3]!=12000) return 8;
     auto sentinel = engine->process(raw).value();
     core::LatestValueSlot<core::FrameBundle> latest;
     std::array<std::shared_ptr<const core::FrameBundle>, 5U> retained{};

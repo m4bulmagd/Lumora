@@ -10,6 +10,7 @@ public:
     ~HeapTrace();
     void start(std::string_view row);
     void stop() noexcept;
+    QJsonObject helperControlResult(std::size_t executionSlots);
     QJsonObject result(std::uint32_t cycles,bool smoke);
 };
 }

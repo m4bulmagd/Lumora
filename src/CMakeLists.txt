@@ -60,6 +60,7 @@ add_library(
   processing/src/ProcessingWorkspace.cpp
   processing/src/FrameProcessingEngine.cpp
   processing/src/FrameExecution.cpp
+  processing/src/PreparedCpuExecutor.cpp
   processing/src/ProcessingPreparation.cpp
   processing/src/PreparedStageFactory.cpp
   processing/src/FrameEngineTestAccess.cpp
@@ -83,11 +84,12 @@ add_library(
   processing/src/Mono8PassThroughProcessor.cpp
 )
 add_library(lumora::processing ALIAS lumora_processing)
+find_package(Threads REQUIRED)
 target_include_directories(lumora_processing PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/processing/include>)
 target_link_libraries(lumora_processing
   PUBLIC lumora::core
-  PRIVATE opencv_core opencv_imgproc)
+  PRIVATE opencv_core opencv_imgproc Threads::Threads)
 lumora_enable_warnings(lumora_processing)
 
 # The camera API deliberately has no Qt, SDK, or transport dependency.
@@ -315,3 +317,8 @@ if(LUMORA_BUILD_TESTS)
   )
   lumora_enable_warnings(lumora_viewer_harness)
 endif()
+
+# Executor environment access respects the caller's dynamic control modes.
+set_property(SOURCE processing/src/PreparedCpuExecutor.cpp APPEND PROPERTY COMPILE_OPTIONS
+  "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffp-contract=off;-frounding-math>"
+  "$<$<CXX_COMPILER_ID:MSVC>:/fp:strict>")

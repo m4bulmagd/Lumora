@@ -10,6 +10,7 @@ core::Result<std::unique_ptr<FrameProcessingEngine>> FrameEngineTestAccess::crea
     if(assessment.error) return core::Result<std::unique_ptr<FrameProcessingEngine>>::failure(*assessment.error);
     return FrameProcessingEngine::createPrepared(p,d,*assessment.plan,std::move(hooks));
 }
+void FrameEngineTestAccess::runCpu(FrameProcessingEngine& engine,std::size_t n,void* c,CpuWork w) noexcept { engine.state_->cpuExecutor->run(n,c,w); }
 std::weak_ptr<const IProcessingStage> FrameEngineTestAccess::stage(FrameProcessingEngine& engine,StageId id) {
     std::lock_guard lock(engine.state_->stateMutex);
     const auto& active=engine.state_->active;

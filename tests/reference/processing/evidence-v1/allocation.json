@@ -1,0 +1,455 @@
+{
+  "artifactType": "lumora.processing.allocation-proof",
+  "complete": true,
+  "failure": null,
+  "generatedUtc": "2026-09-08T12:01:21.445Z",
+  "rows": [
+    {
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "heapTrace": null,
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "85862d31b5879c476ec1dacc8e94ea5c26626e909c0dd10fca2aa2a410ce027b",
+        "version": 1
+      },
+      "measuredCycles": 1000,
+      "measuredRegion": {
+        "armedRegion": "preexisting RawFrame; full Standard paired display mapping/orientation, pooled publication/consume, five-owner retention, every cycle eviction and final ring/sentinel release; acquisition/preparation/JSON/trace parsing excluded",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "cycles": 1000,
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 48,
+        "width": 64
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": true,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": true,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": true,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": true,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": true,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": true,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "positiveControl": {
+        "armedRegion": "eight non-elidable replacement-new positive controls before warm-up; counters reset before each measured region",
+        "bytes": 150,
+        "calls": 8,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "cycles": 1,
+        "deallocations": 8,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "activationEnvelopeBytes": 178866706,
+          "actualRetainedStageBytes": 8832448,
+          "displayPoolBytes": 49552,
+          "engineStateBytes": 5672,
+          "externalSessionBytes": 6304,
+          "frameObjectBytes": 18496,
+          "orientationBytes": 0,
+          "processingPoolBytes": 55584
+        },
+        "candidateRequiredBytes": 8837184,
+        "exclusions": [
+          "allocator_headers",
+          "BufferPool_two_and_FrameObjectPool_three_STL_owner_controls",
+          "compiler_probe_temporaries",
+          "retained_error_diagnostic_strings",
+          "earlier_session_frames",
+          "RawFrame_metadata_and_shared_owner_controls",
+          "tool_input_samples_JSON_retention_slot_sentinel_owner_storage"
+        ],
+        "fixedBytes": 135608,
+        "gammaCacheReserveBytes": 135184,
+        "limitBytes": 536870912,
+        "limitScope": "session_accounted_storage",
+        "requiredBytes": 536870910,
+        "scope": "prepared_session",
+        "threeOwnerReserveBytes": 536600118
+      },
+      "rowId": "full_standard_identity",
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 48,
+          "width": 64
+        },
+        "packing": "unpacked",
+        "payloadBytes": 6144,
+        "sampleMaximum": 65535,
+        "strideBytes": 128,
+        "validBits": 16
+      },
+      "warmUpFrames": 100
+    },
+    {
+      "complete": true,
+      "drops": 0,
+      "execution": {
+        "algorithmImplementation": "Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen",
+        "algorithmProvenance": "Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt",
+        "backend": "cpu",
+        "opencvThreads": 8,
+        "roundingMode": "FE_TONEAREST",
+        "threadModel": "single sequential processing worker; prepared CLAHE/detail loops"
+      },
+      "heapTrace": null,
+      "input": {
+        "patternId": "xorshift32_u16_v1",
+        "seed": 1831565813,
+        "sha256": "85862d31b5879c476ec1dacc8e94ea5c26626e909c0dd10fca2aa2a410ce027b",
+        "version": 1
+      },
+      "measuredCycles": 1000,
+      "measuredRegion": {
+        "armedRegion": "preexisting RawFrame; full Standard paired display mapping/orientation, pooled publication/consume, five-owner retention, every cycle eviction and final ring/sentinel release; acquisition/preparation/JSON/trace parsing excluded",
+        "bytes": 0,
+        "calls": 0,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "cycles": 1000,
+        "deallocations": 0,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "orientation": {
+        "flipHorizontal": true,
+        "flipVertical": false,
+        "rotation": "degrees90"
+      },
+      "orientedDimensions": {
+        "height": 64,
+        "width": 48
+      },
+      "pipelineDefinition": {
+        "configurationRevision": 0,
+        "orderVersion": 1,
+        "schemaVersion": 1,
+        "stages": [
+          {
+            "enabled": true,
+            "id": "normalize",
+            "parameters": {}
+          },
+          {
+            "enabled": true,
+            "id": "window_level",
+            "parameters": {
+              "level": 32767.5,
+              "window": 65535
+            }
+          },
+          {
+            "enabled": true,
+            "id": "brightness_contrast",
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "enabled": true,
+            "id": "gamma",
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "enabled": true,
+            "id": "clahe",
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "enabled": true,
+            "id": "denoise",
+            "parameters": {
+              "kernelSize": 3,
+              "mode": "gaussian",
+              "sigma": 0
+            }
+          },
+          {
+            "enabled": true,
+            "id": "sharpen",
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "enabled": false,
+            "id": "invert",
+            "parameters": {}
+          }
+        ]
+      },
+      "positiveControl": {
+        "armedRegion": "eight non-elidable replacement-new positive controls before warm-up; counters reset before each measured region",
+        "bytes": 150,
+        "calls": 8,
+        "coveredRoutes": [
+          "ordinary",
+          "array",
+          "aligned",
+          "aligned_array",
+          "nothrow",
+          "nothrow_array",
+          "aligned_nothrow",
+          "aligned_nothrow_array"
+        ],
+        "cycles": 1,
+        "deallocations": 8,
+        "scope": "cxx_replacement_new",
+        "unsupportedRoutes": [
+          "c_malloc_free",
+          "external_dll_private_heaps"
+        ]
+      },
+      "processingErrors": 0,
+      "provenance": {
+        "build": {
+          "compileOptions": {
+            "configuration": "-O3 -DNDEBUG",
+            "evidence": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror -fPIC",
+            "global": "",
+            "processing": "-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror",
+            "scope": "declared_cmake_configuration_and_target_options",
+            "sourceOptions": "LUMORA_BUILD_TESTS=ON LUMORA_BUILD_BENCHMARKS=ON LUMORA_ENABLE_BASLER=OFF"
+          },
+          "compilerId": "GNU",
+          "compilerVersion": "15.2.0",
+          "configuration": "Release",
+          "cxxStandard": 20
+        },
+        "dependencies": {
+          "opencvVcpkgPortVersion": "9",
+          "opencvVersion": "4.12.0",
+          "qtVersion": "6.11.1",
+          "vcpkgBaseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+        },
+        "host": {
+          "architecture": "x86_64",
+          "cpuModel": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+          "logicalCores": 8,
+          "osName": "ubuntu",
+          "osVersion": "26.04"
+        },
+        "source": {
+          "capturedUtc": "2026-09-08T11:32:35.000Z",
+          "dirty": false,
+          "dirtyScope": "git-status-porcelain-v1-untracked-normal",
+          "revision": "603f49c396ef52f658aa8d0fa596af77a92002aa",
+          "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "resourcePlan": {
+        "boundedStatistics": {
+          "activationEnvelopeBytes": 178865682,
+          "actualRetainedStageBytes": 8832448,
+          "displayPoolBytes": 49552,
+          "engineStateBytes": 5672,
+          "externalSessionBytes": 6304,
+          "frameObjectBytes": 18496,
+          "orientationBytes": 3072,
+          "processingPoolBytes": 55584
+        },
+        "candidateRequiredBytes": 8837184,
+        "exclusions": [
+          "allocator_headers",
+          "BufferPool_two_and_FrameObjectPool_three_STL_owner_controls",
+          "compiler_probe_temporaries",
+          "retained_error_diagnostic_strings",
+          "earlier_session_frames",
+          "RawFrame_metadata_and_shared_owner_controls",
+          "tool_input_samples_JSON_retention_slot_sentinel_owner_storage"
+        ],
+        "fixedBytes": 138680,
+        "gammaCacheReserveBytes": 135184,
+        "limitBytes": 536870912,
+        "limitScope": "session_accounted_storage",
+        "requiredBytes": 536870910,
+        "scope": "prepared_session",
+        "threeOwnerReserveBytes": 536597046
+      },
+      "rowId": "full_standard_nonidentity",
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 48,
+          "width": 64
+        },
+        "packing": "unpacked",
+        "payloadBytes": 6144,
+        "sampleMaximum": 65535,
+        "strideBytes": 128,
+        "validBits": 16
+      },
+      "warmUpFrames": 100
+    }
+  ],
+  "runStatus": "complete",
+  "schemaVersion": 1,
+  "smoke": false
+}

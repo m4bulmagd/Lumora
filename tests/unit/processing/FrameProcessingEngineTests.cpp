@@ -320,7 +320,7 @@ TEST(FrameProcessingEngine, AggregatePlanReportsAdmissionBeforeBulkOwnership) {
     EXPECT_EQ(r.displayPoolBytes, core::BufferPool::plan(16,4).value().requiredStorageBytes);
     EXPECT_GT(r.frameObjectBytes, 0U);
     EXPECT_EQ(r.orientationBytes, 0U);
-    EXPECT_EQ(r.fixedStorageBytes, r.externalSessionBytes + r.processingPoolBytes + r.displayPoolBytes + r.frameObjectBytes + r.orientationBytes + r.engineStateBytes);
+    EXPECT_EQ(r.fixedStorageBytes, r.externalSessionBytes + r.processingPoolBytes + r.displayPoolBytes + r.frameObjectBytes + r.orientationBytes + r.engineStateBytes + r.cpuExecutorBytes);
     EXPECT_EQ(r.activationReserveBytes, 600000U);
     EXPECT_GT(r.gammaCacheReserveBytes, 131072U);
     EXPECT_EQ(r.requiredStorageBytes, r.fixedStorageBytes + r.activationReserveBytes + r.gammaCacheReserveBytes);

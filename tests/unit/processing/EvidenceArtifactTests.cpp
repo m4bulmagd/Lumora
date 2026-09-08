@@ -93,6 +93,7 @@ TEST(EvidenceValidation, AcceptedWorkstationCannotOmitDesignationAndEvidence) {
 TEST(EvidenceArtifactFiles, GeneratedBenchmarkAndAllocationRejectSemanticMutations) {
     const auto directory=qEnvironmentVariable("LUMORA_EVIDENCE_DIRECTORY");if(directory.isEmpty()) GTEST_SKIP()<<"Run through Processing.EvidenceSmoke after CLI artifacts exist.";
     const auto base=std::filesystem::path(directory.toStdU16String());auto benchmark=strictObject(readFile(base/"benchmark.json"));auto allocation=strictObject(readFile(base/"allocation.json"));
+    ASSERT_EQ(benchmark["schemaVersion"],2);ASSERT_EQ(allocation["schemaVersion"],2);
     EXPECT_NO_THROW(validateArtifact(json(benchmark),base));
     EXPECT_NO_THROW(validateArtifact(json(allocation),base));
     auto rows=benchmark["rows"].toArray();ASSERT_EQ(rows.size(),22);
@@ -324,4 +325,107 @@ TEST(EvidenceArtifacts, ClaheProvenanceRetainsAdaptedSourceLicenseNotice) {
         EXPECT_TRUE(caseText.contains("three-clause BSD"));
         EXPECT_TRUE(caseText.contains("THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt"));
     }
+}
+
+namespace {
+QJsonObject legacyArtifact(const char* name) { return strictObject(readFile(std::filesystem::path(LUMORA_LEGACY_EVIDENCE_ROOT)/name)); }
+QJsonObject helperControlFixture() {
+    return {{"scope","prepared_cpu_executor_persistent_helpers"},{"expectedHelperMask",14},{"observedHelperMask",14},{"callbackInvocations",3},
+        {"cxxAllocation",QJsonObject{{"scope","cxx_replacement_new"},{"calls",3},{"bytes",774},{"deallocations",3},{"armedRegion","caller reset/armed before one synchronous helper control dispatch and ended after return"},{"coveredRoutes",QJsonArray{"ordinary"}},{"unsupportedRoutes",QJsonArray{"c_malloc_free","external_dll_private_heaps"}}}},
+        {"glibcTrace",QJsonValue()}};
+}
+QJsonObject upgradedArtifact(const char* name) {
+    auto artifact=legacyArtifact(name); artifact["schemaVersion"]=2;
+    auto rows=artifact["rows"].toArray();
+    for(qsizetype i=0;i<rows.size();++i) {
+        auto row=rows[i].toObject(),r=row["resourcePlan"].toObject();
+        if(r["scope"]=="prepared_session") {
+            r["cpuExecutionSlots"]=4;r["cpuHelperThreads"]=3;
+            auto stats=r["boundedStatistics"].toObject();stats["cpuExecutorBytes"]=512;
+            r["boundedStatistics"]=stats;r["fixedBytes"]=integer(static_cast<std::uint64_t>(r["fixedBytes"].toInteger())+512);
+            r["requiredBytes"]=integer(static_cast<std::uint64_t>(r["requiredBytes"].toInteger())+512);
+            r["limitBytes"]=integer(static_cast<std::uint64_t>(r["limitBytes"].toInteger())+512);
+            auto exclusions=r["exclusions"].toArray();exclusions.append("thread_stacks_TLS_thread_library_and_OS_bookkeeping");r["exclusions"]=exclusions;
+            row["resourcePlan"]=r;
+        }
+        if(artifact["artifactType"]=="lumora.processing.allocation-proof") row["helperControl"]=helperControlFixture();
+        rows[i]=row;
+    }
+    artifact["rows"]=rows;return artifact;
+}
+template<class Mutation> QJsonObject mutateFirstAllocation(Mutation change) {
+    auto artifact=upgradedArtifact("allocation.json");auto rows=artifact["rows"].toArray();auto row=rows[0].toObject();change(row);rows[0]=row;artifact["rows"]=rows;return artifact;
+}
+}
+TEST(EvidenceValidation, TrackedRepresentativeLegacyV1ArtifactsRetainExactShapes) {
+    for(const auto* name:{"benchmark.json","allocation.json"}) {
+        auto root=legacyArtifact(name); EXPECT_NO_THROW(validateArtifact(json(root)));
+        auto rows=root["rows"].toArray();auto row=rows.last().toObject(),r=row["resourcePlan"].toObject();r["cpuExecutionSlots"]=4;row["resourcePlan"]=r;rows[rows.size()-1]=row;root["rows"]=rows;
+        EXPECT_THROW(validateArtifact(json(root)),Error);
+    }
+}
+TEST(EvidenceValidation, VersionTwoRequiresExactExecutorAccountingAndHelperControls) {
+    EXPECT_NO_THROW(validateArtifact(json(upgradedArtifact("benchmark.json"))));
+    EXPECT_NO_THROW(validateArtifact(json(upgradedArtifact("allocation.json"))));
+    for(const auto* key:{"cpuExecutionSlots","cpuHelperThreads","cpuExecutorBytes","stackExclusion","extra","fixedBytes","requiredBytes","activationEnvelopeBytes","candidateRequiredBytes"}) {
+        const auto invalid=mutateFirstAllocation([&](QJsonObject& row) {
+            auto r=row["resourcePlan"].toObject(),stats=r["boundedStatistics"].toObject();
+            const std::string_view field=key;
+            if(field=="cpuExecutorBytes" || field=="activationEnvelopeBytes") stats[key]=stats[key].toInteger()+1;
+            else if(field=="stackExclusion") r["exclusions"]=QJsonArray{"allocator_headers"};
+            else if(field=="candidateRequiredBytes") r[key]=stats["activationEnvelopeBytes"].toInteger()+1;
+            else r[key]=r[key].toInteger()+1;
+            r["boundedStatistics"]=stats;row["resourcePlan"]=r;
+        });
+        EXPECT_THROW(validateArtifact(json(invalid)),Error)<<key;
+    }
+    for(const auto* key:{"cpuExecutionSlots","cpuHelperThreads"}) {
+        auto invalid=mutateFirstAllocation([&](QJsonObject& row) {auto r=row["resourcePlan"].toObject();r.remove(key);row["resourcePlan"]=r;});
+        EXPECT_THROW(validateArtifact(json(invalid)),Error)<<key;
+    }
+    for(const auto* key:{"expectedHelperMask","observedHelperMask","callbackInvocations","calls","bytes","deallocations","missing","extra"}) {
+        auto invalid=mutateFirstAllocation([&](QJsonObject& row) {
+            auto h=row["helperControl"].toObject(),a=h["cxxAllocation"].toObject();const std::string_view field=key;
+            if(field=="missing") {row.remove("helperControl");return;}
+            if(field=="calls" || field=="bytes" || field=="deallocations") a[key]=a[key].toInteger()+1; else h[key]=h[key].toInteger()+1;
+            h["cxxAllocation"]=a;row["helperControl"]=h;
+        });
+        EXPECT_THROW(validateArtifact(json(invalid)),Error)<<key;
+    }
+}
+TEST(EvidenceValidation, HelperPositiveTraceHasDistinctPolarityAndExactCounts) {
+    auto root=upgradedArtifact("allocation.json");auto rows=root["rows"].toArray();auto row=rows[0].toObject(),helper=row["helperControl"].toObject();
+    QJsonObject counts{{"events",6},{"successfulAllocationResults",3},{"nullAllocationResults",0},{"releases",3},{"reallocOldTransitions",0},{"reallocNewResults",0},{"reallocFailures",0},{"traceReportedSuccessfulBytes",774}};
+    QJsonObject trace{{"status","passed"},{"tracePath","helper.trace"},{"traceSha256",QString(64,'0')},{"events",counts}};
+    helper["glibcTrace"]=trace;row["helperControl"]=helper;rows[0]=row;root["rows"]=rows;
+    EXPECT_NO_THROW(validateArtifact(json(root)));
+    for(const auto* key:{"status","events","traceReportedSuccessfulBytes"}) {
+        auto badTrace=trace,badCounts=counts;
+        if(std::string_view(key)=="status") badTrace["status"]="complete";else {badCounts[key]=0;badTrace["events"]=badCounts;}
+        auto badHelper=helper;badHelper["glibcTrace"]=badTrace;auto badRow=row;badRow["helperControl"]=badHelper;auto badRows=rows;badRows[0]=badRow;auto invalid=root;invalid["rows"]=badRows;
+        EXPECT_THROW(validateArtifact(json(invalid)),Error)<<key;
+    }
+}
+
+TEST(EvidenceValidation, VersionTwoHelperFormulasSupportEveryAdmittedSlotCount) {
+    for(int executionSlots=1;executionSlots<=4;++executionSlots) {
+        auto root=upgradedArtifact("allocation.json");auto rows=root["rows"].toArray();
+        for(qsizetype index=0;index<rows.size();++index) {
+            auto row=rows[index].toObject(),resource=row["resourcePlan"].toObject(),helper=row["helperControl"].toObject();
+            const auto helpers=executionSlots-1,mask=(1<<executionSlots)-2,bytes=helpers*256+helpers*(helpers+1)/2;
+            resource["cpuExecutionSlots"]=executionSlots;resource["cpuHelperThreads"]=helpers;row["resourcePlan"]=resource;
+            helper["expectedHelperMask"]=mask;helper["observedHelperMask"]=mask;helper["callbackInvocations"]=helpers;
+            auto counts=helper["cxxAllocation"].toObject();counts["calls"]=helpers;counts["bytes"]=bytes;counts["deallocations"]=helpers;
+            helper["cxxAllocation"]=counts;row["helperControl"]=helper;rows[index]=row;
+        }
+        root["rows"]=rows;EXPECT_NO_THROW(validateArtifact(json(root)));
+    }
+    auto invalid=mutateFirstAllocation([](QJsonObject& row) {auto resource=row["resourcePlan"].toObject();auto stats=resource["boundedStatistics"].toObject();stats.remove("cpuExecutorBytes");resource["boundedStatistics"]=stats;row["resourcePlan"]=resource;});
+    EXPECT_THROW(validateArtifact(json(invalid)),Error);
+}
+TEST(EvidenceArtifacts, Prepared2048ResourcePlanReportsSeparateExecutorStorage) {
+    auto assessment=Session::assess(2048,2048,{false,false,lumora::core::Rotation::Degrees0});ASSERT_FALSE(assessment.error);
+    const auto& r=assessment.resources;
+    EXPECT_EQ(r.cpuExecutionSlots,4U);EXPECT_EQ(r.cpuHelperThreads,3U);EXPECT_GT(r.cpuExecutorBytes,0U);
+    std::cout<<"Task3 2048 plan: fixed="<<r.fixedStorageBytes<<" engineState="<<r.engineStateBytes<<" executor="<<r.cpuExecutorBytes<<" candidate="<<r.candidateRequiredBytes<<" required="<<r.requiredStorageBytes<<'\n';
 }

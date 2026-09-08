@@ -40,7 +40,8 @@ add_executable(lumora_processing_tests
   unit/processing/DisplayMapperTests.cpp
   unit/processing/OrientationTransformTests.cpp
   unit/processing/FrameProcessingEngineTests.cpp
-  unit/processing/PreparedRuntimeTests.cpp)
+  unit/processing/PreparedRuntimeTests.cpp
+  unit/processing/PreparedCpuExecutorTests.cpp)
 target_include_directories(lumora_processing_tests PRIVATE "${PROJECT_SOURCE_DIR}/src/processing/src" "${CMAKE_CURRENT_SOURCE_DIR}/support")
 target_link_libraries(lumora_processing_tests PRIVATE
   lumora::processing opencv_core opencv_imgproc GTest::gtest_main)
@@ -408,3 +409,8 @@ foreach(evidence_test_case IN ITEMS language flags)
   set_tests_properties(Processing.EvidenceProvenance.${evidence_test_case}
     PROPERTIES TIMEOUT 120 LABELS "processing;evidence")
 endforeach()
+
+add_test(NAME Processing.PreparedCpuExecutor COMMAND lumora_processing_tests --gtest_filter=PreparedCpuExecutor.*)
+set_tests_properties(Processing.PreparedCpuExecutor PROPERTIES TIMEOUT 60)
+
+target_compile_definitions(lumora_evidence_tests PRIVATE LUMORA_LEGACY_EVIDENCE_ROOT="${PROJECT_SOURCE_DIR}/tests/reference/processing/evidence-v1")

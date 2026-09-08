@@ -10,13 +10,21 @@ struct ProcessingPreparationOptions final {
     std::size_t storageBudgetBytes{512U * 1024U * 1024U};
     std::optional<std::size_t> activationEnvelopeBytes;
     std::size_t externalSessionStorageBytes{};
+    // Stopped preparation only: includes the caller and is frozen by the plan.
+    std::size_t cpuExecutionSlots{4};
 };
 struct ProcessingPoolSpecification final { std::size_t capacity; std::size_t bytesPerBuffer; };
 // Accounted requested storage for one session, not RSS or an all-session cap.
 // Excludes allocator headers, BufferPool's two and FrameObjectPool's three fixed
 // STL owner controls, compiler/probe temporaries, and retained/error diagnostic
-// strings. New prepared owner controls use enforced bounded reservations.
+// strings, thread stacks, TLS, thread-library and OS bookkeeping.
+// New prepared owner controls use enforced bounded reservations.
 struct ProcessingResources final {
+    // Dimensionless admitted capacity, independent of hardware concurrency.
+    std::size_t cpuExecutionSlots{};
+    std::size_t cpuHelperThreads{};
+    // Separately allocated executor object, counted once in fixed storage.
+    std::size_t cpuExecutorBytes{};
     std::size_t externalSessionBytes{};
     std::size_t processingPoolBytes{};
     std::size_t displayPoolBytes{};

@@ -42,6 +42,15 @@ test::AllocationCounts allocationControls() {
     const auto counts=test::endAllocationMeasurement();if(!valid || counts.allocations!=8 || counts.allocatedBytes!=150 || counts.deallocations!=8) throw Error(5,"Replacement-new positive controls failed");return counts;
 }
 QJsonObject allocationJson(test::AllocationCounts c,const QString& region) {return {{"scope","cxx_replacement_new"},{"calls",integer(c.allocations)},{"bytes",integer(c.allocatedBytes)},{"deallocations",integer(c.deallocations)},{"armedRegion",region},{"coveredRoutes",QJsonArray{"ordinary","array","aligned","aligned_array","nothrow","nothrow_array","aligned_nothrow","aligned_nothrow_array"}},{"unsupportedRoutes",QJsonArray{"c_malloc_free","external_dll_private_heaps"}}};}
+QJsonObject helperControlJson(HelperAllocationControlResult control,test::AllocationCounts counts,QJsonValue trace) {
+    const auto helpers=control.executionSlots-1;const auto mask=(1U<<control.executionSlots)-2U;
+    const auto bytes=helpers*256+helpers*(helpers+1)/2;
+    if(!control.successful || control.observedHelperMask!=mask || control.callbackInvocations!=helpers || counts.allocations!=helpers || counts.allocatedBytes!=bytes || counts.deallocations!=helpers)
+        throw Error(5,"Persistent helper allocation positive control failed");
+    auto allocation=allocationJson(counts,"caller reset/armed before one synchronous helper control dispatch and ended after return");
+    allocation["coveredRoutes"]=QJsonArray{"ordinary"};
+    return {{"scope","prepared_cpu_executor_persistent_helpers"},{"expectedHelperMask",integer(mask)},{"observedHelperMask",integer(control.observedHelperMask)},{"callbackInvocations",integer(control.callbackInvocations)},{"cxxAllocation",allocation},{"glibcTrace",trace}};
+}
 QJsonObject measureBenchmarkRow(const std::string& id,std::uint32_t size,const Options& o) {
     const bool full=id.starts_with("full_standard_");const core::Orientation orientation{id=="full_standard_nonidentity",false,id=="full_standard_nonidentity"?core::Rotation::Degrees90:core::Rotation::Degrees0};
     auto source=makePattern({"xorshift32_u16_v1",size,size});const auto sourceHash=sha256(encodePgm(source));
