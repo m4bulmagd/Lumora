@@ -45,16 +45,23 @@ void PreparedCpuExecutor::invoke(std::size_t slot) noexcept {
     const auto quotient=itemCount_/slots_,remainder=itemCount_%slots_;
     const auto begin=quotient*slot+(slot<remainder?slot:remainder);
     const auto end=begin+quotient+(slot<remainder?1U:0U);
-    if(begin!=end) work_(context_,slot,begin,end);
+    if(begin!=end) {
+        if(observer_) observer_(observerContext_,jobKind_,slot,begin,end);
+        work_(context_,slot,begin,end);
+    }
 }
-void PreparedCpuExecutor::run(std::size_t n,void* context,Work work) noexcept {
+void PreparedCpuExecutor::run(std::size_t n,void* context,Work work,CpuJobKind kind) noexcept {
     if(!n) return;
+    const auto serial=[&] {
+        if(observer_) observer_(observerContext_,kind,0,0,n);
+        work(context,0,0,n);
+    };
     if(slots_==1 || serialOnly_ || fail(CpuEnvironmentOperation::CaptureCaller,0) || std::fegetenv(&callerEnvironment_)!=0) {
-        work(context,0,0,n); return;
+        serial(); return;
     }
     callerSimdControl_=simdControl();
     std::unique_lock lock(mutex_);
-    itemCount_=n;context_=context;work_=work;prepared_=0;completed_=0;decided_=false;setupFailed_=false;
+    itemCount_=n;context_=context;work_=work;jobKind_=kind;prepared_=0;completed_=0;decided_=false;setupFailed_=false;
     ++generation_;changed_.notify_all();
     changed_.wait(lock,[&]{return prepared_==slots_-1;});
     commit_=!setupFailed_;decided_=true;changed_.notify_all();
@@ -66,7 +73,7 @@ void PreparedCpuExecutor::run(std::size_t n,void* context,Work work) noexcept {
     context_=nullptr;work_=nullptr;
     lock.unlock();
     // On abort every helper is restored/quiescent before the first mutation.
-    if(!committed) work(context,0,0,n);
+    if(!committed) serial();
 }
 void PreparedCpuExecutor::worker(std::size_t slot) noexcept {
     if(hooks_.workerLifetime) hooks_.workerLifetime(hooks_.context,slot,true);

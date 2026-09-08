@@ -1,4 +1,5 @@
 #pragma once
+#include "PreparedCpuObservation.hpp"
 #include <array>
 #include <cfenv>
 #include <condition_variable>
@@ -32,12 +33,19 @@ public:
     PreparedCpuExecutor(const PreparedCpuExecutor&)=delete;
     PreparedCpuExecutor& operator=(const PreparedCpuExecutor&)=delete;
     std::size_t slots() const noexcept { return slots_; }
-    void run(std::size_t itemCount,void* context,Work work) noexcept;
+    // Attach, reset caller-owned context, and detach only between synchronous jobs.
+    // Context and callback must remain alive until run returns; no concurrent setter.
+    // Observers must not allocate, submit work, or change floating control modes.
+    void setWorkObserver(void* context,CpuWorkObserver observer) noexcept { observerContext_=context; observer_=observer; }
+    void run(std::size_t itemCount,void* context,Work work,CpuJobKind kind=CpuJobKind::Unspecified) noexcept;
 private:
     void worker(std::size_t slot) noexcept;
     void stop() noexcept;
     bool fail(CpuEnvironmentOperation,std::size_t) noexcept;
     void invoke(std::size_t slot) noexcept;
+    void* observerContext_{};
+    CpuWorkObserver observer_{};
+    CpuJobKind jobKind_{CpuJobKind::Unspecified};
     const std::size_t slots_;
     CpuExecutorTestHooks hooks_;
     std::mutex mutex_;

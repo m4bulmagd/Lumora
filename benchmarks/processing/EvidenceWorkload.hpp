@@ -1,5 +1,6 @@
 #pragma once
 #include "EvidenceJson.hpp"
+#include "../../src/processing/src/PreparedCpuObservation.hpp"
 #include <lumora/processing/IProcessingStage.hpp>
 #include <lumora/core/LatestValueSlot.hpp>
 #include <lumora/processing/FrameProcessingEngine.hpp>
@@ -55,6 +56,9 @@ public:
     std::shared_ptr<const core::FrameBundle> verificationOutput();
     QJsonObject resources() const;
     bool healthy() const;
+    // Only between synchronous cycles; context/callback must outlive attached jobs.
+    // Detach with (nullptr,nullptr) before destroying the caller-owned context.
+    void setCpuWorkObserver(void* context,processing::detail::CpuWorkObserver) noexcept;
     HelperAllocationControlResult helperAllocationControl(HelperAllocationControlContext&) noexcept;
 };
 Image displayImage(const core::DisplayFrame&);

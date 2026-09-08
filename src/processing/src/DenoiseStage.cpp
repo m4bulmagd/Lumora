@@ -1,5 +1,6 @@
 #include <lumora/processing/DenoiseStage.hpp>
 #include "StageStorage.hpp"
+#include "PreparedCpuExecutor.hpp"
 
 #include "DetailStageSupport.hpp"
 
@@ -89,6 +90,7 @@ struct DenoiseStage::Impl final {
           intermediate(std::move(intermediateValue)),
           coefficients(std::move(coefficientsValue)) {}
 
+    detail::PreparedCpuExecutor* executor{};
     const DenoiseParameters parameters;
     const std::uint32_t width;
     const std::uint32_t height;
@@ -96,6 +98,11 @@ struct DenoiseStage::Impl final {
     std::unique_ptr<double[]> intermediate;
     std::unique_ptr<double[]> coefficients;
 };
+
+core::Result<std::size_t> detail::StageStorage::denoiseScratchBytes(
+    DenoiseParameters parameters, const core::ImageLayout& layout, std::size_t) {
+    return DenoiseStage::requiredScratchBytes(parameters, layout);
+}
 
 std::size_t detail::StageStorage::denoiseOwnerBytes() noexcept {
     return sizeof(DenoiseStage) + sizeof(DenoiseStage::Impl);
@@ -121,7 +128,14 @@ core::Result<std::unique_ptr<DenoiseStage>> DenoiseStage::create(
     DenoiseParameters parameters,
     const core::ImageLayout& layout,
     std::size_t scratchBudgetBytes) {
-    const auto required = requiredScratchBytes(parameters, layout);
+    return detail::StageStorage::createDenoise(parameters, layout, scratchBudgetBytes, nullptr);
+}
+
+core::Result<std::unique_ptr<DenoiseStage>> detail::StageStorage::createDenoise(
+    DenoiseParameters parameters,
+    const core::ImageLayout& layout,
+    std::size_t scratchBudgetBytes, detail::PreparedCpuExecutor* executor) {
+    const auto required = DenoiseStage::requiredScratchBytes(parameters, layout);
     if (!required.hasValue()) return FactoryResult::failure(required.error());
     if (required.value() > scratchBudgetBytes) {
         return factoryFailure("denoise_scratch_budget_exceeded",
@@ -141,8 +155,9 @@ core::Result<std::unique_ptr<DenoiseStage>> DenoiseStage::create(
             detail::prepareGaussianKernel(
                 parameters.kernelSize, parameters.sigma, coefficients.get());
         }
-        auto impl = std::make_unique<Impl>(parameters, layout.width(), layout.height(),
+        auto impl = std::make_unique<DenoiseStage::Impl>(parameters, layout.width(), layout.height(),
             required.value(), std::move(intermediate), std::move(coefficients));
+        impl->executor = executor;
         return FactoryResult::success(
             std::unique_ptr<DenoiseStage>(new DenoiseStage(std::move(impl))));
     } catch (const std::bad_alloc&) {
@@ -188,16 +203,32 @@ core::Result<void> DenoiseStage::process(
     const auto width = static_cast<std::size_t>(impl_->width);
     const auto height = static_cast<std::size_t>(impl_->height);
     if (impl_->parameters.mode == DenoiseMode::Gaussian) {
-        const auto kernelSize = static_cast<std::size_t>(impl_->parameters.kernelSize);
-        detail::horizontalGaussian(source, impl_->intermediate.get(), width, height,
-            impl_->coefficients.get(), kernelSize);
-        detail::ReflectedGaussianRows rows{};
-        for (std::size_t y = 0U; y < height; ++y) {
-            detail::prepareVerticalGaussianRows(
-                impl_->intermediate.get(), width, height, y, kernelSize, rows);
-            const auto destinationRow = destination.row(static_cast<std::uint32_t>(y));
-            detail::writeGaussianRow(rows, impl_->coefficients.get(),
-                kernelSize, width, destinationRow);
+        struct Context { Impl* impl; const ImageView& source; MutableImageView destination; } context{impl_.get(),source,destination};
+        const auto horizontal = [](void* opaque, std::size_t, std::size_t begin, std::size_t end) noexcept {
+            auto& job = *static_cast<Context*>(opaque);
+            const auto& impl = *job.impl;
+            for (auto y = begin; y < end; ++y)
+                detail::horizontalGaussianRow(job.source.row(static_cast<std::uint32_t>(y)),
+                    impl.intermediate.get() + y * impl.width, impl.width,
+                    impl.coefficients.get(), impl.parameters.kernelSize);
+        };
+        const auto vertical = [](void* opaque, std::size_t, std::size_t begin, std::size_t end) noexcept {
+            auto& job = *static_cast<Context*>(opaque);
+            const auto& impl = *job.impl;
+            detail::ReflectedGaussianRows rows{};
+            for (auto y = begin; y < end; ++y) {
+                detail::prepareVerticalGaussianRows(impl.intermediate.get(), impl.width,
+                    impl.height, y, impl.parameters.kernelSize, rows);
+                detail::writeGaussianRow(rows, impl.coefficients.get(), impl.parameters.kernelSize,
+                    impl.width, job.destination.row(static_cast<std::uint32_t>(y)));
+            }
+        };
+        if (impl_->executor && width * height >= 65536U) {
+            impl_->executor->run(height, &context, horizontal, detail::CpuJobKind::GaussianHorizontal);
+            impl_->executor->run(height, &context, vertical, detail::CpuJobKind::GaussianVertical);
+        } else {
+            horizontal(&context, 0U, 0U, height);
+            vertical(&context, 0U, 0U, height);
         }
         return core::Result<void>::success();
     }

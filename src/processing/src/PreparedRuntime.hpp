@@ -56,8 +56,8 @@ struct EngineState final {
 };
 core::Error preparationError(std::string code, std::string detail);
 PipelineValidationError validationFailure(core::Error error);
-core::Result<PreparedDefinition,PipelineValidationError> prepareDefinition(const PipelineDefinition&, const core::ImageLayout&);
-core::Result<StageHandle> makeStage(const StageDefinition&,const core::ImageLayout&,std::size_t scratchBytes);
+core::Result<PreparedDefinition,PipelineValidationError> prepareDefinition(const PipelineDefinition&, const core::ImageLayout&,std::size_t executionSlots);
+core::Result<StageHandle> makeStage(const StageDefinition&,const core::ImageLayout&,std::size_t scratchBytes,PreparedCpuExecutor&);
 bool recordEnhancementFailure(EngineState&,ProcessingOperation,const core::Error&);
 void recordEnhancedSuccess(EngineState&);
 bool sameStage(const StageDefinition&,const StageDefinition&) noexcept;

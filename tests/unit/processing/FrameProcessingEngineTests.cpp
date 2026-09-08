@@ -95,14 +95,14 @@ struct FailureHook : detail::EngineHooks {
     int exceptionKind{};
     int preparationExceptionKind{};
     core::ErrorCategory category{core::ErrorCategory::Processing};
-    core::Result<std::shared_ptr<const IProcessingStage>> prepare(const StageDefinition& stage,const core::ImageLayout& image,std::size_t scratch) override {
+    core::Result<std::shared_ptr<const IProcessingStage>> prepare(const StageDefinition& stage,const core::ImageLayout& image,std::size_t scratch,detail::PreparedCpuExecutor& executor) override {
         if(preparationExceptionKind==1) throw std::runtime_error("backend construction failed");
         if(preparationExceptionKind==2) throw std::bad_alloc{};
         if(preparationExceptionKind==3) throw 17;
         if(preparationExceptionKind==4) throw std::length_error("backend storage exceeds limits");
         if(failPreparation) return core::Result<std::shared_ptr<const IProcessingStage>>::failure(
             {core::ErrorCategory::Processing,"injected_prepare_fault","Preparation failed.","Original factory diagnostic",false,17});
-        return EngineHooks::prepare(stage,image,scratch);
+        return EngineHooks::prepare(stage,image,scratch,executor);
     }
     core::Result<void> before(ProcessingOperation operation,std::span<std::byte> destination) override {
         if(operation!=failure) return core::Result<void>::success();

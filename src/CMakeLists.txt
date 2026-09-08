@@ -318,7 +318,9 @@ if(LUMORA_BUILD_TESTS)
   lumora_enable_warnings(lumora_viewer_harness)
 endif()
 
-# Executor environment access respects the caller's dynamic control modes.
-set_property(SOURCE processing/src/PreparedCpuExecutor.cpp APPEND PROPERTY COMPILE_OPTIONS
+# Floating kernels and executor environment access respect the caller's dynamic control modes.
+set_property(SOURCE processing/src/PreparedCpuExecutor.cpp
+  processing/src/ClaheStage.cpp processing/src/DenoiseStage.cpp
+  processing/src/SharpenStage.cpp processing/src/DetailStageSupport.cpp APPEND PROPERTY COMPILE_OPTIONS
   "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffp-contract=off;-frounding-math>"
   "$<$<CXX_COMPILER_ID:MSVC>:/fp:strict>")

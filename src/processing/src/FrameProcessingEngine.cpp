@@ -52,7 +52,7 @@ core::Result<void,PipelineValidationError> FrameProcessingEngine::activate(const
     std::lock_guard preparation(state_->preparationMutex);
     std::optional<ProcessingResources> candidateResources;
     try {
-        auto prepared=detail::prepareDefinition(definition,state_->plan->canonicalLayout);
+        auto prepared=detail::prepareDefinition(definition,state_->plan->canonicalLayout,state_->plan->options.cpuExecutionSlots);
         if(!prepared.hasValue()) return Result::failure(std::move(prepared).error());
         candidateResources=state_->plan->resources;
         candidateResources->candidateRequiredBytes=prepared.value().requiredBytes;

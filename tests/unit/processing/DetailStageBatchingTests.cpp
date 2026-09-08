@@ -1,4 +1,8 @@
 #include "DetailStageSupport.hpp"
+#include "PreparedCpuExecutor.hpp"
+#include "StageStorage.hpp"
+#include <atomic>
+#include <cfenv>
 
 #include <lumora/processing/DenoiseStage.hpp>
 #include <lumora/processing/SharpenStage.hpp>
@@ -446,6 +450,102 @@ TEST(DetailStageBatching, SharpenMatchesScalarReferenceAcrossEightLaneBoundaries
             }
         }
     }
+}
+
+
+TEST(DetailStageBatching, PreparedParallelFiltersMatchIndependentOracleAndDispatch) {
+    using namespace processing::detail;
+    for (const auto slots : {1U,2U,4U}) {
+        PreparedCpuExecutor executor(slots);
+        std::atomic<unsigned> observed{};
+        executor.setWorkObserver(&observed, [](void* c,CpuJobKind,std::size_t slot,std::size_t,std::size_t) noexcept {
+            if(slot) static_cast<std::atomic<unsigned>*>(c)->fetch_or(1U<<slot);
+        });
+        for (const auto [width,height] : {std::pair{1U,1U}, {17U,37U}, {257U,257U}, {3U,21847U}, {21847U,3U}, {4097U,17U}}) {
+            const auto imageLayout=layout(width,height,width*2U+3U);
+            constexpr DenoiseParameters denoise{DenoiseMode::Gaussian,7U,1.25};
+            constexpr SharpenParameters sharpen{1.75,5.0,12.5};
+            auto gaussian=StageStorage::createDenoise(denoise,imageLayout,64U*1024U*1024U,&executor);
+            auto sharp=StageStorage::createSharpen(sharpen,imageLayout,64U*1024U*1024U,&executor);
+            ASSERT_TRUE(gaussian.hasValue()); ASSERT_TRUE(sharp.hasValue());
+            for(const auto pattern : {Pattern::Noise,Pattern::TopBottomImpulse,Pattern::Noise}) {
+                const auto input=makeInput(width,height,pattern);
+                observed=0;
+                expectProcessMatches(*gaussian.value(),input,gaussianReference(input,width,height,coefficients(7U,1.25)),width,height);
+                EXPECT_EQ(observed.load(),width*height>=65536U ? (1U<<std::min(slots,height))-2U : 0U);
+                observed=0;
+                expectProcessMatches(*sharp.value(),input,sharpenReference(input,width,height,coefficients(31U,5.0),1.75,12.5),width,height);
+                // Short images can have fewer nonempty stripes than slots.
+                EXPECT_EQ(observed.load(),width*height>=65536U ? (1U<<std::min(slots,height))-2U : 0U);
+            }
+        }
+        executor.setWorkObserver(nullptr,nullptr);
+    }
+}
+
+
+TEST(DetailStageBatching, ParallelFilterVariantsAndEnvironmentFallbackPreserveCompletePixels) {
+    using namespace processing::detail;
+    constexpr unsigned width=263U,height=251U;
+    const auto imageLayout=layout(width,height,width*2U+3U);
+    const auto input=makeInput(width,height,Pattern::Noise);
+    for(const bool fallback : {false,true}) {
+        CpuExecutorTestHooks hooks;
+        if(fallback) hooks.failEnvironment=[](void*,CpuEnvironmentOperation op,std::size_t) noexcept {return op==CpuEnvironmentOperation::InstallHelper;};
+        PreparedCpuExecutor executor(4,hooks);
+        for(const auto parameters : {DenoiseParameters{DenoiseMode::Gaussian,3,0},DenoiseParameters{DenoiseMode::Gaussian,5,5}}) {
+            auto stage=StageStorage::createDenoise(parameters,imageLayout,16U*1024U*1024U,&executor);
+            ASSERT_TRUE(stage.hasValue());
+            expectProcessMatches(*stage.value(),input,gaussianReference(input,width,height,coefficients(parameters.kernelSize,parameters.sigma)),width,height);
+        }
+        for(const auto parameters : {SharpenParameters{5,0.5,0},SharpenParameters{1.5,2,12.5}}) {
+            auto stage=StageStorage::createSharpen(parameters,imageLayout,16U*1024U*1024U,&executor);
+            ASSERT_TRUE(stage.hasValue());
+            const auto kernel=coefficients(static_cast<std::size_t>(2*std::ceil(3*parameters.radius)+1),parameters.radius);
+            expectProcessMatches(*stage.value(),input,sharpenReference(input,width,height,kernel,parameters.amount,parameters.threshold),width,height);
+        }
+    }
+    // Prepare coefficients once; helpers must follow caller modes on each subsequent job.
+    PreparedCpuExecutor executor(4);
+    const DenoiseParameters parameters{DenoiseMode::Gaussian,7,1.25};
+    auto parallel=StageStorage::createDenoise(parameters,imageLayout,16U*1024U*1024U,&executor);
+    auto serial=DenoiseStage::create(parameters,imageLayout);
+    ASSERT_TRUE(parallel.hasValue()); ASSERT_TRUE(serial.hasValue());
+    struct RoundingGuard { int saved=std::fegetround(); ~RoundingGuard() {std::fesetround(saved);} } guard;
+    for(const auto mode : {FE_DOWNWARD,FE_UPWARD,FE_TOWARDZERO,FE_TONEAREST}) {
+        ASSERT_EQ(std::fesetround(mode),0);
+        BufferedImage first(width,height,input),second(width,height,input);
+        ASSERT_TRUE(serial.value()->process(first.sourceView(),first.destinationView(),canonicalFormat()).hasValue());
+        ASSERT_TRUE(parallel.value()->process(second.sourceView(),second.destinationView(),canonicalFormat()).hasValue());
+        EXPECT_EQ(first.activeDestination(),second.activeDestination());
+        EXPECT_EQ(std::fegetround(),mode);
+    }
+    std::atomic<unsigned> calls{};
+    executor.setWorkObserver(&calls,[](void* p,CpuJobKind,std::size_t,std::size_t,std::size_t) noexcept {++*static_cast<std::atomic<unsigned>*>(p);});
+    auto median=StageStorage::createDenoise({DenoiseMode::Median,3,0},imageLayout,0,&executor);
+    ASSERT_TRUE(median.hasValue());
+    BufferedImage buffer(width,height,input);
+    ASSERT_TRUE(median.value()->process(buffer.sourceView(),buffer.destinationView(),canonicalFormat()).hasValue());
+    EXPECT_EQ(calls,0U);
+    executor.setWorkObserver(nullptr,nullptr);
+}
+
+TEST(DetailStageBatching, PreparedPrivateScratchAdmitsEverySlotBeforeAllocation) {
+    using namespace processing::detail;
+    const auto imageLayout=layout(257U,259U,517U);
+    constexpr SharpenParameters parameters{1.75,5.0,12.5};
+    const auto serial=SharpenStage::requiredScratchBytes(parameters,imageLayout).value();
+    for (const auto slots : {1U,2U,4U}) {
+        PreparedCpuExecutor executor(slots);
+        const auto expected=slots*257U*31U*sizeof(double)+31U*sizeof(double);
+        EXPECT_EQ(StageStorage::sharpenScratchBytes(parameters,imageLayout,slots).value(),expected);
+        auto rejected=StageStorage::createSharpen(parameters,imageLayout,expected-1U,&executor);
+        EXPECT_FALSE(rejected.hasValue());
+        auto made=StageStorage::createSharpen(parameters,imageLayout,expected,&executor);
+        ASSERT_TRUE(made.hasValue()); EXPECT_EQ(made.value()->scratchBytes(),expected);
+        EXPECT_EQ(SharpenStage::requiredScratchBytes(parameters,imageLayout).value(),serial);
+    }
+    EXPECT_FALSE(StageStorage::sharpenScratchBytes(parameters,imageLayout,std::numeric_limits<std::size_t>::max()).hasValue());
 }
 
 }  // namespace

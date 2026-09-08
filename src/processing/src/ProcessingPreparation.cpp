@@ -42,7 +42,7 @@ ProcessingPreparationAssessment FrameProcessingEngine::plan(ProcessingPoolSpecif
         if(!displays.hasValue()) return fail(displays.error());
         r.processingPoolBytes=pixels.value().requiredStorageBytes;
         r.displayPoolBytes=displays.value().requiredStorageBytes;
-        auto candidate=detail::prepareDefinition(definition,canonical.value());
+        auto candidate=detail::prepareDefinition(definition,canonical.value(),options.cpuExecutionSlots);
         if(!candidate.hasValue()) {
             const auto& e=candidate.error();
             return fail(e.preparationError ? *e.preparationError : core::Error{core::ErrorCategory::Processing,e.code,"Pipeline validation failed.",e.violations.front().detail,false});

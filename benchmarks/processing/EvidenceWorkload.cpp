@@ -73,6 +73,7 @@ Session::Session(const Image& im,core::Orientation orientation) {
     raw_=require(core::RawFrame::create(1,layout,std::move(*lease).seal(),{{},{},{},{},std::move(settings)}));
     engine_=require(processing::FrameProcessingEngine::create(*processingPool_,*displayPool_,*plan.plan));sentinel_=verificationOutput();
 }
+void Session::setCpuWorkObserver(void* context,processing::detail::CpuWorkObserver observer) noexcept { processing::detail::FrameEngineTestAccess::setCpuWorkObserver(*engine_,context,observer); }
 bool Session::healthy() const {const auto s=engine_->status();return s.mode==processing::ProcessorMode::Enhanced && s.enhancementFailures==0 && !s.error && !s.failingOperation;}
 bool Session::cycle(std::size_t index,std::uint64_t& hash) {
     retained_[index%retained_.size()].reset();auto output=engine_->process(raw_);

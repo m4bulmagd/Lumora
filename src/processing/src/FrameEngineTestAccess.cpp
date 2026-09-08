@@ -1,7 +1,7 @@
 #include "PreparedRuntime.hpp"
 namespace lumora::processing::detail {
-core::Result<std::shared_ptr<const IProcessingStage>> EngineHooks::prepare(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t scratch) {
-    return makeStage(stage,layout,scratch);
+core::Result<std::shared_ptr<const IProcessingStage>> EngineHooks::prepare(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t scratch,PreparedCpuExecutor& executor) {
+    return makeStage(stage,layout,scratch,executor);
 }
 core::Result<std::unique_ptr<FrameProcessingEngine>> FrameEngineTestAccess::create(core::BufferPool& p,core::BufferPool& d,
     const core::ImageLayout& layout,const PipelineDefinition& definition,ProcessingPreparationOptions options,std::shared_ptr<EngineHooks> hooks) {
@@ -11,6 +11,7 @@ core::Result<std::unique_ptr<FrameProcessingEngine>> FrameEngineTestAccess::crea
     return FrameProcessingEngine::createPrepared(p,d,*assessment.plan,std::move(hooks));
 }
 void FrameEngineTestAccess::runCpu(FrameProcessingEngine& engine,std::size_t n,void* c,CpuWork w) noexcept { engine.state_->cpuExecutor->run(n,c,w); }
+void FrameEngineTestAccess::setCpuWorkObserver(FrameProcessingEngine& engine,void* context,CpuWorkObserver observer) noexcept { engine.state_->cpuExecutor->setWorkObserver(context,observer); }
 std::weak_ptr<const IProcessingStage> FrameEngineTestAccess::stage(FrameProcessingEngine& engine,StageId id) {
     std::lock_guard lock(engine.state_->stateMutex);
     const auto& active=engine.state_->active;

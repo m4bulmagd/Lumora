@@ -41,11 +41,12 @@
 //M*/
 
 // Adapted by Lumora from OpenCV 4.12.0 modules/imgproc/src/clahe.cpp.
-// This U16-only implementation owns prepared sequential arrays, reads reflected
-// samples directly from byte views, and performs no scheduler or backend dispatch.
+// This U16-only implementation owns prepared arrays and reads reflected samples
+// directly from byte views. Engine stages borrow the prepared CPU executor.
 
 #include <lumora/processing/ClaheStage.hpp>
 #include "StageStorage.hpp"
+#include "PreparedCpuExecutor.hpp"
 
 #include <lumora/core/CheckedMath.hpp>
 
@@ -129,7 +130,7 @@ struct PreparedPlan final {
 }
 
 [[nodiscard]] core::Result<PreparedPlan> makePlan(
-    ClaheParameters parameters, const core::ImageLayout& layout) {
+    ClaheParameters parameters, const core::ImageLayout& layout, std::size_t executionSlots) {
     if (!std::isfinite(parameters.clipLimit)
         || parameters.clipLimit < 0.1 || parameters.clipLimit > 40.0) {
         return planFailure("clahe_invalid_clip_limit",
@@ -218,6 +219,7 @@ struct PreparedPlan final {
     const bool scratchValid =
         checkedAccumulate(scratchBytes, lutElements.value(), sizeof(std::uint16_t))
         && checkedAccumulate(scratchBytes, histogramBins, sizeof(std::int32_t))
+        && checkedAccumulate(scratchBytes, executionSlots - 1U, histogramBins * sizeof(std::int32_t))
         && checkedAccumulate(scratchBytes, static_cast<std::size_t>(layout.width()),
             2U * sizeof(std::int32_t))
         && checkedAccumulate(scratchBytes, static_cast<std::size_t>(layout.width()),
@@ -266,12 +268,12 @@ void storeU16(std::byte* destination, std::uint16_t value) noexcept {
 }  // namespace
 
 struct ClaheStage::Impl final {
-    explicit Impl(const PreparedPlan& plan)
+    explicit Impl(const PreparedPlan& plan, std::size_t executionSlots)
         : width(plan.width), height(plan.height), grid(plan.grid),
           tileWidth(plan.tileWidth), tileHeight(plan.tileHeight),
           clipCount(plan.clipCount), lutScale(plan.lutScale),
           retainedBytes(plan.scratchBytes), lut(plan.lutElements),
-          histogram(histogramBins), xIndex1(static_cast<std::size_t>(plan.width)),
+          histogram(histogramBins * executionSlots), xIndex1(static_cast<std::size_t>(plan.width)),
           xIndex2(static_cast<std::size_t>(plan.width)),
           xWeight(static_cast<std::size_t>(plan.width)),
           xWeight1(static_cast<std::size_t>(plan.width)),
@@ -298,6 +300,7 @@ struct ClaheStage::Impl final {
         }
     }
 
+    detail::PreparedCpuExecutor* executor{};
     int width;
     int height;
     int grid;
@@ -325,7 +328,12 @@ ClaheStage::~ClaheStage() = default;
 
 core::Result<std::size_t> ClaheStage::requiredScratchBytes(
     ClaheParameters parameters, const core::ImageLayout& layout) {
-    const auto plan = makePlan(parameters, layout);
+    return detail::StageStorage::claheScratchBytes(parameters, layout, 1U);
+}
+
+core::Result<std::size_t> detail::StageStorage::claheScratchBytes(
+    ClaheParameters parameters, const core::ImageLayout& layout, std::size_t executionSlots) {
+    const auto plan = makePlan(parameters, layout, executionSlots);
     if (!plan.hasValue()) return core::Result<std::size_t>::failure(plan.error());
     return core::Result<std::size_t>::success(plan.value().scratchBytes);
 }
@@ -338,7 +346,14 @@ core::Result<std::unique_ptr<ClaheStage>> ClaheStage::create(
 core::Result<std::unique_ptr<ClaheStage>> ClaheStage::create(
     ClaheParameters parameters, const core::ImageLayout& layout,
     std::size_t scratchBudgetBytes) {
-    const auto plan = makePlan(parameters, layout);
+    return detail::StageStorage::createClahe(parameters, layout, scratchBudgetBytes, nullptr);
+}
+
+core::Result<std::unique_ptr<ClaheStage>> detail::StageStorage::createClahe(
+    ClaheParameters parameters, const core::ImageLayout& layout,
+    std::size_t scratchBudgetBytes, detail::PreparedCpuExecutor* executor) {
+    const auto executionSlots = executor ? executor->slots() : 1U;
+    const auto plan = makePlan(parameters, layout, executionSlots);
     if (!plan.hasValue()) return StageResult::failure(plan.error());
     if (std::fegetround() != FE_TONEAREST) {
         return factoryFailure("clahe_rounding_mode_unsupported",
@@ -350,7 +365,8 @@ core::Result<std::unique_ptr<ClaheStage>> ClaheStage::create(
             "The retained CLAHE arrays exceed the supplied scratch byte budget.", true));
     }
     try {
-        auto impl = std::make_unique<Impl>(plan.value());
+        auto impl = std::make_unique<ClaheStage::Impl>(plan.value(), executionSlots);
+        impl->executor = executor;
         return StageResult::success(
             std::unique_ptr<ClaheStage>(new ClaheStage(std::move(impl))));
     } catch (const std::bad_alloc&) {
@@ -394,9 +410,16 @@ core::Result<void> ClaheStage::process(const ImageView& source,
     if (std::fegetround() != FE_TONEAREST)
         return processFailure("clahe_rounding_mode_unsupported", "Prepared CLAHE requires the FE_TONEAREST floating-point rounding mode.");
 
-    for (int tileY = 0; tileY < impl_->grid; ++tileY) {
-        for (int tileX = 0; tileX < impl_->grid; ++tileX) {
-            std::fill(impl_->histogram.begin(), impl_->histogram.end(), 0);
+    struct Context { Impl* impl; const ImageView& source; MutableImageView destination; } context{impl_.get(),source,destination};
+    const auto tiles = [](void* opaque, std::size_t slot, std::size_t begin, std::size_t end) noexcept {
+        auto& job = *static_cast<Context*>(opaque);
+        auto* impl_ = job.impl;
+        const auto& source = job.source;
+        const std::span histogram(impl_->histogram.data() + slot * histogramBins, histogramBins);
+        for (auto tile = begin; tile < end; ++tile) {
+            const auto tileY = static_cast<int>(tile / static_cast<std::size_t>(impl_->grid));
+            const auto tileX = static_cast<int>(tile % static_cast<std::size_t>(impl_->grid));
+            std::fill(histogram.begin(), histogram.end(), 0);
             for (int localY = 0; localY < impl_->tileHeight; ++localY) {
                 const auto reflectedY = impl_->reflectedY[static_cast<std::size_t>(
                     tileY * impl_->tileHeight + localY)];
@@ -406,11 +429,11 @@ core::Result<void> ClaheStage::process(const ImageView& source,
                         tileX * impl_->tileWidth + localX)];
                     const auto sample = loadU16(sourceRow.data()
                         + static_cast<std::size_t>(reflectedX) * sizeof(std::uint16_t));
-                    ++impl_->histogram[sample];
+                    ++histogram[sample];
                 }
             }
             int clipped = 0;
-            for (auto& count : impl_->histogram) {
+            for (auto& count : histogram) {
                 if (count > impl_->clipCount) {
                     clipped += count - impl_->clipCount;
                     count = impl_->clipCount;
@@ -418,52 +441,65 @@ core::Result<void> ClaheStage::process(const ImageView& source,
             }
             const int batch = clipped / static_cast<int>(histogramBins);
             int residual = clipped - batch * static_cast<int>(histogramBins);
-            for (auto& count : impl_->histogram) count += batch;
+            for (auto& count : histogram) count += batch;
             if (residual != 0) {
                 const int step = std::max(static_cast<int>(histogramBins) / residual, 1);
                 for (int bin = 0; bin < static_cast<int>(histogramBins) && residual > 0;
                      bin += step, --residual)
-                    ++impl_->histogram[static_cast<std::size_t>(bin)];
+                    ++histogram[static_cast<std::size_t>(bin)];
             }
             int cumulative = 0;
             const auto lutOffset = static_cast<std::size_t>(
                 tileY * impl_->grid + tileX) * histogramBins;
             for (std::size_t bin = 0U; bin < histogramBins; ++bin) {
-                cumulative += impl_->histogram[bin];
+                cumulative += histogram[bin];
                 impl_->lut[lutOffset + bin] = cv::saturate_cast<std::uint16_t>(
                     static_cast<float>(cumulative) * impl_->lutScale);
             }
         }
-    }
-
-    const float inverseTileHeight = 1.0F / static_cast<float>(impl_->tileHeight);
-    for (int y = 0; y < impl_->height; ++y) {
-        const float tileY = static_cast<float>(y) * inverseTileHeight - 0.5F;
-        int firstTileY = static_cast<int>(std::floor(tileY));
-        int secondTileY = firstTileY + 1;
-        const float yWeight = tileY - static_cast<float>(firstTileY);
-        const float yWeight1 = 1.0F - yWeight;
-        firstTileY = std::max(firstTileY, 0);
-        secondTileY = std::min(secondTileY, impl_->grid - 1);
-        const auto firstRowOffset = static_cast<std::size_t>(
-            firstTileY * impl_->grid) * histogramBins;
-        const auto secondRowOffset = static_cast<std::size_t>(
-            secondTileY * impl_->grid) * histogramBins;
-        const auto sourceRow = source.row(static_cast<std::uint32_t>(y));
-        const auto destinationRow = destination.row(static_cast<std::uint32_t>(y));
-        for (int x = 0; x < impl_->width; ++x) {
-            const auto index = static_cast<std::size_t>(x);
-            const auto sample = loadU16(sourceRow.data() + index * sizeof(std::uint16_t));
-            const auto firstIndex = static_cast<std::size_t>(impl_->xIndex1[index]) + sample;
-            const auto secondIndex = static_cast<std::size_t>(impl_->xIndex2[index]) + sample;
-            const float result =
-                (impl_->lut[firstRowOffset + firstIndex] * impl_->xWeight1[index]
-                    + impl_->lut[firstRowOffset + secondIndex] * impl_->xWeight[index]) * yWeight1
-                + (impl_->lut[secondRowOffset + firstIndex] * impl_->xWeight1[index]
-                    + impl_->lut[secondRowOffset + secondIndex] * impl_->xWeight[index]) * yWeight;
-            storeU16(destinationRow.data() + index * sizeof(std::uint16_t),
-                cv::saturate_cast<std::uint16_t>(result));
+    };
+    const auto rows = [](void* opaque, std::size_t, std::size_t begin, std::size_t end) noexcept {
+        auto& job = *static_cast<Context*>(opaque);
+        auto* impl_ = job.impl;
+        const auto& source = job.source;
+        const auto destination = job.destination;
+        const float inverseTileHeight = 1.0F / static_cast<float>(impl_->tileHeight);
+        for (int y = static_cast<int>(begin); y < static_cast<int>(end); ++y) {
+            const float tileY = static_cast<float>(y) * inverseTileHeight - 0.5F;
+            int firstTileY = static_cast<int>(std::floor(tileY));
+            int secondTileY = firstTileY + 1;
+            const float yWeight = tileY - static_cast<float>(firstTileY);
+            const float yWeight1 = 1.0F - yWeight;
+            firstTileY = std::max(firstTileY, 0);
+            secondTileY = std::min(secondTileY, impl_->grid - 1);
+            const auto firstRowOffset = static_cast<std::size_t>(
+                firstTileY * impl_->grid) * histogramBins;
+            const auto secondRowOffset = static_cast<std::size_t>(
+                secondTileY * impl_->grid) * histogramBins;
+            const auto sourceRow = source.row(static_cast<std::uint32_t>(y));
+            const auto destinationRow = destination.row(static_cast<std::uint32_t>(y));
+            for (int x = 0; x < impl_->width; ++x) {
+                const auto index = static_cast<std::size_t>(x);
+                const auto sample = loadU16(sourceRow.data() + index * sizeof(std::uint16_t));
+                const auto firstIndex = static_cast<std::size_t>(impl_->xIndex1[index]) + sample;
+                const auto secondIndex = static_cast<std::size_t>(impl_->xIndex2[index]) + sample;
+                const float result =
+                    (impl_->lut[firstRowOffset + firstIndex] * impl_->xWeight1[index]
+                        + impl_->lut[firstRowOffset + secondIndex] * impl_->xWeight[index]) * yWeight1
+                    + (impl_->lut[secondRowOffset + firstIndex] * impl_->xWeight1[index]
+                        + impl_->lut[secondRowOffset + secondIndex] * impl_->xWeight[index]) * yWeight;
+                storeU16(destinationRow.data() + index * sizeof(std::uint16_t),
+                    cv::saturate_cast<std::uint16_t>(result));
+            }
         }
+    };
+    const auto tileCount = static_cast<std::size_t>(impl_->grid) * static_cast<std::size_t>(impl_->grid);
+    if (impl_->executor) {
+        impl_->executor->run(tileCount, &context, tiles, detail::CpuJobKind::ClaheTiles);
+        impl_->executor->run(static_cast<std::size_t>(impl_->height), &context, rows, detail::CpuJobKind::ClaheRows);
+    } else {
+        tiles(&context, 0U, 0U, tileCount);
+        rows(&context, 0U, 0U, static_cast<std::size_t>(impl_->height));
     }
     return core::Result<void>::success();
 }

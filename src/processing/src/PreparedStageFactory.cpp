@@ -21,15 +21,15 @@ namespace {
 std::string stageExceptionDiagnostic(StageId id,std::string_view detail) {
     return "stage_id="+std::to_string(static_cast<int>(id))+" ("+std::string(stageName(id))+"): "+std::string(detail);
 }
-core::Result<std::size_t> stageBytes(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t& scratch) {
+core::Result<std::size_t> stageBytes(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t& scratch,std::size_t executionSlots) {
     std::size_t owner{};
     auto arrays = core::Result<std::size_t>::success(0);
     switch(stage.id) {
     case StageId::BrightnessContrast: owner=sizeof(BrightnessContrastStage); break;
     case StageId::Gamma: owner=sizeof(GammaStage); break;
-    case StageId::Clahe: owner=StageStorage::claheOwnerBytes(); arrays=ClaheStage::requiredScratchBytes(std::get<ClaheParameters>(stage.parameters),layout); break;
-    case StageId::Denoise: owner=StageStorage::denoiseOwnerBytes(); arrays=DenoiseStage::requiredScratchBytes(std::get<DenoiseParameters>(stage.parameters),layout); break;
-    case StageId::Sharpen: owner=StageStorage::sharpenOwnerBytes(); arrays=SharpenStage::requiredScratchBytes(std::get<SharpenParameters>(stage.parameters),layout); break;
+    case StageId::Clahe: owner=StageStorage::claheOwnerBytes(); arrays=StageStorage::claheScratchBytes(std::get<ClaheParameters>(stage.parameters),layout,executionSlots); break;
+    case StageId::Denoise: owner=StageStorage::denoiseOwnerBytes(); arrays=StageStorage::denoiseScratchBytes(std::get<DenoiseParameters>(stage.parameters),layout,executionSlots); break;
+    case StageId::Sharpen: owner=StageStorage::sharpenOwnerBytes(); arrays=StageStorage::sharpenScratchBytes(std::get<SharpenParameters>(stage.parameters),layout,executionSlots); break;
     case StageId::Invert: owner=sizeof(InvertStage); break;
     default: return core::Result<std::size_t>::success(0);
     }
@@ -46,7 +46,7 @@ template<class T> core::Result<StageHandle> adopt(core::Result<std::unique_ptr<T
     return core::Result<StageHandle>::success(StageHandle(pointer.release(),std::default_delete<T>{},PreparedOwnerAllocator<std::byte>{ownerControlReserve}));
 }
 }
-core::Result<PreparedDefinition,PipelineValidationError> prepareDefinition(const PipelineDefinition& definition,const core::ImageLayout& layout) {
+core::Result<PreparedDefinition,PipelineValidationError> prepareDefinition(const PipelineDefinition& definition,const core::ImageLayout& layout,std::size_t executionSlots) {
     using Result=core::Result<PreparedDefinition,PipelineValidationError>;
     auto compiled=PipelineCompiler(stageRegistry()).compile(definition);
     if(!compiled.hasValue()) return Result::failure(std::move(compiled).error());
@@ -58,7 +58,7 @@ core::Result<PreparedDefinition,PipelineValidationError> prepareDefinition(const
         result.stages[index]=stage;
         if(stage.id==StageId::WindowLevel) { result.window=std::get<WindowLevelParameters>(stage.parameters); result.enhancedWindow=stage.enabled; }
         if(!stage.enabled) continue;
-        auto bytes=stageBytes(stage,layout,result.scratchBytes[index]);
+        auto bytes=stageBytes(stage,layout,result.scratchBytes[index],executionSlots);
         if(!bytes.hasValue()) return Result::failure(validationFailure(std::move(bytes).error()));
         result.stageBytes[index]=bytes.value();
         auto total=core::checkedAdd(result.requiredBytes,bytes.value());
@@ -67,13 +67,13 @@ core::Result<PreparedDefinition,PipelineValidationError> prepareDefinition(const
     }
     return Result::success(std::move(result));
 }
-core::Result<StageHandle> makeStage(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t scratch) {
+core::Result<StageHandle> makeStage(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t scratch,PreparedCpuExecutor& executor) {
     switch(stage.id) {
     case StageId::BrightnessContrast: return core::Result<StageHandle>::success(makePreparedOwner<BrightnessContrastStage>(std::get<BrightnessContrastParameters>(stage.parameters)));
     case StageId::Gamma: return core::Result<StageHandle>::success(makePreparedOwner<GammaStage>(std::get<GammaParameters>(stage.parameters)));
-    case StageId::Clahe: return adopt(ClaheStage::create(std::get<ClaheParameters>(stage.parameters),layout,scratch),scratch);
-    case StageId::Denoise: return adopt(DenoiseStage::create(std::get<DenoiseParameters>(stage.parameters),layout,scratch),scratch);
-    case StageId::Sharpen: return adopt(SharpenStage::create(std::get<SharpenParameters>(stage.parameters),layout,scratch),scratch);
+    case StageId::Clahe: return adopt(StageStorage::createClahe(std::get<ClaheParameters>(stage.parameters),layout,scratch,&executor),scratch);
+    case StageId::Denoise: return adopt(StageStorage::createDenoise(std::get<DenoiseParameters>(stage.parameters),layout,scratch,&executor),scratch);
+    case StageId::Sharpen: return adopt(StageStorage::createSharpen(std::get<SharpenParameters>(stage.parameters),layout,scratch,&executor),scratch);
     case StageId::Invert: return core::Result<StageHandle>::success(makePreparedOwner<InvertStage>());
     default: return core::Result<StageHandle>::success({});
     }
@@ -114,8 +114,8 @@ core::Result<void,PipelineValidationError> activatePrepared(EngineState& state,P
         if(!next->stages[i]) {
             auto prepareOne=[&]() -> core::Result<StageHandle> {
                 try {
-                    return state.hooks ? state.hooks->prepare(stage,state.plan->canonicalLayout,next->definition.scratchBytes[i])
-                        : makeStage(stage,state.plan->canonicalLayout,next->definition.scratchBytes[i]);
+                    return state.hooks ? state.hooks->prepare(stage,state.plan->canonicalLayout,next->definition.scratchBytes[i],*state.cpuExecutor)
+                        : makeStage(stage,state.plan->canonicalLayout,next->definition.scratchBytes[i],*state.cpuExecutor);
                 } catch(const std::bad_alloc& error) {
                     return core::Result<StageHandle>::failure(preparationError("processing_preparation_allocation_failed",stageExceptionDiagnostic(stage.id,error.what())));
                 } catch(const std::length_error& error) {
