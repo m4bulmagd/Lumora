@@ -46,6 +46,51 @@ void writeU16(
     return static_cast<std::uint16_t>(numerator / sourceMaximum);
 }
 
+template<bool Mono12>
+[[nodiscard]] core::Result<void> normalizePixels(
+    const ImageView& source,
+    MutableImageView destination,
+    const core::SourcePixelFormat& sourceFormat) {
+    const auto width = source.layout().width();
+    const auto height = source.layout().height();
+    const std::uint16_t maximum = Mono12 ? 4095U : sourceFormat.sampleMaximum;
+    const bool isU8 = !Mono12
+        && sourceFormat.applicationStorage == core::StorageType::UInt8;
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        const auto sourceRow = source.row(y);
+        const auto destinationRow = destination.row(y);
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            const auto sourceOffset = static_cast<std::size_t>(x) * (isU8 ? 1U : 2U);
+            const auto value = isU8
+                ? static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(sourceRow[sourceOffset]))
+                : readU16(sourceRow, sourceOffset);
+            if (value > maximum) {
+                return processingFailure(
+                    "sample_exceeds_source_maximum",
+                    "The first invalid sample is at x=" + std::to_string(x)
+                        + ", y=" + std::to_string(y)
+                        + ", value=" + std::to_string(value)
+                        + ", maximum=" + std::to_string(maximum) + ".");
+            }
+
+            std::uint16_t normalized = 0U;
+            if constexpr (Mono12) {
+                const auto correctionNumerator = static_cast<std::uint64_t>(value) * 15U
+                    + 2047U;
+                const auto adjusted = correctionNumerator + 1U;
+                // Exact division by 4095 while adjusted is at most 63473.
+                const auto correction = (adjusted + (adjusted >> 12U)) >> 12U;
+                normalized = static_cast<std::uint16_t>(
+                    static_cast<std::uint64_t>(value) * 16U + correction);
+            } else {
+                normalized = normalizeSample(value, maximum);
+            }
+            writeU16(destinationRow, static_cast<std::size_t>(x) * 2U, normalized);
+        }
+    }
+    return core::Result<void>::success();
+}
+
 }  // namespace
 
 StageId NormalizeStage::id() const noexcept {
@@ -108,31 +153,11 @@ core::Result<void> NormalizeStage::process(
         return core::Result<void>::success();
     }
 
-    const auto width = source.layout().width();
-    const auto height = source.layout().height();
-    const auto maximum = sourceFormat.sampleMaximum;
-    const bool isU8 = sourceFormat.applicationStorage == core::StorageType::UInt8;
-    for (std::uint32_t y = 0U; y < height; ++y) {
-        const auto sourceRow = source.row(y);
-        const auto destinationRow = destination.row(y);
-        for (std::uint32_t x = 0U; x < width; ++x) {
-            const auto sourceOffset = static_cast<std::size_t>(x) * (isU8 ? 1U : 2U);
-            const auto value = isU8
-                ? static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(sourceRow[sourceOffset]))
-                : readU16(sourceRow, sourceOffset);
-            if (value > maximum) {
-                return processingFailure(
-                    "sample_exceeds_source_maximum",
-                    "The first invalid sample is at x=" + std::to_string(x)
-                        + ", y=" + std::to_string(y)
-                        + ", value=" + std::to_string(value)
-                        + ", maximum=" + std::to_string(maximum) + ".");
-            }
-            writeU16(destinationRow, static_cast<std::size_t>(x) * 2U,
-                normalizeSample(value, maximum));
-        }
+    if (sourceFormat.applicationStorage == core::StorageType::UInt16
+        && sourceFormat.sampleMaximum == 4095U) {
+        return normalizePixels<true>(source, destination, sourceFormat);
     }
-    return core::Result<void>::success();
+    return normalizePixels<false>(source, destination, sourceFormat);
 }
 
 }  // namespace lumora::processing
