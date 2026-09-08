@@ -390,3 +390,21 @@ set_tests_properties(Processing.EvidenceArtifacts PROPERTIES TIMEOUT 120)
 target_compile_definitions(lumora_evidence_tests PRIVATE LUMORA_EXACT_ORACLE_ROOT="${PROJECT_SOURCE_DIR}/tests/reference/processing/fixtures")
 
 target_compile_definitions(lumora_evidence_tests PRIVATE LUMORA_WORKSTATION_TEMPLATE="${PROJECT_SOURCE_DIR}/benchmarks/processing/reference-workstation.json")
+
+# The small provenance projects exercise all configurations without rebuilding Qt
+# or running image workloads. Reuse the native generator on multi-config hosts.
+if(CMAKE_CONFIGURATION_TYPES)
+  set(evidence_test_generator "${CMAKE_GENERATOR}")
+else()
+  set(evidence_test_generator "Ninja Multi-Config")
+endif()
+foreach(evidence_test_case IN ITEMS language flags)
+  add_test(NAME Processing.EvidenceProvenance.${evidence_test_case}
+    COMMAND "${CMAKE_COMMAND}" "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}"
+      "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/evidence-provenance-${evidence_test_case}"
+      "-DTEST_CASE=${evidence_test_case}" "-DTEST_GENERATOR=${evidence_test_generator}"
+      "-DTEST_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProcessingEvidenceProvenanceTests.cmake")
+  set_tests_properties(Processing.EvidenceProvenance.${evidence_test_case}
+    PROPERTIES TIMEOUT 120 LABELS "processing;evidence")
+endforeach()

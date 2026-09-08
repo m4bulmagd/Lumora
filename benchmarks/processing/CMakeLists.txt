@@ -7,17 +7,8 @@ target_compile_definitions(lumora_processing_evidence_support PRIVATE LUMORA_REF
 
 target_include_directories(lumora_processing_evidence_support PRIVATE "${PROJECT_SOURCE_DIR}/src/processing/src")
 
-# Declared CMake options, explicitly not an exact compiler invocation.
-file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/evidence-config.json" CONTENT
-"{\"configuration\":\"$<CONFIG>\",\"compilerId\":\"${CMAKE_CXX_COMPILER_ID}\",\"compilerVersion\":\"${CMAKE_CXX_COMPILER_VERSION}\",\"cxxStandard\":20,\"compileOptions\":{\"scope\":\"declared_cmake_configuration_and_target_options\",\"global\":\"${CMAKE_CXX_FLAGS}\",\"configuration\":\"$<$<CONFIG:Debug>:${CMAKE_CXX_FLAGS_DEBUG}>$<$<CONFIG:Release>:${CMAKE_CXX_FLAGS_RELEASE}>\",\"processing\":\"$<JOIN:$<TARGET_PROPERTY:lumora_processing,COMPILE_OPTIONS>, >\",\"evidence\":\"$<JOIN:$<TARGET_PROPERTY:lumora_processing_evidence_support,COMPILE_OPTIONS>, >\",\"sourceOptions\":\"LUMORA_BUILD_TESTS=${LUMORA_BUILD_TESTS} LUMORA_BUILD_BENCHMARKS=${LUMORA_BUILD_BENCHMARKS} LUMORA_ENABLE_BASLER=${LUMORA_ENABLE_BASLER}\"}}")
-add_custom_target(lumora_evidence_provenance
-  COMMAND "${CMAKE_COMMAND}" "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}"
-    "-DCONFIG_FILE=${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/evidence-config.json"
-    "-DOUTPUT_FILE=${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/EvidenceBuild.hpp"
-    -P "${CMAKE_CURRENT_SOURCE_DIR}/CaptureProvenance.cmake"
-  BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/EvidenceBuild.hpp")
-add_dependencies(lumora_processing_evidence_support lumora_evidence_provenance)
-target_include_directories(lumora_processing_evidence_support PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+include("${CMAKE_CURRENT_SOURCE_DIR}/EvidenceProvenance.cmake")
+lumora_configure_evidence_provenance()
 # Query the actual dependency installation, not the manifest's desired override.
 get_filename_component(_opencv_prefix "${OpenCV_DIR}/../.." ABSOLUTE)
 set(_opencv_port "")
