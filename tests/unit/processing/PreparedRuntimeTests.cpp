@@ -29,9 +29,9 @@ struct RecordingHook final : detail::EngineHooks {
     std::mutex historyMutex;
     std::array<std::weak_ptr<const IProcessingStage>,32> gammaHistory{};
     std::size_t liveGammaOwners() {
-        std::lock_guard lock(historyMutex); std::size_t count=0;
-        for(const auto& owner:gammaHistory) if(!owner.expired()) ++count;
-        return count;
+        std::lock_guard lock(historyMutex); std::size_t liveOwnerCount=0;
+        for(const auto& owner:gammaHistory) if(!owner.expired()) ++liveOwnerCount;
+        return liveOwnerCount;
     }
     ProcessingOperation blockedOperation{ProcessingOperation::Gamma};
     Gate factoryGate,frameGate;
