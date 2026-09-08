@@ -7,6 +7,12 @@
 #include <array>
 #include <cstdio>
 #include <new>
+#include <cstring>
+#include <exception>
+#include <string>
+#if defined(_MSC_VER) && _ITERATOR_DEBUG_LEVEL > 0
+#include <windows.h>
+#endif
 
 using namespace lumora;
 namespace {
@@ -126,36 +132,129 @@ bool arenaExhaustionHasNoHeapFallback() {
     std::fflush(stdout);
     return correct && counts.allocations == 0 && counts.deallocations == 0;
 }
-bool enginePreparationFailuresReleaseResources() {
-    const auto layout=core::ImageLayout::create(4,1,8,core::StorageType::UInt16,8).value();
-    auto p=core::BufferPool::create(9,8).value(); auto d=core::BufferPool::create(16,4).value();
-    auto definition=processing::defaultPipeline(); definition.stages[3].enabled=true;
-    const auto before=core::detail::testing::poolCounters();
+template<class CreateEngine>
+bool sweepEngineCreationFailures(const char* label, CreateEngine create,
+    core::BufferPool& processingPool, core::BufferPool& displayPool) {
+    const auto before = core::detail::testing::poolCounters();
     test::beginAllocationTracking();
-    auto baseline=processing::FrameProcessingEngine::create(*p,*d,layout,definition);
-    const auto allocations=test::endAllocationMeasurement().allocations;
+    auto baseline = create();
+    const auto allocations = test::endAllocationMeasurement().allocations;
     progress("Engine baseline create-returned");
-    if(!baseline.hasValue()) return false;
+    if (!baseline.hasValue()) return false;
     progress("Engine baseline reset-start");
     baseline.value().reset();
     progress("Engine baseline reset-complete");
-    std::printf("Complete engine preparation allocation sites=%zu\n", allocations);
+    std::printf("%s allocation sites=%zu\n", label, allocations);
     std::fflush(stdout);
-    for(std::size_t failure=0;failure<allocations;++failure) {
-        injectionProgress("Complete engine preparation", failure, "start");
+    for (std::size_t failure = 0; failure < allocations; ++failure) {
+        injectionProgress(label, failure, "start");
         test::failOneAllocationAfter(failure);
         {
-        auto failed=processing::FrameProcessingEngine::create(*p,*d,layout,definition);
-        test::cancelAllocationFailure();
-        progress("Injected engine call returned; checking cleanup");
-        if(failed.hasValue()) return false;
-        const auto after=core::detail::testing::poolCounters();
-        if(p->stats().inUse!=0 || d->stats().inUse!=0 || before.liveStates!=after.liveStates || before.liveSlabs!=after.liveSlabs || after.liveProbeAllocations!=0) return false;
-        } // Destroy the failed Result before reporting cleanup complete.
-        injectionProgress("Complete engine preparation", failure, "complete");
+            auto failed = create();
+            test::cancelAllocationFailure();
+            progress("Injected engine call returned; checking cleanup");
+            if (failed.hasValue()) return false;
+            const auto after = core::detail::testing::poolCounters();
+            if (processingPool.stats().inUse != 0 || displayPool.stats().inUse != 0
+                || before.liveStates != after.liveStates || before.liveSlabs != after.liveSlabs
+                || after.liveProbeAllocations != before.liveProbeAllocations) return false;
+        } // The failed Result is destroyed before reporting cleanup complete.
+        injectionProgress(label, failure, "complete");
     }
-    std::printf("Complete engine preparation failure injection: %zu allocation sites reclaimed all unpublished resources.\n",allocations);
+    std::printf("%s failure injection: %zu allocation sites reclaimed all unpublished resources.\n", label, allocations);
+    std::fflush(stdout);
     return true;
+}
+
+#if defined(_MSC_VER) && _ITERATOR_DEBUG_LEVEL > 0
+constexpr const char* debugProxyControlArgument = "--msvc-debug-proxy-termination-control";
+int debugProxyTerminationControl() {
+    std::printf("MSVC Debug proxy control: compiler=%d full=%d iterator-debug=%d\n",
+        _MSC_VER, _MSC_FULL_VER, _ITERATOR_DEBUG_LEVEL);
+#ifdef _MSVC_STL_VERSION
+    std::printf("MSVC STL version=%d\n", _MSVC_STL_VERSION);
+#endif
+#ifdef _MSVC_STL_UPDATE
+    std::printf("MSVC STL update=%ld\n", static_cast<long>(_MSVC_STL_UPDATE));
+#endif
+    std::fflush(stdout);
+    std::set_terminate([] {
+        constexpr char marker[] = "Expected unrecoverable MSVC Debug stageRegistry vector-proxy termination; not engine recovery.\n";
+        DWORD written = 0;
+        (void)WriteFile(GetStdHandle(STD_ERROR_HANDLE), marker,
+            static_cast<DWORD>(sizeof(marker) - 1U), &written, nullptr);
+        ExitProcess(86);
+    });
+    try {
+        test::failOneAllocationAfter(0);
+        auto registry = processing::stageRegistry();
+        test::cancelAllocationFailure();
+        (void)registry;
+        progress("Debug proxy control unexpectedly returned");
+        return 88;
+    } catch (const std::bad_alloc&) {
+        test::cancelAllocationFailure();
+        progress("Debug proxy control caught bad_alloc instead of termination");
+        return 87;
+    }
+}
+
+bool requireDebugProxyTerminationControl() {
+    std::array<wchar_t, 32768> executable{};
+    const DWORD length = GetModuleFileNameW(nullptr, executable.data(),
+        static_cast<DWORD>(executable.size()));
+    if (length == 0 || length >= executable.size()) return false;
+    std::wstring command = L"\"" + std::wstring(executable.data(), length)
+        + L"\" --msvc-debug-proxy-termination-control";
+    STARTUPINFOW startup{};
+    startup.cb = static_cast<DWORD>(sizeof(startup));
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    PROCESS_INFORMATION process{};
+    progress("Starting bounded MSVC Debug proxy termination control (10-second limit)");
+    if (!CreateProcessW(executable.data(), command.data(), nullptr, nullptr, TRUE,
+            CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) return false;
+    const DWORD wait = WaitForSingleObject(process.hProcess, 10000);
+    DWORD exitCode = 0;
+    bool observed = false;
+    if (wait == WAIT_OBJECT_0) {
+        observed = GetExitCodeProcess(process.hProcess, &exitCode) && exitCode == 86;
+    } else {
+        // This handle belongs only to the child started above.
+        (void)TerminateProcess(process.hProcess, 89);
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    std::printf("MSVC Debug proxy control wait=%lu exit=%lu expected-termination-observed=%d\n",
+        static_cast<unsigned long>(wait), static_cast<unsigned long>(exitCode), observed ? 1 : 0);
+    std::fflush(stdout);
+    return observed;
+}
+#endif
+
+bool enginePreparationFailuresReleaseResources() {
+    const auto layout = core::ImageLayout::create(4, 1, 8, core::StorageType::UInt16, 8).value();
+    auto processingPool = core::BufferPool::create(9, 8).value();
+    auto displayPool = core::BufferPool::create(16, 4).value();
+    auto definition = processing::defaultPipeline();
+    definition.stages[3].enabled = true;
+#if defined(_MSC_VER) && _ITERATOR_DEBUG_LEVEL > 0
+    if (!requireDebugProxyTerminationControl()) return false;
+    progress("MSVC iterator-Debug complete create+plan global failure sweep UNEXERCISED: verified nonrecoverable STL metadata proxy allocation. This is not recovered engine failure evidence.");
+#else
+    if (!sweepEngineCreationFailures("Complete engine preparation", [&] {
+            return processing::FrameProcessingEngine::create(*processingPool, *displayPool, layout, definition);
+        }, *processingPool, *displayPool)) return false;
+#endif
+    // Admission and compiler/STL metadata are prepared before the recoverable
+    // ownership sweep. The creation callable never recreates this plan.
+    const auto admitted = processing::FrameProcessingEngine::plan({9, 8}, {16, 4}, layout, definition);
+    if (!admitted.plan) return false;
+    return sweepEngineCreationFailures("Pre-admitted engine creation", [&] {
+        return processing::FrameProcessingEngine::create(*processingPool, *displayPool, *admitted.plan);
+    }, *processingPool, *displayPool);
 }
 class LatchFault final : public processing::detail::EngineHooks {
 public:
@@ -212,7 +311,14 @@ bool completeSchedule(bool orientation,bool fallback) {
     return successful && measured.allocations==0 && measured.deallocations==0;
 }
 }  // namespace
-int main() {
+int main(int argc, char** argv) {
+#if defined(_MSC_VER) && _ITERATOR_DEBUG_LEVEL > 0
+    if (argc == 2 && std::strcmp(argv[1], debugProxyControlArgument) == 0)
+        return debugProxyTerminationControl();
+#else
+    (void)argc;
+    (void)argv;
+#endif
     progress("Phase1 FrameObjectPool preparation failure cleanup start");
     if (!preparationFailuresReleaseResources()) return 4;
     progress("Phase1 complete; Phase2 arena exhaustion start");
