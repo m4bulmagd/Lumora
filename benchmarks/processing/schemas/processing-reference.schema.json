@@ -110,7 +110,77 @@
           },
           "maxItems": 13
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "reviewed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "complete": {
+                "const": true
+              },
+              "sizeProfile": {
+                "const": "ordinary"
+              },
+              "cases": {
+                "minItems": 13,
+                "items": {
+                  "if": {
+                    "properties": {
+                      "classification": {
+                        "const": "provisional_backend"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "acceptance": {
+                        "properties": {
+                          "status": {
+                            "const": "reviewed"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "cases": {
+                "items": {
+                  "if": {
+                    "properties": {
+                      "classification": {
+                        "const": "provisional_backend"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "acceptance": {
+                        "properties": {
+                          "status": {
+                            "const": "pending_review"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   ]
 }

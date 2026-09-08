@@ -84,16 +84,98 @@ void validatePayload(const QJsonValue& value,const std::filesystem::path& base,s
     const auto path=base/std::filesystem::path(file.toStdU16String());check(!std::filesystem::is_symlink(path),"Reference payload symlinks are not accepted");const auto bytes=readFile(path);const auto im=decodePgm(bytes);check(im.width==width && im.height==height && qs(sha256(bytes))==p["sha256"],"Reference bytes/hash/dimensions mismatch");if(gray8) for(auto v:im.pixels) check(v<=255,"Gray8 payload must be zero-extended without scaling");
 }
 void validateReference(const QJsonObject& root,const std::filesystem::path& base,bool candidate) {
-    (void)object(root,candidate?"schemaVersion artifactType status workloadKind complete generatedUtc provenance pipelineDefinition cases failure":"schemaVersion artifactType status sizeProfile complete updatedUtc pipelineDefinition cases");const bool complete=boolean(root["complete"]);bool smoke=false;
-    if(candidate) {check(root["status"]=="candidate","Generator cannot approve candidates");oneOf(root["workloadKind"],"candidate smoke");smoke=root["workloadKind"]=="smoke";timestamp(root["generatedUtc"]);validateProvenance(root["provenance"]);}else {oneOf(root["status"],"pending reviewed");oneOf(root["sizeProfile"],"ordinary smoke");smoke=root["sizeProfile"]=="smoke";timestamp(root["updatedUtc"]);}
-    check(root["pipelineDefinition"]==pipelineJson(processing::standardPipeline()),"Reference shared Standard mismatch");const auto rows=array(root["cases"]);const auto cases=referenceCases(smoke);std::set<QString> seen;
+    (void)object(root,candidate
+        ? "schemaVersion artifactType status workloadKind complete generatedUtc provenance pipelineDefinition cases failure"
+        : "schemaVersion artifactType status sizeProfile complete updatedUtc pipelineDefinition cases");
+    const bool complete=boolean(root["complete"]);
+    bool smoke=false;
+    if(candidate) {
+        check(root["status"]=="candidate","Generator cannot approve candidates");
+        oneOf(root["workloadKind"],"candidate smoke");
+        smoke=root["workloadKind"]=="smoke";
+        timestamp(root["generatedUtc"]);
+        validateProvenance(root["provenance"]);
+    } else {
+        oneOf(root["status"],"pending reviewed");
+        oneOf(root["sizeProfile"],"ordinary smoke");
+        smoke=root["sizeProfile"]=="smoke";
+        timestamp(root["updatedUtc"]);
+    }
+    check(root["pipelineDefinition"]==pipelineJson(processing::standardPipeline()),"Reference shared Standard mismatch");
+    const auto rows=array(root["cases"]);
+    const auto cases=referenceCases(smoke);
+    std::set<QString> seen;
     check(rows.size()<=13 && (!candidate || !complete || rows.size()==13),"Reference case count mismatch");
     for(const auto& value:rows) {
-        const auto r=object(value,candidate?"caseId classification pattern stage sourceDescriptor orientation orientedDimensions source candidate comparison acceptance":"caseId classification pattern stage sourceDescriptor orientation orientedDimensions source expected acceptance");const auto id=string(r["caseId"]);check(seen.insert(id).second,"Duplicate reference case");const auto found=std::find_if(cases.begin(),cases.end(),[&](const auto& c){return qs(c.id)==id;});check(found!=cases.end(),"Unknown reference case");const auto& c=*found;const auto expectedMeta=caseMetadata(c);for(auto it=expectedMeta.begin();it!=expectedMeta.end();++it) check(r[it.key()]==it.value(),"Reference operation/pattern/context mismatch");
-        validatePayload(r["source"],base,c.pattern.width,c.pattern.height,false);const auto dims=r["orientedDimensions"].toObject();validatePayload(r[candidate?"candidate":"expected"],base,static_cast<std::uint32_t>(natural(dims["width"])),static_cast<std::uint32_t>(natural(dims["height"])),c.gray8);
-        const auto a=object(r["acceptance"],"status thresholds review");if(candidate) {check(a["status"]==(c.exact?"candidate":"pending_review") && a["thresholds"].isNull() && a["review"].isNull(),"Candidate approval forbidden");validateMetrics(r["comparison"],true);}else if(c.exact) {check(a["status"]=="exact" && a["review"].isNull(),"Independent exact acceptance mismatch");validateMetrics(a["thresholds"],false);for(const auto& v:a["thresholds"].toObject()) check(number(v)==0,"Exact threshold must be zero");}else if(a["status"]=="pending_review") check(a["thresholds"].isNull() && a["review"].isNull(),"Unreviewed threshold must be null");else {check(root["status"]=="reviewed" && a["status"]=="reviewed","Backend acceptance requires review");validateMetrics(a["thresholds"],false);const auto review=object(a["review"],"reviewedBy reviewedUtc sourceArtifactSha256");(void)string(review["reviewedBy"]);timestamp(review["reviewedUtc"]);hash(review["sourceArtifactSha256"]);}
+        const auto row=object(value,candidate
+            ? "caseId classification pattern stage sourceDescriptor orientation orientedDimensions source candidate comparison acceptance"
+            : "caseId classification pattern stage sourceDescriptor orientation orientedDimensions source expected acceptance");
+        const auto id=string(row["caseId"]);
+        check(seen.insert(id).second,"Duplicate reference case");
+        const auto found=std::find_if(cases.begin(),cases.end(),[&](const auto& c){return qs(c.id)==id;});
+        check(found!=cases.end(),"Unknown reference case");
+        const auto& c=*found;
+        const auto metadata=caseMetadata(c);
+        for(auto it=metadata.begin();it!=metadata.end();++it) {
+            check(row[it.key()]==it.value(),"Reference operation/pattern/context mismatch");
+        }
+        validatePayload(row["source"],base,c.pattern.width,c.pattern.height,false);
+        const auto dims=row["orientedDimensions"].toObject();
+        validatePayload(row[candidate?"candidate":"expected"],base,
+            static_cast<std::uint32_t>(natural(dims["width"])),
+            static_cast<std::uint32_t>(natural(dims["height"])),c.gray8);
+        const auto acceptance=object(row["acceptance"],"status thresholds review");
+        if(candidate) {
+            check(acceptance["status"]==(c.exact?"candidate":"pending_review")
+                && acceptance["thresholds"].isNull() && acceptance["review"].isNull(),"Candidate approval forbidden");
+            validateMetrics(row["comparison"],true);
+        } else if(c.exact) {
+            check(acceptance["status"]=="exact" && acceptance["review"].isNull(),"Independent exact acceptance mismatch");
+            validateMetrics(acceptance["thresholds"],false);
+            for(const auto& metric:acceptance["thresholds"].toObject()) check(number(metric)==0,"Exact threshold must be zero");
+        } else if(acceptance["status"]=="pending_review") {
+            check(root["status"]=="pending","Reviewed manifest cannot contain unreviewed backend cases");
+            check(acceptance["thresholds"].isNull() && acceptance["review"].isNull(),"Unreviewed threshold must be null");
+        } else {
+            check(root["status"]=="reviewed" && acceptance["status"]=="reviewed","Backend acceptance requires review");
+            validateMetrics(acceptance["thresholds"],false);
+            const auto review=object(acceptance["review"],"reviewedBy reviewedUtc sourceArtifactSha256");
+            (void)string(review["reviewedBy"]);
+            timestamp(review["reviewedUtc"]);
+            hash(review["sourceArtifactSha256"]);
+        }
     }
-    if(candidate) validateFailure(root["failure"],static_cast<std::size_t>(rows.size()),complete);else if(root["status"]=="reviewed") check(complete && rows.size()==13 && !smoke,"Reviewed manifest needs all ordinary cases");
+    if(candidate) {
+        validateFailure(root["failure"],static_cast<std::size_t>(rows.size()),complete);
+    } else if(root["status"]=="reviewed") {
+        check(complete && rows.size()==13 && !smoke,"Reviewed manifest needs all ordinary cases");
+    }
+}
+void validateReferenceApprovals(const QJsonObject& approval,const QJsonObject& manifest) {
+    // The manifest and approval shapes/case sets have already been validated.
+    // Bind by case ID: array ordering must not substitute for case identity.
+    for(const auto& value:manifest["cases"].toArray()) {
+        const auto row=value.toObject();
+        if(row["classification"]!="provisional_backend") continue;
+        const auto acceptance=row["acceptance"].toObject();
+        check(acceptance["status"]=="reviewed","Accepted backend reference needs review");
+        for(const auto* key:{"approvedThresholds","approvedReferenceHashes"}) {
+            const auto entries=approval[key].toArray();
+            const auto found=std::find_if(entries.begin(),entries.end(),[&](const auto& entry) {
+                return entry.toObject()["caseId"]==row["caseId"];
+            });
+            check(found!=entries.end(),"Accepted backend case missing from approvals");
+            auto entry=found->toObject();
+            if(std::string_view(key)=="approvedThresholds") {
+                entry.remove("caseId");
+                check(entry==acceptance["thresholds"].toObject(),"Approved thresholds differ from reviewed manifest");
+            } else {
+                check(entry["sourceSha256"]==row["source"].toObject()["sha256"]
+                    && entry["expectedSha256"]==row["expected"].toObject()["sha256"],
+                    "Approved reference hashes differ from reviewed manifest");
+            }
+        }
+    }
 }
 void validateWorkstation(const QJsonObject& root,const std::filesystem::path& base) {
     (void)object(root,"schemaVersion artifactType status designation machine cpu gpu ram os compiler dependencies drivers power threading build requirements acceptance");oneOf(root["status"],"pending accepted");const bool accepted=root["status"]=="accepted";
@@ -114,14 +196,59 @@ void validateWorkstation(const QJsonObject& root,const std::filesystem::path& ba
     for(const auto& key:{"benchmarkArtifactSha256","allocationArtifactSha256","referenceManifestSha256","freshnessArtifactSha256"}) hash(a[key]);
     (void)string(a["reviewedBy"]);timestamp(a["reviewedUtc"]);
     const auto cases=referenceCases(false);std::set<QString> expected;for(const auto& c:cases) if(!c.exact) expected.insert(qs(c.id));
-    for(bool thresholds:{false,true}) {std::set<QString> seen;for(const auto& value:array(a[thresholds?"approvedThresholds":"approvedReferenceHashes"])) {const auto entry=object(value,thresholds?"caseId maxAbsoluteU16Error changedPixelFraction meanAbsoluteError":"caseId sourceSha256 expectedSha256");check(seen.insert(string(entry["caseId"])).second,"Duplicate accepted case");if(thresholds) {auto metrics=entry;metrics.remove("caseId");validateMetrics(metrics,false);}else {hash(entry["sourceSha256"]);hash(entry["expectedSha256"]);}}check(seen==expected,"Accepted backend case set incomplete");}
+    for(bool thresholds:{false,true}) {
+        std::set<QString> seen;
+        for(const auto& value:array(a[thresholds?"approvedThresholds":"approvedReferenceHashes"])) {
+            const auto entry=object(value,thresholds
+                ? "caseId maxAbsoluteU16Error changedPixelFraction meanAbsoluteError"
+                : "caseId sourceSha256 expectedSha256");
+            check(seen.insert(string(entry["caseId"])).second,"Duplicate accepted case");
+            if(thresholds) {
+                auto metrics=entry;
+                metrics.remove("caseId");
+                validateMetrics(metrics,false);
+            } else {
+                hash(entry["sourceSha256"]);
+                hash(entry["expectedSha256"]);
+            }
+        }
+        check(seen==expected,"Accepted backend case set incomplete");
+    }
     // Structural provenance validation only. Human designation/review is still
     // required; no executable writes accepted records. Attached artifacts have
     // fixed review-bundle filenames, documented beside the pending template.
     const std::vector<std::pair<const char*,const char*>> attachments={{"benchmarkArtifactSha256","benchmark.json"},{"allocationArtifactSha256","allocation.json"},{"referenceManifestSha256","manifest.json"},{"freshnessArtifactSha256","freshness.json"}};
-    for(const auto& [key,file]:attachments) {const auto bytes=readFile(base/file);check(qs(sha256(bytes))==a[key],"Accepted attachment hash mismatch");if(std::string_view(file)!="freshness.json") validateArtifact(bytes,base);}
-    const auto benchmark=strictObject(readFile(base/"benchmark.json"));check(benchmark["complete"]==true && benchmark["workload"].toObject()["kind"]=="standard","Accepted benchmark must be complete Standard");bool gate=false;for(const auto& v:benchmark["rows"].toArray()) {const auto row=v.toObject();if(row["size"]==2048 && row["rowId"]=="full_standard_identity") {const auto timing=row["timing"].toObject();gate=number(timing["p95NearestRank"])<=33300000 && number(timing["fps"])>=30;const auto rowProvenance=row["provenance"].toObject();for(const auto& section:{"source","host","dependencies"}) for(const auto& fact:rowProvenance[section].toObject()) check(!fact.isNull(),"Accepted benchmark provenance is incomplete");check(rowProvenance["host"].toObject()["osName"].toString().compare("windows",Qt::CaseInsensitive)==0,"Linux/hosted timing is not designated native Windows evidence");check(rowProvenance["build"].toObject()["configuration"]=="Release","Accepted row requires Release");const auto source=rowProvenance["source"].toObject();check(source["revision"]==root["build"].toObject()["sourceRevision"] && source["dirty"]==false,"Acceptance source provenance mismatch");}}check(gate,"Accepted benchmark does not satisfy2048 gates");
-    const auto allocation=strictObject(readFile(base/"allocation.json"));check(allocation["complete"]==true && allocation["smoke"]==false,"Accepted allocation must be normal complete proof");const auto references=strictObject(readFile(base/"manifest.json"));check(references["status"]=="reviewed","Accepted references need review");
+    for(const auto& [key,file]:attachments) {
+        const auto bytes=readFile(base/file);
+        check(qs(sha256(bytes))==a[key],"Accepted attachment hash mismatch");
+        if(std::string_view(file)!="freshness.json") validateArtifact(bytes,base);
+    }
+    const auto references=strictObject(readFile(base/"manifest.json"));
+    check(references["status"]=="reviewed","Accepted references need review");
+    validateReferenceApprovals(a,references);
+
+    const auto benchmark=strictObject(readFile(base/"benchmark.json"));
+    check(benchmark["complete"]==true && benchmark["workload"].toObject()["kind"]=="standard", "Accepted benchmark must be complete Standard");
+    bool gate=false;
+    for(const auto& value:benchmark["rows"].toArray()) {
+        const auto row=value.toObject();
+        if(row["size"]!=2048 || row["rowId"]!="full_standard_identity") continue;
+        const auto timing=row["timing"].toObject();
+        gate=number(timing["p95NearestRank"])<=33300000 && number(timing["fps"])>=30;
+        const auto rowProvenance=row["provenance"].toObject();
+        for(const auto& section:{"source","host","dependencies"}) {
+            for(const auto& fact:rowProvenance[section].toObject()) check(!fact.isNull(),"Accepted benchmark provenance is incomplete");
+        }
+        check(rowProvenance["host"].toObject()["osName"].toString().compare("windows",Qt::CaseInsensitive)==0,
+            "Linux/hosted timing is not designated native Windows evidence");
+        check(rowProvenance["build"].toObject()["configuration"]=="Release","Accepted row requires Release");
+        const auto source=rowProvenance["source"].toObject();
+        check(source["revision"]==root["build"].toObject()["sourceRevision"] && source["dirty"]==false,
+            "Acceptance source provenance mismatch");
+    }
+    check(gate,"Accepted benchmark does not satisfy2048 gates");
+    const auto allocation=strictObject(readFile(base/"allocation.json"));
+    check(allocation["complete"]==true && allocation["smoke"]==false,"Accepted allocation must be normal complete proof");
 }
 } // namespace
 void validateArtifact(const std::string& bytes,const std::filesystem::path& base) {

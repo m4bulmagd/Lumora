@@ -16,12 +16,16 @@ QJsonObject provenance() {
     QSettings processor(QStringLiteral("HKEY_LOCAL_MACHINE\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0"),QSettings::NativeFormat);
     cpu=nullable(processor.value(QStringLiteral("ProcessorNameString")).toString().trimmed());
 #endif
-    const auto cores=QThread::idealThreadCount();QJsonValue dirty;if(EVIDENCE_DIRTY>=0) dirty=EVIDENCE_DIRTY!=0;
+    const auto cores=QThread::idealThreadCount();
+    QJsonValue dirty;
+#if EVIDENCE_DIRTY >= 0
+    dirty=EVIDENCE_DIRTY!=0;
+#endif
     return {{"source",QJsonObject{{"revision",nullable(EVIDENCE_REVISION)},{"dirty",dirty},{"dirtyScope","git-status-porcelain-v1-untracked-normal"},{"statusSha256",nullable(EVIDENCE_STATUS_SHA)},{"capturedUtc",EVIDENCE_CAPTURED}}},
         {"build",build},{"host",QJsonObject{{"osName",nullable(QSysInfo::productType())},{"osVersion",nullable(QSysInfo::productVersion())},{"architecture",nullable(QSysInfo::currentCpuArchitecture())},{"cpuModel",cpu},{"logicalCores",cores>0?QJsonValue(cores):QJsonValue()}}},
         {"dependencies",QJsonObject{{"opencvVersion",qs(cv::getVersionString())},{"opencvVcpkgPortVersion",nullable(LUMORA_OPENCV_PORT_VERSION)},{"vcpkgBaseline",nullable(LUMORA_VCPKG_BASELINE)},{"qtVersion",qVersion()}}}};
 }
 QJsonObject execution() {
-    return {{"backend","cpu"},{"threadModel","single sequential processing worker; prepared CLAHE/detail loops"},{"opencvThreads",cv::getNumThreads()},{"roundingMode",std::fegetround()==FE_TONEAREST?"FE_TONEAREST":"unsupported"},{"algorithmImplementation","Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen"},{"algorithmProvenance","OpenCV 4.12.0 CLAHE arithmetic/source (Apache-2.0); pinned coefficient generation; see THIRD_PARTY_NOTICES.md"}};
+    return {{"backend","cpu"},{"threadModel","single sequential processing worker; prepared CLAHE/detail loops"},{"opencvThreads",cv::getNumThreads()},{"roundingMode",std::fegetround()==FE_TONEAREST?"FE_TONEAREST":"unsupported"},{"algorithmImplementation","Lumora prepared CLAHE; OpenCV coefficient generation and Lumora separable-double Gaussian; Lumora prepared Median/Sharpen"},{"algorithmProvenance","Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; pinned coefficient generation; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt"}};
 }
 }

@@ -63,6 +63,12 @@ measured regions. Candidate output must be new or empty; the generator rejects
 
 ## Measurement and provenance
 
+Build provenance records declared global, selected configuration, and C++ target
+options. Configuration-specific flags include Debug, Release, RelWithDebInfo and
+MinSizeRel; quotes and backslashes are preserved through JSON serialization.
+Adapted CLAHE source retains the NVIDIA/Itseez three-clause BSD notice at
+`THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt`; Lumora-owned code uses Apache-2.0.
+
 The benchmark has nine standalone stage rows and two complete Standard engine
 rows. Standalone rows serialize a canonical diagnostic definition but time only
 the named stage. Invert is enabled only for its isolated row; Standard disables it.
@@ -153,7 +159,10 @@ The old `clahe-reference.json` remains historical Linux characterization. The
 pending workstation template is structurally valid and intentionally contains null
 facts. Accepted records require designation, provenance, human review and attached
 review-bundle files named `benchmark.json`, `allocation.json`, `manifest.json` and
-`freshness.json` matching their hashes. Structural validation cannot authorize a
+`freshness.json` matching their hashes. A reviewed manifest must contain all13
+ordinary cases, with reviewed thresholds and review provenance on each of the six
+backend cases. Workstation approval arrays must match those thresholds and the
+actual source/expected hashes by case ID. Structural validation cannot authorize a
 workstation; the existing independent freshness review and threshold approval are
 still required. Unavailable peripheral facts remain explicit nulls.
 

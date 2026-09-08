@@ -2236,7 +2236,43 @@
             }
           ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "classification": {
+                "const": "exact_independent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "acceptance": {
+                "properties": {
+                  "status": {
+                    "const": "exact"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "acceptance": {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "pending_review",
+                      "reviewed"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

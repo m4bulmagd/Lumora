@@ -57,6 +57,30 @@ benchmark=obj(**base,artifactType=const('lumora.processing.benchmark'),runStatus
 allocationRow=obj(rowId=enum('full_standard_identity','full_standard_nonidentity'),pipelineDefinition=ref('pipeline'),input=ref('input'),sourceDescriptor=ref('source'),orientation=ref('orientation'),orientedDimensions=ref('dimensions'),provenance=ref('provenance'),execution=ref('execution'),resourcePlan=ref('sessionResource'),warmUpFrames=enum(2,100),measuredCycles=enum(20,1000),positiveControl=ref('positiveControl'),measuredRegion=ref('measuredRegion'),heapTrace=ref('heapTrace'),processingErrors=const(0),drops=const(0),complete=const(True))
 allocation=obj(**base,artifactType=const('lumora.processing.allocation-proof'),runStatus=enum('complete','incomplete'),complete=B,smoke=B,generatedUtc=UTC,rows=arr(allocationRow,maxItems=2),failure=ref('failure'))
 reference={'oneOf':[obj(**base,artifactType=const('lumora.processing.reference-candidate'),status=const('candidate'),workloadKind=enum('candidate','smoke'),complete=B,generatedUtc=UTC,provenance=ref('provenance'),pipelineDefinition=ref('pipeline'),cases=arr(ref('candidateCase'),maxItems=13),failure=ref('failure')),obj(**base,artifactType=const('lumora.processing.reference-manifest'),status=enum('pending','reviewed'),sizeProfile=enum('ordinary','smoke'),complete=B,updatedUtc=UTC,pipelineDefinition=ref('pipeline'),cases=arr(ref('committedCase'),maxItems=13))]}
+# A reviewed root binds every backend case to a reviewed acceptance object.
+# Cross-artifact threshold/hash equality is checked by the typed validator;
+# JSON Schema cannot compare values across the review bundle's files.
+D['committedCase']['allOf']=[{
+    'if':{'properties':{'classification':const('exact_independent')}},
+    'then':{'properties':{'acceptance':{'properties':{'status':const('exact')}}}},
+    'else':{'properties':{'acceptance':{'properties':{'status':enum('pending_review','reviewed')}}}},
+}]
+manifest=reference['oneOf'][1]
+manifest['allOf']=[{
+    'if':{'properties':{'status':const('reviewed')}},
+    'then':{'properties':{
+        'complete':const(True),
+        'sizeProfile':const('ordinary'),
+        'cases':{'minItems':13,'items':{
+            'if':{'properties':{'classification':const('provisional_backend')}},
+            'then':{'properties':{'acceptance':{'properties':{'status':const('reviewed')}}}},
+        }},
+    }},
+    'else':{'properties':{'cases':{'items':{
+        'if':{'properties':{'classification':const('provisional_backend')}},
+        'then':{'properties':{'acceptance':{'properties':{'status':const('pending_review')}}}},
+    }}}},
+}]
 facts={'machine':'manufacturer model firmware','cpu':'manufacturer model architecture physicalCores logicalCores','gpu':'manufacturer model dedicatedMemoryBytes','ram':'installedBytes speedMtPerSecond','os':'name edition version build','compiler':'id version','dependencies':'opencvVersion opencvVcpkgPortVersion vcpkgBaseline qtVersion','drivers':'gpu chipset','power':'plan acPower thermalCondition','threading':'threadModel opencvThreads logicalProcessorAffinity','build':'configuration compileOptions sourceRevision sourceDirty artifactSha256'}
 intFacts={'physicalCores','logicalCores','dedicatedMemoryBytes','installedBytes','speedMtPerSecond','opencvThreads'}
 factShapes={k:nullable(obj(**{n:nullable(I if n in intFacts else B if n in {'acPower','sourceDirty'} else S) for n in names.split()})) for k,names in facts.items()}

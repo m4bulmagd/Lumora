@@ -152,3 +152,176 @@ TEST(EvidenceValidation, FullReferenceContextStartsFromSensorNativeRawInput) {
         EXPECT_EQ(stage["fullStandardExecuted"],true);
     }
 }
+namespace {
+// Synthetic review data exercises validation only. Exact payloads are copied
+// from independent fixtures; backend zeros and altered smoke timings are never
+// reference or performance evidence and exist only in this temporary directory.
+QJsonObject syntheticReviewedManifest(const std::filesystem::path& base) {
+    const auto fixtures=std::filesystem::path(LUMORA_EXACT_ORACLE_ROOT)/"ordinary";
+    auto manifest=strictObject(readFile(fixtures/"manifest.json"));
+    auto rows=manifest["cases"].toArray();
+    for(const auto& value:rows) {
+        const auto row=value.toObject();
+        for(const auto* key:{"source","expected"}) {
+            const auto file=std::filesystem::path(row[key].toObject()["file"].toString().toStdU16String());
+            atomicWrite(base/file,readFile(fixtures/file));
+        }
+    }
+    for(const auto& c:referenceCases(false)) {
+        if(c.exact) continue;
+        auto row=caseMetadata(c);
+        const auto input=makePattern(c.pattern);
+        const auto dims=row["orientedDimensions"].toObject();
+        Image output{static_cast<std::uint32_t>(dims["width"].toInt()),static_cast<std::uint32_t>(dims["height"].toInt()),{}};
+        output.pixels.resize(static_cast<std::size_t>(output.width)*output.height);
+        const auto sourceFile=c.id+"-synthetic-source.pgm",expectedFile=c.id+"-synthetic-expected.pgm";
+        atomicWrite(base/sourceFile,encodePgm(input));
+        atomicWrite(base/expectedFile,encodePgm(output));
+        row["source"]=payloadJson(base,sourceFile,input);
+        row["expected"]=payloadJson(base,expectedFile,output,c.gray8);
+        row["acceptance"]=QJsonObject{{"status","reviewed"},
+            {"thresholds",QJsonObject{{"maxAbsoluteU16Error",4},{"changedPixelFraction",0.25},{"meanAbsoluteError",1.5}}},
+            {"review",QJsonObject{{"reviewedBy","synthetic test reviewer"},{"reviewedUtc","2026-09-08T00:00:00.000Z"},{"sourceArtifactSha256",QString(64,'1')}}}};
+        rows.append(row);
+    }
+    manifest["cases"]=rows;
+    manifest["status"]="reviewed";
+    manifest["complete"]=true;
+    return manifest;
+}
+QJsonObject approvalArrays(const QJsonObject& manifest) {
+    QJsonArray thresholds,hashes;
+    for(const auto& value:manifest["cases"].toArray()) {
+        const auto row=value.toObject();
+        if(row["classification"]!="provisional_backend") continue;
+        auto metrics=row["acceptance"].toObject()["thresholds"].toObject();
+        metrics["caseId"]=row["caseId"];
+        thresholds.append(metrics);
+        hashes.append(QJsonObject{{"caseId",row["caseId"]},{"sourceSha256",row["source"].toObject()["sha256"]},{"expectedSha256",row["expected"].toObject()["sha256"]}});
+    }
+    return {{"approvedThresholds",thresholds},{"approvedReferenceHashes",hashes}};
+}
+QJsonObject syntheticWorkstationRecord() {
+    auto record=strictObject(readFile(std::filesystem::path(LUMORA_WORKSTATION_TEMPLATE)));
+    record["status"]="accepted";
+    record["designation"]=QJsonObject{{"machineId","synthetic-test-only"},{"selectedBy","synthetic test reviewer"},{"selectedUtc","2026-09-08T00:00:00.000Z"}};
+    const std::vector<std::pair<const char*,const char*>> fields={{"machine","manufacturer model firmware"},{"cpu","manufacturer model architecture physicalCores logicalCores"},{"gpu","manufacturer model dedicatedMemoryBytes"},{"ram","installedBytes speedMtPerSecond"},{"os","name edition version build"},{"compiler","id version"},{"dependencies","opencvVersion opencvVcpkgPortVersion vcpkgBaseline qtVersion"},{"drivers","gpu chipset"},{"power","plan acPower thermalCondition"},{"threading","threadModel opencvThreads logicalProcessorAffinity"},{"build","configuration compileOptions sourceRevision sourceDirty artifactSha256"}};
+    for(const auto& [name,keys]:fields) {
+        QJsonObject facts;
+        for(const auto& key:QString::fromLatin1(keys).split(' ')) facts[key]="synthetic-test-only";
+        record[name]=facts;
+    }
+    for(const auto& [name,key]:std::vector<std::pair<const char*,const char*>>{{"cpu","physicalCores"},{"cpu","logicalCores"},{"gpu","dedicatedMemoryBytes"},{"ram","installedBytes"},{"ram","speedMtPerSecond"},{"threading","opencvThreads"}}) {
+        auto facts=record[name].toObject();facts[key]=1;record[name]=facts;
+    }
+    auto os=record["os"].toObject();os["name"]="Windows";record["os"]=os;
+    auto power=record["power"].toObject();power["acPower"]=true;record["power"]=power;
+    auto build=record["build"].toObject();
+    build["configuration"]="Release";build["sourceDirty"]=false;
+    build["sourceRevision"]=QString(40,'0');build["artifactSha256"]=QString(64,'0');record["build"]=build;
+    return record;
+}
+}
+
+TEST(EvidenceValidation, ReviewedManifestRequiresEveryBackendReview) {
+    QTemporaryDir temp;ASSERT_TRUE(temp.isValid());
+    const auto base=std::filesystem::path(temp.path().toStdU16String());
+    const auto reviewed=syntheticReviewedManifest(base);
+    ASSERT_NO_THROW(validateArtifact(json(reviewed),base));
+    auto pending=reviewed;
+    auto rows=pending["cases"].toArray();
+    for(qsizetype index=0;index<rows.size();++index) {
+        auto row=rows[index].toObject();
+        if(row["classification"]!="provisional_backend") continue;
+        row["acceptance"]=QJsonObject{{"status","pending_review"},{"thresholds",QJsonValue()},{"review",QJsonValue()}};
+        rows[index]=row;
+    }
+    pending["cases"]=rows;pending["status"]="pending";
+    ASSERT_NO_THROW(validateArtifact(json(pending),base));
+    pending["status"]="reviewed";
+    EXPECT_THROW(validateArtifact(json(pending),base),Error);
+    for(const auto* field:{"status","thresholds","review"}) {
+        auto invalid=reviewed;
+        auto invalidRows=invalid["cases"].toArray();
+        auto row=invalidRows.last().toObject();
+        auto acceptance=row["acceptance"].toObject();
+        if(std::string_view(field)=="status") {
+            acceptance=QJsonObject{{"status","pending_review"},{"thresholds",QJsonValue()},{"review",QJsonValue()}};
+        } else acceptance[field]=QJsonValue();
+        row["acceptance"]=acceptance;invalidRows[invalidRows.size()-1]=row;invalid["cases"]=invalidRows;
+        EXPECT_THROW(validateArtifact(json(invalid),base),Error)<<field;
+    }
+}
+
+TEST(EvidenceArtifactFiles, AcceptedWorkstationApprovalsMatchReviewedManifest) {
+    const auto directory=qEnvironmentVariable("LUMORA_EVIDENCE_DIRECTORY");
+    if(directory.isEmpty()) GTEST_SKIP()<<"Run through Processing.EvidenceSmoke after CLI artifacts exist.";
+    const auto smokeBase=std::filesystem::path(directory.toStdU16String());
+    QTemporaryDir temp;ASSERT_TRUE(temp.isValid());
+    const auto base=std::filesystem::path(temp.path().toStdU16String());
+    const auto manifest=syntheticReviewedManifest(base);
+    auto benchmark=strictObject(readFile(smokeBase/"benchmark.json"));
+    auto allocation=strictObject(readFile(smokeBase/"allocation.json"));
+    const auto smokeRows=benchmark["rows"].toArray();ASSERT_EQ(smokeRows.size(),22);
+    QJsonArray rows;
+    for(const auto size:{512,1024,2048}) for(qsizetype index=0;index<11;++index) {
+        auto row=smokeRows[index].toObject();
+        row["size"]=size;row["smoke"]=false;row["warmUpFrames"]=100;row["measuredFrames"]=500;
+        row["sourceDescriptor"]=descriptorJson(monoFormat(),layoutFor(static_cast<std::uint32_t>(size),static_cast<std::uint32_t>(size)));
+        row["orientedDimensions"]=dimensions(static_cast<std::uint32_t>(size),static_cast<std::uint32_t>(size));
+        row["timing"]=QJsonObject{{"unit","nanoseconds"},{"sampleCount",500},{"median",1000000},{"p95NearestRank",1000000},{"wallElapsed",500000000},{"fps",1000}};
+        auto facts=row["provenance"].toObject();
+        auto source=facts["source"].toObject();source["revision"]=QString(40,'0');source["dirty"]=false;facts["source"]=source;
+        auto host=facts["host"].toObject();host["osName"]="Windows";facts["host"]=host;
+        auto build=facts["build"].toObject();build["configuration"]="Release";facts["build"]=build;
+        row["provenance"]=facts;rows.append(row);
+    }
+    benchmark["rows"]=rows;
+    benchmark["workload"]=QJsonObject{{"kind","standard"},{"requestedSizes",QJsonArray{512,1024,2048}},{"warmUpFrames",100},{"measuredFrames",500}};
+    rows=allocation["rows"].toArray();
+    for(qsizetype index=0;index<rows.size();++index) {
+        auto row=rows[index].toObject();row["warmUpFrames"]=100;row["measuredCycles"]=1000;
+        auto region=row["measuredRegion"].toObject();region["cycles"]=1000;row["measuredRegion"]=region;rows[index]=row;
+    }
+    allocation["rows"]=rows;allocation["smoke"]=false;
+    atomicWrite(base/"benchmark.json",json(benchmark));
+    atomicWrite(base/"allocation.json",json(allocation));
+    atomicWrite(base/"manifest.json",json(manifest));
+    atomicWrite(base/"freshness.json","synthetic test-only attachment");
+    auto record=syntheticWorkstationRecord();
+    auto acceptance=approvalArrays(manifest);
+    for(const auto& [key,file]:std::vector<std::pair<const char*,const char*>>{{"benchmarkArtifactSha256","benchmark.json"},{"allocationArtifactSha256","allocation.json"},{"referenceManifestSha256","manifest.json"},{"freshnessArtifactSha256","freshness.json"}}) acceptance[key]=qs(sha256(readFile(base/file)));
+    acceptance["reviewedBy"]="synthetic test reviewer";acceptance["reviewedUtc"]="2026-09-08T00:00:00.000Z";
+    record["acceptance"]=acceptance;
+    ASSERT_NO_THROW(validateArtifact(json(record),base));
+    for(const auto* field:{"maxAbsoluteU16Error","changedPixelFraction","meanAbsoluteError","sourceSha256","expectedSha256"}) {
+        auto invalid=record;auto invalidAcceptance=acceptance;
+        const auto* arrayKey=std::string_view(field).ends_with("Sha256")?"approvedReferenceHashes":"approvedThresholds";
+        auto entries=acceptance[arrayKey].toArray();auto entry=entries[0].toObject();
+        entry[field]=std::string_view(field).ends_with("Sha256")?QJsonValue(QString(64,'0')):QJsonValue(0);
+        entries[0]=entry;invalidAcceptance[arrayKey]=entries;invalid["acceptance"]=invalidAcceptance;
+        EXPECT_THROW(validateArtifact(json(invalid),base),Error)<<field;
+    }
+    // Approval ordering has no authority; case IDs bind each value to its case.
+    auto reordered=acceptance;
+    for(const auto* key:{"approvedThresholds","approvedReferenceHashes"}) {
+        QJsonArray reversed;const auto entries=acceptance[key].toArray();
+        for(qsizetype index=entries.size();index>0;--index) reversed.append(entries[index-1]);
+        reordered[key]=reversed;
+    }
+    record["acceptance"]=reordered;
+    EXPECT_NO_THROW(validateArtifact(json(record),base));
+}
+
+TEST(EvidenceArtifacts, ClaheProvenanceRetainsAdaptedSourceLicenseNotice) {
+    const auto text=execution()["algorithmProvenance"].toString();
+    EXPECT_TRUE(text.contains("three-clause BSD"));
+    EXPECT_TRUE(text.contains("THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt"));
+    EXPECT_TRUE(text.contains("Lumora-owned code (Apache-2.0)"));
+    EXPECT_FALSE(text.contains("CLAHE arithmetic/source (Apache-2.0)"));
+    for(const auto& c:referenceCases(true)) if(!c.exact) {
+        const auto caseText=caseMetadata(c)["stage"].toObject()["provenance"].toString();
+        EXPECT_TRUE(caseText.contains("three-clause BSD"));
+        EXPECT_TRUE(caseText.contains("THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt"));
+    }
+}
