@@ -32,15 +32,15 @@ Cached build directories: `out/build/linux-gcc-debug-sim`, `out/build/linux-gcc-
 
 ### Task 1: Validated identity copies
 
-**Files:** Modify `src/processing/src/NormalizeStage.cpp`, `BrightnessContrastStage.cpp`, `GammaStage.cpp`, and optionally the existing private `ToneStageSupport.hpp` row-copy helper. Test `tests/unit/processing/NormalizeStageTests.cpp` and `ToneStageTests.cpp`.
+**Files:** Modify `src/processing/src/NormalizeStage.cpp`, `BrightnessContrastStage.cpp`, `GammaStage.cpp`, and the existing private `ToneStageSupport.hpp`; create private `ImageRowCopy.hpp` for the shared active-row copy. Test `tests/unit/processing/NormalizeStageTests.cpp` and `ToneStageTests.cpp`.
 
 **Interfaces:** Public stage interfaces, gamma LUT ownership, timings and resource sizes remain unchanged.
 
-- [ ] Extend tests before source changes: all 65,536 Mono16 values copy exactly; neutral BC/Gamma retain unaligned/padded source and destination canaries across multiple rows; identity-eligible inputs still reject overlap/domain/storage/extent failures; Mono12 still scales and reports its first out-of-range sample. Reuse existing exhaustive gamma/BC tests instead of duplicating them.
-- [ ] Run focused Release `Processing.NormalizeStage` and `Processing.ToneStages`; record existing passing behavior and the preserved slow baseline. Demonstrate a realistic canary/guard mutation failure in the new coverage, then restore it.
-- [ ] After existing validation, copy active row bytes for validated U16 maximum 65535, exact BC 0/1 and Gamma 1. Leave all general paths and gamma construction unchanged.
-- [ ] Build Debug/Release `lumora_processing_tests`; run the two focused registrations. Controller measures a frozen before/after stage diagnostic and complete engine outputs with no concurrent build.
-- [ ] Controller commits source/tests and obtains independent task spec/quality review before completion.
+- [x] Extend tests before source changes: all 65,536 Mono16 values copy exactly; neutral BC/Gamma retain unaligned/padded source and destination canaries across multiple rows; identity-eligible inputs still reject overlap/domain/storage/extent failures; Mono12 still scales and reports its first out-of-range sample. Reuse existing exhaustive gamma/BC tests instead of duplicating them.
+- [x] Run focused Release `Processing.NormalizeStage` and `Processing.ToneStages`; record existing passing behavior and the preserved slow baseline. Demonstrate a realistic canary/guard mutation failure in the new coverage, then restore it.
+- [x] After existing validation, copy active row bytes for validated U16 maximum 65535, exact BC 0/1 and Gamma 1. Leave all general paths and gamma construction unchanged.
+- [x] Build Debug/Release `lumora_processing_tests`; run the two focused registrations. Controller measures a frozen before/after stage diagnostic and complete engine outputs with no concurrent build.
+- [x] Controller commits source/tests and obtains independent task spec/quality review before completion.
 
 ### Task 2: Specialized blocked orientation
 
