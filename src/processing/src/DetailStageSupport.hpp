@@ -92,6 +92,23 @@ void prepareVerticalGaussianRows(
     const double* coefficients,
     std::size_t kernelSize) noexcept;
 
+void writeGaussianRow(
+    const ReflectedGaussianRows& rows,
+    const double* coefficients,
+    std::size_t kernelSize,
+    std::size_t width,
+    std::span<std::byte> destinationRow) noexcept;
+
+void writeSharpenRow(
+    const ReflectedGaussianRows& rows,
+    const double* coefficients,
+    std::size_t kernelSize,
+    std::size_t width,
+    std::span<const std::byte> sourceRow,
+    std::span<std::byte> destinationRow,
+    double amount,
+    double threshold) noexcept;
+
 [[nodiscard]] std::uint16_t roundU16(double value) noexcept;
 
 }  // namespace lumora::processing::detail

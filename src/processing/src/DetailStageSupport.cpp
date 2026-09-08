@@ -11,6 +11,68 @@
 #include <utility>
 
 namespace lumora::processing::detail {
+namespace {
+
+constexpr std::size_t laneCount = 8U;
+
+[[nodiscard]] double reflectedHorizontalAt(
+    std::span<const std::byte> sourceRow,
+    std::size_t x,
+    std::size_t width,
+    const double* coefficients,
+    std::size_t kernelSize) noexcept {
+    double sum = 0.0;
+    const auto radius = static_cast<std::int64_t>(kernelSize / 2U);
+    for (std::size_t tap = 0U; tap < kernelSize; ++tap) {
+        const auto offset = static_cast<std::int64_t>(tap) - radius;
+        const auto reflectedX = reflect101(
+            static_cast<std::int64_t>(x) + offset, width);
+        sum += coefficients[tap] * static_cast<double>(
+            loadU16(sourceRow, reflectedX));
+    }
+    return sum;
+}
+
+[[nodiscard]] double interiorHorizontalAt(
+    std::span<const std::byte> sourceRow,
+    std::size_t firstX,
+    const double* coefficients,
+    std::size_t kernelSize) noexcept {
+    double sum = 0.0;
+    for (std::size_t tap = 0U; tap < kernelSize; ++tap) {
+        sum += coefficients[tap] * static_cast<double>(
+            loadU16(sourceRow, firstX + tap));
+    }
+    return sum;
+}
+
+template <typename WritePixel>
+void writeVerticalRow(
+    const ReflectedGaussianRows& rows,
+    const double* coefficients,
+    std::size_t kernelSize,
+    std::size_t width,
+    WritePixel&& writePixel) noexcept {
+    std::size_t x = 0U;
+    for (; width - x >= laneCount; x += laneCount) {
+        std::array<double, laneCount> sums{};
+        for (std::size_t tap = 0U; tap < kernelSize; ++tap) {
+            const auto coefficient = coefficients[tap];
+            const auto* input = rows[tap] + x;
+            for (std::size_t lane = 0U; lane < laneCount; ++lane) {
+                sums[lane] += coefficient * input[lane];
+            }
+        }
+        for (std::size_t lane = 0U; lane < laneCount; ++lane) {
+            writePixel(x + lane, sums[lane]);
+        }
+    }
+    for (; x < width; ++x) {
+        writePixel(x, verticalGaussianAt(rows, x, coefficients, kernelSize));
+    }
+}
+
+}  // namespace
 
 core::Error stageError(
     std::string_view stage,
@@ -164,26 +226,43 @@ void horizontalGaussian(
     const auto radius = kernelSize / 2U;
     for (std::size_t y = 0U; y < height; ++y) {
         const auto sourceRow = source.row(static_cast<std::uint32_t>(y));
-        for (std::size_t x = 0U; x < width; ++x) {
-            double sum = 0.0;
-            const bool interior = x >= radius && radius <= width - 1U - x;
-            if (interior) {
-                const auto firstX = x - radius;
-                for (std::size_t index = 0U; index < kernelSize; ++index) {
-                    sum += coefficients[index] * static_cast<double>(
-                        loadU16(sourceRow, firstX + index));
-                }
-            } else {
-                for (std::size_t index = 0U; index < kernelSize; ++index) {
-                    const auto offset = static_cast<std::int64_t>(index)
-                        - static_cast<std::int64_t>(radius);
-                    const auto reflectedX = reflect101(
-                        static_cast<std::int64_t>(x) + offset, width);
-                    sum += coefficients[index] * static_cast<double>(
-                        loadU16(sourceRow, reflectedX));
+        auto* destinationRow = intermediate + y * width;
+        if (width < kernelSize) {
+            for (std::size_t x = 0U; x < width; ++x) {
+                destinationRow[x] = reflectedHorizontalAt(
+                    sourceRow, x, width, coefficients, kernelSize);
+            }
+            continue;
+        }
+
+        for (std::size_t x = 0U; x < radius; ++x) {
+            destinationRow[x] = reflectedHorizontalAt(
+                sourceRow, x, width, coefficients, kernelSize);
+        }
+
+        const auto interiorEnd = width - radius;
+        std::size_t x = radius;
+        for (; interiorEnd - x >= laneCount; x += laneCount) {
+            std::array<double, laneCount> sums{};
+            const auto firstX = x - radius;
+            for (std::size_t tap = 0U; tap < kernelSize; ++tap) {
+                const auto coefficient = coefficients[tap];
+                for (std::size_t lane = 0U; lane < laneCount; ++lane) {
+                    sums[lane] += coefficient * static_cast<double>(
+                        loadU16(sourceRow, firstX + tap + lane));
                 }
             }
-            intermediate[y * width + x] = sum;
+            for (std::size_t lane = 0U; lane < laneCount; ++lane) {
+                destinationRow[x + lane] = sums[lane];
+            }
+        }
+        for (; x < interiorEnd; ++x) {
+            destinationRow[x] = interiorHorizontalAt(
+                sourceRow, x - radius, coefficients, kernelSize);
+        }
+        for (; x < width; ++x) {
+            destinationRow[x] = reflectedHorizontalAt(
+                sourceRow, x, width, coefficients, kernelSize);
         }
     }
 }
@@ -214,6 +293,43 @@ double verticalGaussianAt(
         sum += coefficients[index] * rows[index][x];
     }
     return sum;
+}
+
+void writeGaussianRow(
+    const ReflectedGaussianRows& rows,
+    const double* coefficients,
+    std::size_t kernelSize,
+    std::size_t width,
+    std::span<std::byte> destinationRow) noexcept {
+    writeVerticalRow(rows, coefficients, kernelSize, width,
+        [&](std::size_t x, double blurred) {
+            storeU16(destinationRow, x, roundU16(blurred));
+        });
+}
+
+void writeSharpenRow(
+    const ReflectedGaussianRows& rows,
+    const double* coefficients,
+    std::size_t kernelSize,
+    std::size_t width,
+    std::span<const std::byte> sourceRow,
+    std::span<std::byte> destinationRow,
+    double amount,
+    double threshold) noexcept {
+    writeVerticalRow(rows, coefficients, kernelSize, width,
+        [&](std::size_t x, double blurredValue) {
+            const auto blurred = roundU16(blurredValue);
+            const auto original = loadU16(sourceRow, x);
+            const auto signedDetail = static_cast<std::int32_t>(original)
+                - static_cast<std::int32_t>(blurred);
+            if (std::abs(static_cast<double>(signedDetail)) <= threshold) {
+                storeU16(destinationRow, x, original);
+                return;
+            }
+            const auto candidate = static_cast<double>(original)
+                + amount * static_cast<double>(signedDetail);
+            storeU16(destinationRow, x, roundU16(candidate));
+        });
 }
 
 std::uint16_t roundU16(double value) noexcept {

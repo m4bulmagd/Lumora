@@ -184,21 +184,9 @@ core::Result<void> SharpenStage::process(
             height, y, impl_->kernelSize, rows);
         const auto sourceRow = source.row(static_cast<std::uint32_t>(y));
         const auto destinationRow = destination.row(static_cast<std::uint32_t>(y));
-        for (std::size_t x = 0U; x < width; ++x) {
-            const auto blurred = detail::roundU16(detail::verticalGaussianAt(
-                rows, x, impl_->coefficients.get(), impl_->kernelSize));
-            const auto original = detail::loadU16(sourceRow, x);
-            const auto signedDetail = static_cast<std::int32_t>(original)
-                - static_cast<std::int32_t>(blurred);
-            if (std::abs(static_cast<double>(signedDetail))
-                <= impl_->parameters.threshold) {
-                detail::storeU16(destinationRow, x, original);
-                continue;
-            }
-            const auto candidate = static_cast<double>(original)
-                + impl_->parameters.amount * static_cast<double>(signedDetail);
-            detail::storeU16(destinationRow, x, detail::roundU16(candidate));
-        }
+        detail::writeSharpenRow(rows, impl_->coefficients.get(), impl_->kernelSize,
+            width, sourceRow, destinationRow, impl_->parameters.amount,
+            impl_->parameters.threshold);
     }
     return core::Result<void>::success();
 }

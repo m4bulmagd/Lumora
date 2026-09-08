@@ -32,6 +32,7 @@ add_executable(lumora_processing_tests
   unit/processing/NormalizeStageTests.cpp
   unit/processing/WindowLevelStageTests.cpp
   unit/processing/ClaheStageTests.cpp
+  unit/processing/DetailStageBatchingTests.cpp
   unit/processing/DenoiseStageTests.cpp
   unit/processing/SharpenStageTests.cpp
   unit/processing/ToneStageTests.cpp
@@ -42,6 +43,8 @@ target_link_libraries(lumora_processing_tests PRIVATE
   lumora::processing opencv_core opencv_imgproc GTest::gtest_main)
 target_compile_definitions(lumora_processing_tests PRIVATE
   LUMORA_CLAHE_REFERENCE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/reference/processing/clahe-reference.json")
+target_include_directories(lumora_processing_tests PRIVATE
+  "${PROJECT_SOURCE_DIR}/src/processing/src")
 lumora_enable_warnings(lumora_processing_tests)
 add_test(NAME Processing.Mono8PassThrough
   COMMAND lumora_processing_tests --gtest_filter=Mono8PassThroughProcessor.*)
@@ -326,7 +329,8 @@ add_test(NAME Processing.ClaheStage
   COMMAND lumora_processing_tests --gtest_filter=ClaheStage.*)
 set_tests_properties(Processing.ClaheStage PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.DetailStages
-  COMMAND lumora_processing_tests --gtest_filter=DenoiseStage.*:SharpenStage.*)
+  COMMAND lumora_processing_tests
+    --gtest_filter=DetailStageBatching.*:DenoiseStage.*:SharpenStage.*)
 set_tests_properties(Processing.DetailStages PROPERTIES TIMEOUT 60)
 
 add_executable(lumora_detail_allocation_tests

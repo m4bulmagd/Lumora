@@ -191,11 +191,8 @@ core::Result<void> DenoiseStage::process(
             detail::prepareVerticalGaussianRows(
                 impl_->intermediate.get(), width, height, y, kernelSize, rows);
             const auto destinationRow = destination.row(static_cast<std::uint32_t>(y));
-            for (std::size_t x = 0U; x < width; ++x) {
-                const auto blurred = detail::verticalGaussianAt(
-                    rows, x, impl_->coefficients.get(), kernelSize);
-                detail::storeU16(destinationRow, x, detail::roundU16(blurred));
-            }
+            detail::writeGaussianRow(rows, impl_->coefficients.get(),
+                kernelSize, width, destinationRow);
         }
         return core::Result<void>::success();
     }
