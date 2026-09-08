@@ -41,6 +41,7 @@ add_library(
   processing/include/lumora/processing/ImageView.hpp
   processing/include/lumora/processing/NormalizeStage.hpp
   processing/include/lumora/processing/WindowLevelStage.hpp
+  processing/include/lumora/processing/ClaheStage.hpp
   processing/include/lumora/processing/ToneStages.hpp
   processing/include/lumora/processing/DisplayMapper.hpp
   processing/include/lumora/processing/ProcessingPipeline.hpp
@@ -52,6 +53,7 @@ add_library(
   processing/src/ImageView.cpp
   processing/src/NormalizeStage.cpp
   processing/src/WindowLevelStage.cpp
+  processing/src/ClaheStage.cpp
   processing/src/ToneStageSupport.hpp
   processing/src/BrightnessContrastStage.cpp
   processing/src/GammaStage.cpp
@@ -63,7 +65,9 @@ add_library(
 add_library(lumora::processing ALIAS lumora_processing)
 target_include_directories(lumora_processing PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/processing/include>)
-target_link_libraries(lumora_processing PUBLIC lumora::core)
+target_link_libraries(lumora_processing
+  PUBLIC lumora::core
+  PRIVATE opencv_core opencv_imgproc)
 lumora_enable_warnings(lumora_processing)
 
 # The camera API deliberately has no Qt, SDK, or transport dependency.

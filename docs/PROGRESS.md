@@ -2,7 +2,7 @@
 
 **Updated:** 2026-09-08
 
-**Latest integrated implementation checkpoint:** `61d91fb36a0be9a0d56d6ce04b5f68874a7f5283` on `main`.
+**Latest integrated implementation checkpoint:** `d6f94e183d9b5f5f74238a4b2036a7be839bc14e` on `main`.
 
 This is a status and evidence summary, not a replacement for the [PRD](../prd.md), [design and milestone authority](superpowers/README.md#document-authority), or separately recorded acceptance. Documentation-only commits may follow the implementation checkpoint above.
 
@@ -15,7 +15,7 @@ This is a status and evidence summary, not a replacement for the [PRD](../prd.md
 | M5: independent live pipeline | Tasks 1–5 implemented, reviewed and merged; no open recorded review findings | Pending deferred M4 checks, affected M5 native Windows UI checks and separate acceptance |
 | M6 | Awaiting approved hardware profile; not implemented | Entry and acceptance gates remain in force |
 | M7 | Tasks 1–4 reviewed and merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8); Linux/GCC and Windows/MSVC PR Debug/Release passed; stall-test correction merged through [PR #9](https://github.com/m4bulmagd/Lumora/pull/9) with passing Linux/Windows Debug/Release CI | Preceding deferred gates and separate acceptance remain open |
-| M8 | Task 1 implemented and task-reviewed on `feat/m08-tone-stages`; Linux Debug/Release 42/42 | Windows evidence, Tasks 2–5, deferred gates and M8 acceptance remain open |
+| M8 | Task 1 reviewed and merged through [PR #10](https://github.com/m4bulmagd/Lumora/pull/10); Linux Debug/Release 42/42 and Windows 41/41; Task 2 CLAHE implemented and task-reviewed locally through `88a9ad8`, Linux Debug/Release 43/43; final review passed; Linux/Windows CI in progress on [PR #11](https://github.com/m4bulmagd/Lumora/pull/11) | Tasks 2–5, designated Windows references/performance, allocation and deferred acceptance gates remain open |
 | M9–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
 
 The normal Linux application now provides synthetic live video through the production pipeline: select `SIM-LIVE`, Connect, Apply and review, Confirm, then Start. Pause freezes presentation while acquisition continues. See the [launch guide](development/build-linux.md#launch-the-desktop-application). No physical camera is connected by this composition.
@@ -54,4 +54,4 @@ All current work is **EVALUATION — NOT FOR CLINICAL USE** and must not acquire
 
 ## M8 Task 1 development checkpoint
 
-The [tone-stage record](architecture/milestones/m08-tone-stages.md) records the owner-authorized continuation and implementation at `246a73a`: standalone U16 brightness/contrast, cached gamma and inversion with fourteen focused cases and passing Linux Debug/Release application suites. Task review passed. Live activation remains rejected until Task 5 composes execution. Whole-frame zero allocation and Windows/performance evidence remain open.
+The [tone-stage record](architecture/milestones/m08-tone-stages.md) records the owner-authorized continuation and implementation at `246a73a`: standalone U16 brightness/contrast, cached gamma and inversion with fourteen focused cases and passing Linux Debug/Release application suites. Task and final reviews passed; Task 1 merged through PR #10 after Linux/Windows Debug/Release CI passed. Live activation remains rejected until Task 5 composes execution. Whole-frame zero allocation and designated Windows reference/performance evidence remain open. [Task 2 CLAHE](architecture/milestones/m08-clahe.md) has passed independent task review and complete Linux application verification; final branch review also passed, and Linux/Windows CI is running on [PR #11](https://github.com/m4bulmagd/Lumora/pull/11).

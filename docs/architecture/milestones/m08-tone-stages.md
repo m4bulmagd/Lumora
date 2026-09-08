@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-07
 
-**Status:** Task 1 implemented at `246a73a` and independently task-reviewed on `feat/m08-tone-stages`. Local Linux Debug/Release suites passed; the tests-disabled production build and final whole-branch review passed. M8 is not accepted.
+**Status:** Task 1 implemented at `246a73a`, independently reviewed and merged through PR #10 as `d6f94e1`. Linux/GCC and Windows/MSVC Debug/Release PR CI passed. M8 is not accepted.
 
 ## Authority and scope
 
@@ -63,3 +63,18 @@ Failure-only diagnostics `8c63f36` were subsequently included and independently 
 After M7 PR #9 merged, the owner approved the proposed next steps with “Ok go ahead with M8”: publish and integrate the already completed Task 1 through Linux/Windows CI, then implement bounded Task 2 (U16 CLAHE). This extends the earlier Task-1-only development scope; Tasks 3–5 and M9 remain subsequent work. Manual Windows 11 validation remains deferred.
 
 The existing isolated worktree was retained. Merge `e4fcbb5` incorporates main `61d91fb`, including the reviewed M7 stall-test correction and context-timeout diagnostics. Task 1 source remains `246a73a`; no tone algorithm or public interface changed for publication. Task 1 publishing is authorized; CI results will be recorded against the actual PR head before merge.
+
+
+## Task 1 PR integration — 2026-09-08
+
+[PR #10](https://github.com/m4bulmagd/Lumora/pull/10) merged exact head `e4dcc7949149d125c0b46419617c63a82ac0068c` as `d6f94e183d9b5f5f74238a4b2036a7be839bc14e` after all four Linux/Windows PR and branch-push jobs passed. No CI source correction was needed. The expected head SHA was checked at merge.
+
+| Verification | Debug | Release |
+|---|---|---|
+| Local GCC 15.2.0 | 41/41 headless, 22.96 s; X11 1/1, 0.12 s | 41/41 headless, 18.16 s; X11 1/1, 0.06 s |
+| [Linux PR CI, GCC 13.3.0](https://github.com/m4bulmagd/Lumora/actions/runs/34170321747) | 41/41, 22.41 s; X11 1/1, 0.13 s | 41/41, 17.59 s; X11 1/1, 0.04 s |
+| [Windows PR CI, MSVC 19.44.35228.0](https://github.com/m4bulmagd/Lumora/actions/runs/34170321728) | 41/41, 31.24 s | 41/41, 21.28 s |
+
+Branch-push runs [Linux](https://github.com/m4bulmagd/Lumora/actions/runs/34170277132) and [Windows](https://github.com/m4bulmagd/Lumora/actions/runs/34170277090) also passed. Full logs are retained under `out/qa/m08-task1/integration-2026-09-08/`. These are Task 1 implementation checks, not full M8 acceptance. The intermittent context-retirement timeout remains open; native Windows 11 manual validation, Tasks 2–5, zero-allocation and designated-workstation performance/reference gates remain separate.
+
+Post-merge [Linux main CI](https://github.com/m4bulmagd/Lumora/actions/runs/34170808653) and [Windows main CI](https://github.com/m4bulmagd/Lumora/actions/runs/34170808643) both completed successfully at `d6f94e1`. This is additional automated implementation evidence; the acceptance limits above remain unchanged.
