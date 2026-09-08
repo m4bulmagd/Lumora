@@ -86,6 +86,7 @@ using lumora::processing::StageId;
     return output;
 }
 
+#if !defined(_WIN32)
 [[nodiscard]] std::vector<std::uint16_t> fixtureArray(
     std::string_view document,
     std::string_view key) {
@@ -117,6 +118,7 @@ using lumora::processing::StageId;
     }
     return values;
 }
+#endif
 
 // Quantizing input to U8 or omitting the U16 CLAHE calculation changes these literals.
 TEST(ClaheStage, PreservesLowU16BitsInHandCalculatedIdenticalTiles) {
@@ -311,6 +313,42 @@ TEST(ClaheStage, RejectsIncompatibleViewsAndEveryPayloadOverlapBeforeWriting) {
     }
 }
 
+// Checking active rows alone misses overlap confined to declared row padding.
+TEST(ClaheStage, RejectsPaddingOnlyPayloadOverlapBeforeWriting) {
+    auto stage = createStage(2U, 2U, {.clipLimit = 2.0, .tileGridSize = 2U});
+    ASSERT_NE(stage, nullptr);
+    constexpr std::size_t stride = 16U;
+    constexpr std::size_t destinationOffset = 8U;
+    const auto layout = ImageLayout::create(
+        2U, 2U, stride, StorageType::UInt16, stride * 2U).value();
+    std::array<std::byte, 48> shared{};
+    shared.fill(std::byte{0x71});
+    const auto before = shared;
+    const auto source = ImageView::create(
+        layout, shared, ImageDomain::CanonicalU16).value();
+    const auto destination = MutableImageView::create(layout,
+        std::span(shared).subspan(destinationOffset),
+        ImageDomain::CanonicalU16).value();
+
+    // Source active bytes are [0,4) and [16,20); destination active bytes are
+    // [8,12) and [24,28). Only their complete 32-byte payload spans overlap.
+    for (std::size_t sourceRow = 0U; sourceRow < 2U; ++sourceRow) {
+        const auto sourceBegin = sourceRow * stride;
+        const auto sourceEnd = sourceBegin + 4U;
+        for (std::size_t destinationRow = 0U; destinationRow < 2U; ++destinationRow) {
+            const auto destinationBegin = destinationOffset + destinationRow * stride;
+            const auto destinationEnd = destinationBegin + 4U;
+            ASSERT_TRUE(sourceEnd <= destinationBegin || destinationEnd <= sourceBegin);
+        }
+    }
+
+    const auto result = stage->process(source, destination, canonicalSourceFormat());
+
+    ASSERT_FALSE(result.hasValue());
+    EXPECT_EQ(result.error().code, "clahe_image_views_overlap");
+    EXPECT_EQ(shared, before);
+}
+
 // Direct cv::Mat wrapping that assumes a tight row corrupts padding and samples.
 TEST(ClaheStage, HandlesDistinctEvenPaddedStridesAndPreservesCanaries) {
     constexpr std::array<std::uint16_t, 16> input{
@@ -443,7 +481,7 @@ TEST(ClaheStage, SupportsGridBoundariesDivisibleAndReflectedUniformImages) {
     }
 }
 
-// Rebuilding state per call, retaining source-dependent state, or using provenance bits breaks A-B-A.
+// Source-dependent contamination or using provenance bits to rescale canonical samples breaks A-B-A.
 TEST(ClaheStage, ReusesOneConfiguredObjectAcrossDifferentImagesWithoutTruncatingCanonicalData) {
     constexpr std::uint32_t width = 8U;
     constexpr std::uint32_t height = 8U;
