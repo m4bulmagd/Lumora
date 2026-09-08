@@ -48,11 +48,11 @@ Cached build directories: `out/build/linux-gcc-debug-sim`, `out/build/linux-gcc-
 
 **Interfaces:** Keep `OrientationTransform::outputLayout/apply` signatures and error order. No resource-plan change or additional heap storage.
 
-- [ ] Add independent mapping tests spanning all flip/rotation combinations for Gray8 and Gray16, including unaligned source/destination, unequal strides, 1-wide/1-high images, odd rectangles and tile boundaries at 31/32/33 and 63/64/65. Verify every active pixel and all padding/source canaries. Use direct mathematical expected mapping, not production coordinate helpers.
-- [ ] Run current focused test and record baseline diagnostic; demonstrate a wrong-tile-edge or row-stride mutation is detected, then restore.
-- [ ] Dispatch storage/orientation outside the hot loop. Implement compile-time fixed-size copies; use fixed 32-by-32 tiles for axis-swapping transforms and row copy/reversal for non-swapping transforms. Preserve all validation and avoid signed/unsigned underflow at boundaries.
-- [ ] Run Debug/Release `Processing.OrientationTransform` and `Processing.FrameProcessingEngine`. Controller measures rotations and whole-frame checksums; retain the blocked implementation only with useful repeatable improvement.
-- [ ] Controller commits and obtains independent task spec/quality review.
+- [x] Add independent mapping tests spanning all flip/rotation combinations for Gray8 and Gray16, including unaligned source/destination, unequal strides, 1-wide/1-high images, odd rectangles and tile boundaries at 31/32/33 and 63/64/65. Verify every active pixel and all padding/source canaries. Use direct mathematical expected mapping, not production coordinate helpers.
+- [x] Run current focused test and record baseline diagnostic; demonstrate a wrong-tile-edge or row-stride mutation is detected, then restore.
+- [x] Dispatch storage/orientation outside the hot loop. Implement compile-time fixed-size copies; use fixed 32-by-32 tiles for axis-swapping transforms and row copy/reversal for non-swapping transforms. Preserve all validation and avoid signed/unsigned underflow at boundaries.
+- [x] Run Debug/Release `Processing.OrientationTransform` and `Processing.FrameProcessingEngine`. Controller measures rotations and whole-frame checksums; retain the blocked implementation only with useful repeatable improvement.
+- [x] Controller commits and obtains independent task spec/quality review.
 
 ### Task 3: Prepared executor and engine lifecycle
 
