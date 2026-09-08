@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-08
 
-**Status:** Standalone functional implementation committed as `f5d6642`; eleven CLAHE cases and all nine Processing suites passed in Linux Debug/Release. Independent review and full application verification are in progress. M8 acceptance remains open.
+**Status:** Standalone functional implementation `f5d6642` and test correction `88a9ad8` passed independent task review. Twelve CLAHE cases pass in Linux Debug/Release; full Linux application verification passed. Final branch review and matching Windows CI remain pending. M8 acceptance remains open.
 
 ## Authority and scope
 
@@ -36,3 +36,16 @@ TDD evidence is retained under `out/qa/m08-task2/`: the first assertion RED comp
 Preflight failures preserve the complete destination bytes. Directly wrapped output may be partly written if OpenCV itself throws after processing begins; this is a frame failure, and the later executor must discard that frame. Bridged output is copied back only after backend success. Backend failures are translated to stable `clahe_*` errors; no unsafe failure injection or public test-only backend seam was added.
 
 The public header documents stopped-state preparation/replacement, fixed width/height with variable valid row strides, and single-worker non-concurrent use. The backend still allocates internally per apply; neither a zero-allocation measurement nor designated Windows reference acceptance is claimed.
+
+
+## Full local verification
+
+At implementation `f5d6642`, root built all application/test targets and ran all headless CTests separately in Debug and Release: Debug 42/42 in 23.84 s; Release 42/42 in 18.43 s. Native X11 smoke also passed in both (Debug 1/1 in 0.18 s; Release 1/1 in 0.09 s), giving 43 checks per configuration. The native tests ran outside the filesystem sandbox to permit the X11 display connection.
+
+A fresh `out/build/m08-clahe-production` Release configuration with tests, benchmarks and Basler disabled built `lumora_app` successfully through all 112 build steps using the existing pinned dependency prefix. Final processing and complete application build logs contain no compiler warning/error lines. Commands and logs remain in `out/qa/m08-task2/` (`full-build-*`, `full-test-*`, `desktop-*`, `production-configure.log`, `production-build.log`). These checks validate the compiled standalone stage and its application build integration; production activation remains Task 5.
+
+## Independent task review
+
+The initial review identified a Windows warnings-as-errors risk in a Linux-only fixture helper and a missing test that isolated overlap in padding. Test-only correction `88a9ad8` guards the helper consistently and adds a 2x2 case with disjoint active rows but overlapping complete payloads, checking that rejection preserves every backing byte. It also narrows the A–B–A test comment to the behavior its assertions establish.
+
+Incremental Debug and Release processing-test builds passed after that correction, and all twelve `ClaheStage.*` cases passed (0.833 s and 0.178 s). The scoped review confirmed every finding addressed with no new issues. Production source was unchanged, so the full-application and fresh-production evidence above still applies. Reports and fix logs remain under `.superpowers/sdd/2026-04-25-m08-modular-enhancements/` and `out/qa/m08-task2/round1-fix-*`.

@@ -17,7 +17,7 @@ M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with pas
 | DES-7 | §7 Camera and viewer state machines | Simulator lifecycle, presenter and production startup/controller integration | M5 local and CI verification at `5e1c1ec` | M5 Debug/Release CI verified at `5e1c1ec` | Scheduled automatic recovery remains M12 |
 | DES-8 | §8 Threading model | Joined camera/processing/control workers, UI presenter and background preferences; no per-frame queued Qt signal | M5 composed ownership/stalls locally and CI tested | M5 composed suites verified at `5e1c1ec` | Review complete; full acceptance remains separate |
 | DES-9 | §9 Frame memory ownership and bounded buffering | Fixed production pools, capacity-one exchanges, acknowledged context replacement, final zero leases | M5 reviewed/local and CI verification | M5 Debug/Release CI verified at `5e1c1ec` | No full M5 or performance acceptance |
-| DES-10 | §10 Processing pipeline | M5 processor port; merged M7 adds validated configuration, U16 mapping and paired pooled engine | M7 41/41 Debug/Release at `aaf93f0` | M5/M7 simulator checks verified | M7 reviewed; M8 Task1 algorithms reviewed and merged through PR #10 with Linux/Windows CI; Task2 CLAHE implemented locally and under review, live composition and full acceptance pending |
+| DES-10 | §10 Processing pipeline | M5 processor port; merged M7 adds validated configuration, U16 mapping and paired pooled engine | M7 41/41 Debug/Release at `aaf93f0` | M5/M7 simulator checks verified | M7 reviewed; M8 Task1 algorithms reviewed and merged through PR #10 with Linux/Windows CI; Task2 CLAHE implemented locally with task review passed, live composition and full acceptance pending |
 | DES-11 | §11 Rendering and workstation UI | M4 viewer plus production startup sidebar, explicit camera selection, translated warnings and synthetic live video | M5 controller/panel local and CI tests; native XCB QA passed | M5 CI verified at `5e1c1ec`; native Windows visual/DPI pending | M4 unaccepted; complete parameter editor M9 |
 | DES-12 | §12 Capture and future recording | M10 capture plan; recording requires its own approved specification | Not run | Not run | Planned/deferred |
 | DES-13 | §13 Configuration and presets | Schema2 migration, background preferences and explicit first/saved-run controller flow | Tasks4–5 reviewed, locally and CI verified | Tasks4–5 Debug/Release CI verified at `5e1c1ec` | Profiles/full editor M9; admission is not persistence |
@@ -166,19 +166,19 @@ See the [Task 5 checkpoint](milestones/m05-live-integration.md) for source, comm
 
 The [M7 execution record](milestones/m07-preflight.md) retains commits, task reviews, commands and evidence limitations. Whole-branch review is approved with no required changes; milestone acceptance remains pending. M8 algorithms are not supplied by the configuration vocabulary; the separately authorized Task 1 implementations and evidence follow below.
 
-## Milestone 8 Task 1 verification map (development branch)
+## Milestone 8 Task 1 verification map (merged implementation)
 
 | Test/check | Requirement covered | Evidence boundary |
 |---|---|---|
 | `Processing.ToneStages` (14 cases) | Sequential saturating U16 brightness/contrast, immutable gamma LUT, exact inversion, finite inclusive parameters, stage errors, source immutability, padded/unaligned rows and alias rejection | Reviewed `246a73a`; full-domain rational/integer references plus selected gamma scalar/literal anchors; Debug/Release passed |
-| Full application and production build | Source/test registration, existing simulator regression suites, native X11 smoke, tests-OFF/Basler-OFF app | Linux Debug/Release 41 headless +1 native each; no Windows/M8 acceptance evidence yet |
+| Full application and production build | Source/test registration, existing simulator regression suites, native X11 smoke, tests-OFF/Basler-OFF app | PR #10 passed Linux Debug/Release 41 headless +1 native each and Windows/MSVC 41/41 each; merged as `d6f94e1`, both main CI jobs passed; full M8 acceptance remains open |
 | Allocation/cache ownership review | Constructor-owned const gamma table, success-path traversal without heap allocation | Code inspection and repeated outputs, not instrumented counts; cross-activation reuse and whole-frame allocation remain Task 5 |
 
-The [M8 tone-stage record](milestones/m08-tone-stages.md) records scope, arithmetic decisions, TDD/mutation distinctions and commands. Task 1 leaves production activation rejection intact until actual composition exists. Tasks 2–5, matching Windows and designated-workstation performance gates remain open.
+The [M8 tone-stage record](milestones/m08-tone-stages.md) records scope, arithmetic decisions, TDD/mutation distinctions and commands. Task 1 leaves production activation rejection intact until actual composition exists. Remaining M8 tasks, designated Windows references and workstation performance gates remain open.
 
 No row in this file represents clinical validation, regulatory evidence, or authorization for diagnostic use.
 
 
 ## Milestone 8 Task 2 contract checkpoint
 
-The [CLAHE record](milestones/m08-clahe.md) specifies prepared OpenCV state, typed configuration/shape validation, byte-safe bridge buffers and independent analytical/reference tests. Functional implementation `f5d6642` passed eleven CLAHE cases and all nine Processing suites in Linux Debug/Release; review and full application verification are in progress. The designated Windows reference/tolerance gate and actual zero-allocation gate remain open; no allocation claim is inferred from cached objects or repeated outputs.
+The [CLAHE record](milestones/m08-clahe.md) specifies prepared OpenCV state, typed configuration/shape validation, byte-safe bridge buffers and independent analytical/reference tests. Functional implementation `f5d6642` passed all nine Processing suites and complete Linux application verification (43/43 in Debug and Release). Test correction `88a9ad8` passed twelve CLAHE cases in each configuration and cleared all independent task-review findings; final branch review and Windows CI remain pending. The designated Windows reference/tolerance gate and actual zero-allocation gate remain open; no allocation claim is inferred from cached objects or repeated outputs.
