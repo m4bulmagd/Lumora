@@ -147,6 +147,8 @@ git commit -m "feat(processing): add reusable U16 CLAHE stage"
 
 **Execution clarification (2026-09-08):** [Remaining M8 contracts](../../architecture/milestones/m08-continuation.md#task3-detail-contract). Prepared kernels and locally owned execution scratch satisfy the no-per-frame-allocation requirement; this deliberately replaces per-call OpenCV GaussianBlur/medianBlur dispatch. Pinned OpenCV prepares Gaussian coefficients only. This is not a claim of bit equivalence to its quantized U16 Gaussian backend.
 
+**Subsequent cost-reduction continuation (2026-09-08):** The owner authorized [CLAHE/sharpen optimization](../../architecture/milestones/m08-clahe-sharpen-performance.md). The completed task's full-image sharpening intermediate below may be replaced by width×min(height,kernelSize) retained horizontal double rows, preserving tap order, reflection, rounding and output exactly. Actual scratch sizing/allocation/admission change together; four U16-equivalent scratch images remain a conservative upper bound. Gaussian denoise keeps its full intermediate. Bounded clamp-plus-half conversion may omit redundant floor with exact numerical verification. Historical implementation evidence retains its original revision.
+
 **Files:**
 - Create: `src/processing/include/lumora/processing/DenoiseStage.hpp`
 - Create: `src/processing/include/lumora/processing/SharpenStage.hpp`
