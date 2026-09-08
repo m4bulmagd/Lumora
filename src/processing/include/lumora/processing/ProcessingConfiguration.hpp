@@ -48,6 +48,7 @@ struct ClaheParameters final {
 struct DenoiseParameters final {
     DenoiseMode mode{DenoiseMode::Gaussian};
     std::uint32_t kernelSize{3};
+    double sigma{0.0};
 };
 
 struct SharpenParameters final {

@@ -32,6 +32,8 @@ add_executable(lumora_processing_tests
   unit/processing/NormalizeStageTests.cpp
   unit/processing/WindowLevelStageTests.cpp
   unit/processing/ClaheStageTests.cpp
+  unit/processing/DenoiseStageTests.cpp
+  unit/processing/SharpenStageTests.cpp
   unit/processing/ToneStageTests.cpp
   unit/processing/DisplayMapperTests.cpp
   unit/processing/OrientationTransformTests.cpp
@@ -321,6 +323,20 @@ set_tests_properties(Processing.WindowLevelStage PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.ClaheStage
   COMMAND lumora_processing_tests --gtest_filter=ClaheStage.*)
 set_tests_properties(Processing.ClaheStage PROPERTIES TIMEOUT 60)
+add_test(NAME Processing.DetailStages
+  COMMAND lumora_processing_tests --gtest_filter=DenoiseStage.*:SharpenStage.*)
+set_tests_properties(Processing.DetailStages PROPERTIES TIMEOUT 60)
+
+add_executable(lumora_detail_allocation_tests
+  support/AllocationTracker.cpp
+  unit/processing/DetailStageAllocationTests.cpp)
+target_include_directories(lumora_detail_allocation_tests PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/support")
+target_link_libraries(lumora_detail_allocation_tests PRIVATE lumora::processing)
+lumora_enable_warnings(lumora_detail_allocation_tests)
+add_test(NAME Processing.DetailStageAllocation
+  COMMAND lumora_detail_allocation_tests)
+set_tests_properties(Processing.DetailStageAllocation PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.ToneStages
   COMMAND lumora_processing_tests --gtest_filter=ToneStages.*)
 set_tests_properties(Processing.ToneStages PROPERTIES TIMEOUT 60)

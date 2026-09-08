@@ -111,6 +111,7 @@ TEST(PipelineCompiler, ValidatesFloatingBoundsIncludingDisabledStagesAndNonfinit
         {2, 0, 4, [](auto& p, double v) { std::get<BrightnessContrastParameters>(p).contrast = v; }},
         {3, 0.1, 5, [](auto& p, double v) { std::get<GammaParameters>(p).gamma = v; }},
         {4, 0.1, 40, [](auto& p, double v) { std::get<ClaheParameters>(p).clipLimit = v; }},
+        {5, 0, 5, [](auto& p, double v) { std::get<DenoiseParameters>(p).sigma = v; }},
         {6, 0, 5, [](auto& p, double v) { std::get<SharpenParameters>(p).amount = v; }},
         {6, 0.5, 5, [](auto& p, double v) { std::get<SharpenParameters>(p).radius = v; }},
         {6, 0, 65535, [](auto& p, double v) { std::get<SharpenParameters>(p).threshold = v; }}
@@ -136,11 +137,25 @@ TEST(PipelineCompiler, ValidatesIntegerBoundsAndDenoiseMode) {
     for (auto kernel : {0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U, 9U}) {
         for (auto mode : {DenoiseMode::Gaussian, DenoiseMode::Median}) {
             auto d = defaultPipeline(); d.stages[5].parameters = DenoiseParameters{mode, kernel};
-            EXPECT_EQ(PipelineCompiler(stageRegistry()).compile(d).hasValue(), kernel == 3 || kernel == 5 || kernel == 7);
+            const bool accepted = mode == DenoiseMode::Gaussian
+                ? kernel == 3U || kernel == 5U || kernel == 7U
+                : kernel == 3U || kernel == 5U;
+            EXPECT_EQ(PipelineCompiler(stageRegistry()).compile(d).hasValue(), accepted);
         }
     }
+    auto medianSigma = defaultPipeline();
+    medianSigma.stages[5].parameters = DenoiseParameters{DenoiseMode::Median, 3U, 0.1};
+    EXPECT_FALSE(PipelineCompiler(stageRegistry()).compile(medianSigma).hasValue());
     auto d = defaultPipeline(); std::get<DenoiseParameters>(d.stages[5].parameters).mode = static_cast<DenoiseMode>(99);
     EXPECT_FALSE(PipelineCompiler(stageRegistry()).compile(d).hasValue());
+}
+
+TEST(PipelineCompiler, DetailRegistryConservativelyReportsFourScratchImages) {
+    const auto registry = stageRegistry();
+    EXPECT_EQ(registry[5].id, StageId::Denoise);
+    EXPECT_EQ(registry[5].scratchImages, 4U);
+    EXPECT_EQ(registry[6].id, StageId::Sharpen);
+    EXPECT_EQ(registry[6].scratchImages, 4U);
 }
 
 TEST(PipelineCompiler, RejectsUnknownStageAndRegistryEntries) {

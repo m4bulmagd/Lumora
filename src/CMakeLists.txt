@@ -42,6 +42,8 @@ add_library(
   processing/include/lumora/processing/NormalizeStage.hpp
   processing/include/lumora/processing/WindowLevelStage.hpp
   processing/include/lumora/processing/ClaheStage.hpp
+  processing/include/lumora/processing/DenoiseStage.hpp
+  processing/include/lumora/processing/SharpenStage.hpp
   processing/include/lumora/processing/ToneStages.hpp
   processing/include/lumora/processing/DisplayMapper.hpp
   processing/include/lumora/processing/OrientationTransform.hpp
@@ -55,6 +57,10 @@ add_library(
   processing/src/NormalizeStage.cpp
   processing/src/WindowLevelStage.cpp
   processing/src/ClaheStage.cpp
+  processing/src/DetailStageSupport.hpp
+  processing/src/DetailStageSupport.cpp
+  processing/src/DenoiseStage.cpp
+  processing/src/SharpenStage.cpp
   processing/src/ToneStageSupport.hpp
   processing/src/BrightnessContrastStage.cpp
   processing/src/GammaStage.cpp
