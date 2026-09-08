@@ -162,7 +162,7 @@ git commit -m "feat(processing): add reusable U16 CLAHE stage"
 - Prepared stages exclusively own their scratch behind PImpl; a prepared executor owns stages and keeps them alive through an in-flight frame. This is an explicit adjustment to the earlier plan's nonexistent ProcessingWorkspace scratch API. Mutable scratch is single-worker/non-concurrent; parameters, shape and capacity never change inside process. Valid source/destination strides may vary per call.
 - Gaussian and sharpen scratch metadata reports four U16-equivalent images for the double intermediate (plus separately counted coefficients); Median reports zero. The registry's mode-independent Denoise declaration conservatively reports four, Sharpen four. Exact byte accounting uses the factory requirement, never this image count alone.
 
-- [ ] **Step 1: Write independent impulse, border and edge tests**
+- [x] **Step 1: Write independent impulse, border and edge tests**
 
 Use compile-ready placeholders and literal independent expectations. Auto Gaussian3 has weights [1,2,1]/4: a 256 impulse on zeros yields a 3x3 neighborhood `[16,32,16;32,64,32;16,32,16]`. A repeated row `[0,100,400]` with REFLECT_101 yields `[50,150,250]`. Gaussian kernel3 with sigma `1/sqrt(2*ln(4))` has weights [1,4,1]/6 and yields `[100,400,100]` around a centered 600 impulse far from borders. Constants 0,1001,65535 remain unchanged.
 
@@ -170,27 +170,27 @@ Median kernels3/5 remove isolated high/low impulses from a 7x7 field1000. Reflec
 
 For sharpen radius `1/sqrt(2*ln(2))`, kernel7 has weights `[1,32,256,512,256,32,1]/1090`. A long step10000→11090 gives rounded nearest-edge blur10289/10801, signed detail−289/+289 and amount1 outputs9711/11379. Threshold288.5 enhances, threshold289 and289.5 suppress. A step10000→10004 with amount0.5 gives edge outputs10000/10005 after final rounding. Test both axes, constant/identity, signed saturation and source provenance independence.
 
-- [ ] **Step 2: Observe assertion RED**
+- [x] **Step 2: Observe assertion RED**
 
 Build the compile-ready tests and record their algorithm/validation assertion failures before implementation; missing source or compiler failure alone is not behavior evidence.
 
-- [ ] **Step 3: Implement bounded detail kernels**
+- [x] **Step 3: Implement bounded detail kernels**
 
 Prepare CV_64F one-dimensional Gaussian coefficients with pinned `cv::getGaussianKernel` once. Convolve horizontally into the retained double image without intermediate rounding, then vertically; clamp the completed blur to [0,65535] and round nearest with positive halves upward once to U16. Use exact periodic BORDER_REFLECT_101 mapping, including singleton axes and kernels wider than the image. Byte-safe loads/stores accept unaligned starts and odd U16 strides.
 
 For Median, collect exactly9 or25 reflected U16 neighborhood samples into fixed stack storage and select the exact middle order statistic without heap allocation or OpenCV dispatch. Preserve low bits and numeric values. Do not allocate reflected full images merely to emulate the backend's border.
 
-- [ ] **Step 4: Implement thresholded unsharp mask**
+- [x] **Step 4: Implement thresholded unsharp mask**
 
 Sharpen radius is Gaussian sigma, with half-width `ceil(3*radius)` and odd kernel `2*halfWidth+1` (5 through31). Bounds stay finite amount[0,5], radius[0.5,5], threshold[0,65535]. Compute signed detail = original − rounded U16 blur. Enhance only when `abs(detail) > threshold`; equality is suppressed. Candidate = original + amount*detail in double, saturate [0,65535], then nearest with positive halves upward. Fuse vertical convolution and detail output; no second blurred image is needed. Amount0 or threshold65535 directly copies active samples after complete validation.
 
-- [ ] **Step 5: Verify bounds, views, reuse and allocation**
+- [x] **Step 5: Verify bounds, views, reuse and allocation**
 
 Before any output write, validate UInt16/CanonicalU16 on both views, matching prepared extents and complete-payload non-overlap. All rejected calls preserve every destination backing byte. Check valid singleton/non-square/odd shapes, variable padded/odd strides, unaligned starts, full/partial/padding-only overlap, canaries and invalid parameters (NaN/infinities and just-outside limits). Exercise checked size/budget rejection using layouts without giant backing allocations. Source-format metadata cannot rescale canonical pixels.
 
 Observe A–B–A results through one stage and use a separately linked allocation probe over1,000 prepared same-size varied calls (assertions/output outside measurement). Include a positive control proving the probe catches an allocation; count all relevant C++ new variants and explicitly state coverage. Native execution must call no backend allocator; pool counters are not a total heap measurement. Run focused detail and all Processing tests Debug/Release, retaining commands and outputs. Designated Windows reference/tolerance and workstation performance remain separate evidence; no arbitrary cross-platform tolerance is invented.
 
-- [ ] **Step 6: Commit detail stages**
+- [x] **Step 6: Commit detail stages**
 
 Root commits source/tests/CMake after verification and dispatches independent task review before composition uses the stages.
 
