@@ -87,11 +87,11 @@ Cached build directories: `out/build/linux-gcc-debug-sim`, `out/build/linux-gcc-
 
 **Interfaces:** Existing row helpers remain the stage boundary; update `benchmarks/processing/EvidenceProvenance.cpp` if a retained SIMD implementation changes the execution description; scalar fallback remains available on non-x86-64. No public execution-backend change.
 
-- [ ] Freeze a post-parallel baseline binary and record Gaussian/sharpen/full-pipeline output hashes and paired timing. Inspect generated loops before deciding which costs need explicit vectorization.
-- [ ] Verify affected floating kernels retain `-ffp-contract=off -frounding-math` (GCC/Clang) or `/fp:strict` (MSVC). Add independent bitwise intermediate-double and final-U16 coverage around SIMD lane tails, tiny borders, threshold ties, saturation, maximum kernel radius and unaligned rows. Demonstrate the coverage detects a meaningful rounding or tail mutation.
-- [ ] Implement a guarded baseline SSE2 candidate across independent pixels, retaining double precision and each pixel's operation order. Use unaligned-safe loads/stores; no reassociation, FMA, fast-math or unsupported instruction requirement. Keep a portable fallback and exercise it through an existing private implementation seam or separate test build.
-- [ ] Compare all exact outputs and repeat paired timings without concurrent work. Keep a candidate only if it improves useful stage/full-pipeline cost without material regression; otherwise restore source and preserve the experiment evidence with an explicit no-gain conclusion.
-- [ ] Run affected Debug/Release/sanitizer checks for retained code. Controller commits and obtains independent task review of retained changes and experiment conclusions.
+- [x] Freeze a post-parallel baseline binary and record Gaussian/sharpen/full-pipeline output hashes and paired timing. Inspect generated loops before deciding which costs need explicit vectorization.
+- [x] Verify affected floating kernels retain `-ffp-contract=off -frounding-math` (GCC/Clang) or `/fp:strict` (MSVC). Add independent bitwise intermediate-double and final-U16 coverage around SIMD lane tails, tiny borders, threshold ties, saturation, maximum kernel radius and unaligned rows. Demonstrate the coverage detects a meaningful rounding or tail mutation.
+- [x] Implement a guarded baseline SSE2 candidate across independent pixels, retaining double precision and each pixel's operation order. Use unaligned-safe loads/stores; no reassociation, FMA, fast-math or unsupported instruction requirement. Keep a portable fallback and exercise it through an existing private implementation seam or separate test build.
+- [x] Compare all exact outputs and repeat paired timings without concurrent work. Keep a candidate only if it improves useful stage/full-pipeline cost without material regression; otherwise restore source and preserve the experiment evidence with an explicit no-gain conclusion.
+- [x] Run affected Debug/Release/sanitizer checks for retained code. Controller commits and obtains independent task review of retained changes and experiment conclusions.
 
 ### Task 6: Complete verification, evidence and development handoff
 
