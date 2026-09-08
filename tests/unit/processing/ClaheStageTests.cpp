@@ -590,7 +590,8 @@ TEST(ClaheStage, ProvisionalLinuxGradientBaseline) {
 }
 
 // Omitting bin-zero residual redistribution changes 8192, while omitting the
-// whole-bin batch changes 3 for the independently derived uniform fixtures.
+// whole-bin batch changes 3. Moving sparse residuals away from their exact step
+// positions changes 49151 for the independently derived uniform fixtures.
 TEST(ClaheStage, RedistributesClippedHistogramFromBinZeroWithWholeBinBatch) {
     {
         const std::vector<std::uint16_t> input(8U * 8U, 0U);
@@ -607,6 +608,14 @@ TEST(ClaheStage, RedistributesClippedHistogramFromBinZeroWithWholeBinBatch) {
         const auto output = runTight(*stage, 514U, 514U, input);
         EXPECT_TRUE(std::all_of(output.begin(), output.end(),
             [](std::uint16_t value) { return value == 3U; }));
+    }
+    {
+        const std::vector<std::uint16_t> input(4U * 4U, 21845U);
+        auto stage = createStage(4U, 4U, {.clipLimit = 2.0, .tileGridSize = 2U});
+        ASSERT_NE(stage, nullptr);
+        const auto output = runTight(*stage, 4U, 4U, input);
+        EXPECT_TRUE(std::all_of(output.begin(), output.end(),
+            [](std::uint16_t value) { return value == 49151U; }));
     }
 }
 

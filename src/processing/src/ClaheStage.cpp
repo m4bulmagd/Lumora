@@ -396,7 +396,6 @@ core::Result<void> ClaheStage::process(const ImageView& source,
 
     for (int tileY = 0; tileY < impl_->grid; ++tileY) {
         for (int tileX = 0; tileX < impl_->grid; ++tileX) {
-            std::fill(impl_->histogram.begin(), impl_->histogram.end(), 0);
             for (int localY = 0; localY < impl_->tileHeight; ++localY) {
                 const auto reflectedY = impl_->reflectedY[static_cast<std::size_t>(
                     tileY * impl_->tileHeight + localY)];
@@ -416,21 +415,27 @@ core::Result<void> ClaheStage::process(const ImageView& source,
                     count = impl_->clipCount;
                 }
             }
-            const int batch = clipped / static_cast<int>(histogramBins);
-            int residual = clipped - batch * static_cast<int>(histogramBins);
-            for (auto& count : impl_->histogram) count += batch;
-            if (residual != 0) {
-                const int step = std::max(static_cast<int>(histogramBins) / residual, 1);
-                for (int bin = 0; bin < static_cast<int>(histogramBins) && residual > 0;
-                     bin += step, --residual)
-                    ++impl_->histogram[static_cast<std::size_t>(bin)];
-            }
+            const int binCount = static_cast<int>(histogramBins);
+            const int batch = clipped / binCount;
+            const int residualCount = clipped - batch * binCount;
+            const int residualStep = residualCount == 0
+                ? 0 : std::max(binCount / residualCount, 1);
+            int residualRemaining = residualCount;
+            int nextResidualBin = 0;
             int cumulative = 0;
             const auto lutOffset = static_cast<std::size_t>(
                 tileY * impl_->grid + tileX) * histogramBins;
-            for (std::size_t bin = 0U; bin < histogramBins; ++bin) {
-                cumulative += impl_->histogram[bin];
-                impl_->lut[lutOffset + bin] = cv::saturate_cast<std::uint16_t>(
+            for (int bin = 0; bin < binCount; ++bin) {
+                const auto index = static_cast<std::size_t>(bin);
+                int redistributed = impl_->histogram[index] + batch;
+                if (residualRemaining > 0 && bin == nextResidualBin) {
+                    ++redistributed;
+                    --residualRemaining;
+                    nextResidualBin += residualStep;
+                }
+                cumulative += redistributed;
+                impl_->histogram[index] = 0;
+                impl_->lut[lutOffset + index] = cv::saturate_cast<std::uint16_t>(
                     static_cast<float>(cumulative) * impl_->lutScale);
             }
         }
