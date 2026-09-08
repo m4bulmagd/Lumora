@@ -14,6 +14,8 @@
 
 **Task 1 continuation (2026-09-07):** The owner authorized simulator Task 1 while native Windows/hardware gates remain pending. The [execution record](../../architecture/milestones/m08-tone-stages.md) fixes arithmetic order, constructor-owned gamma caching, validation and the later composition boundary before implementation. The owner subsequently authorized Task 1 integration and bounded Task 2 development on 2026-09-08; see the CLAHE execution record. Tasks 3–5 remain subsequent work.
 
+**Tasks 3–5 continuation (2026-09-08):** The owner authorized the remaining implementation after Tasks 1–2 merged. The [continuation record](../../architecture/milestones/m08-continuation.md) fixes detail arithmetic, shared orientation, bounded preparation and output ownership, full execution/fallback, and evidence tooling. Designated Windows reference/workstation and deferred manual acceptance remain separate gates.
+
 ## Global Constraints
 
 - This milestone contributes only to the open-source evaluation release, which must display `EVALUATION — NOT FOR CLINICAL USE` and must not acquire or store real patient data.
@@ -207,25 +209,25 @@ Root commits source/tests/CMake after verification and dispatches independent ta
 - Bound source and destination to their complete declared payloads, reject full/partial/padding-only overlap before writing, and preserve source bytes, row padding and trailing canaries. Copy each U16 sample with byte-safe operations, including odd strides and unaligned starts.
 - `apply` performs no successful-call heap allocation, interpolation or configuration mutation. Even identity writes the separate destination; Task5 can skip calling it for an identity profile. The transform is separate from `IProcessingStage` and never enters the canonical enhancement registry. Task5 owns actual paired display pool preparation and uses one immutable stopped-state orientation for both routes.
 
-- [ ] **Step 1: Write coordinate-mapping tests**
+- [x] **Step 1: Write coordinate-mapping tests**
 
 Use paired Original/Enhanced 2x3 images containing unique values and assert exact hand-written matrices for all sixteen flip/rotation combinations in both Gray8 and Gray16. Define order as horizontal flip, vertical flip, then clockwise rotation, and assert both presentation paths receive exactly the same transform.
 
-- [ ] **Step 2: Verify stage is missing**
+- [x] **Step 2: Verify stage is missing**
 
 Build compile-ready placeholders and observe coordinate assertions fail before implementing the transform.
 
-- [ ] **Step 3: Implement exact integer transforms**
+- [x] **Step 3: Implement exact integer transforms**
 
 Use an exact integer mapping with no interpolation for each supported `DisplayStorage`. Report swapped output dimensions for 90/270 degrees and request appropriately shaped pool leases before presentation.
 
-- [ ] **Step 4: Test non-square, odd, padded, and identity cases**
+- [x] **Step 4: Test non-square, odd, padded, and identity cases**
 
 Assert no sample changes, no aspect distortion, and input remains unchanged. Reject an output pool block too small for rotated stride.
 
 Register source/header and `Processing.OrientationTransform` tests in the existing target-scoped CMake files. Cover singleton axes, non-square and odd images, distinct padded layouts, unaligned U16 storage, invalid enum/storage/extents, insufficient spans, every overlap shape and unchanged rejection buffers. Exact sample matrices are independent literals; tests never calculate expectations using production coordinate helpers.
 
-- [ ] **Step 5: Commit geometry**
+- [x] **Step 5: Commit geometry**
 
 ```powershell
 git add src/processing tests/unit/processing/OrientationTransformTests.cpp
