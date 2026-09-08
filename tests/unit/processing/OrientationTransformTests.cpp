@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <span>
+#include <vector>
 
 namespace {
 using lumora::core::DisplayStorage;
@@ -41,6 +42,161 @@ constexpr std::array<OrientationCase, 16> orientationCases{{
     {{true, true, Rotation::Degrees180}, 2U, 3U, {1U, 2U, 3U, 4U, 5U, 6U}},
     {{true, true, Rotation::Degrees270}, 3U, 2U, {5U, 3U, 1U, 6U, 4U, 2U}},
 }};
+
+struct Extent final {
+    std::uint32_t width;
+    std::uint32_t height;
+};
+
+constexpr std::array<Extent, 9> edgeExtents{{
+    {31U, 33U},
+    {32U, 64U},
+    {33U, 31U},
+    {63U, 65U},
+    {64U, 32U},
+    {65U, 63U},
+    {1U, 33U},
+    {33U, 1U},
+    {1U, 1U},
+}};
+
+template<std::size_t PixelBytes>
+void writeSample(std::byte* destination, std::uint16_t sample) {
+    if constexpr (PixelBytes == 1U) {
+        *destination = static_cast<std::byte>(sample);
+    } else {
+        std::memcpy(destination, &sample, PixelBytes);
+    }
+}
+
+template<std::size_t PixelBytes>
+void expectIndependentMappingAcrossEdges(
+    DisplayStorage storage,
+    StorageType storageType) {
+    constexpr std::size_t sourcePrefix = 1U;
+    constexpr std::size_t sourceSuffix = 4U;
+    constexpr std::size_t destinationPrefix = PixelBytes == 1U ? 2U : 3U;
+    constexpr std::size_t destinationSuffix = 6U;
+    constexpr auto coordinatePasses = PixelBytes == 1U ? 2U : 1U;
+
+    for (const auto [width, height] : edgeExtents) {
+        const auto sourceRowBytes = static_cast<std::size_t>(width) * PixelBytes;
+        const auto sourceStride = sourceRowBytes + 5U;
+        const auto sourcePayload = sourceStride * height + 3U;
+        for (std::size_t coordinatePass = 0U;
+             coordinatePass < coordinatePasses; ++coordinatePass) {
+            std::vector<std::byte> sourceBacking(
+                sourcePrefix + sourcePayload + sourceSuffix, std::byte{0xD3});
+            auto source = std::span(sourceBacking).subspan(
+                sourcePrefix, sourcePayload);
+            for (std::uint32_t sourceY = 0U; sourceY < height; ++sourceY) {
+                for (std::uint32_t sourceX = 0U; sourceX < width; ++sourceX) {
+                    const auto sample = PixelBytes == 1U
+                        ? static_cast<std::uint16_t>(
+                              (coordinatePass == 0U ? sourceX : sourceY) + 1U)
+                        : static_cast<std::uint16_t>(sourceY * width + sourceX + 1U);
+                    writeSample<PixelBytes>(
+                        source.data() + static_cast<std::size_t>(sourceY) * sourceStride
+                            + static_cast<std::size_t>(sourceX) * PixelBytes,
+                        sample);
+                }
+            }
+            const auto sourceBefore = sourceBacking;
+            const auto sourceLayout = ImageLayout::create(width, height,
+                sourceStride, storageType, sourcePayload).value();
+
+            for (const auto& testCase : orientationCases) {
+                SCOPED_TRACE(::testing::Message()
+                    << "width=" << width << " height=" << height
+                    << " pass=" << coordinatePass
+                    << " rotation=" << static_cast<int>(testCase.orientation.rotation)
+                    << " flipHorizontal=" << testCase.orientation.flipHorizontal
+                    << " flipVertical=" << testCase.orientation.flipVertical);
+
+                const auto destinationWidth =
+                    testCase.orientation.rotation == Rotation::Degrees90
+                        || testCase.orientation.rotation == Rotation::Degrees270
+                    ? height
+                    : width;
+                const auto destinationHeight =
+                    testCase.orientation.rotation == Rotation::Degrees90
+                        || testCase.orientation.rotation == Rotation::Degrees270
+                    ? width
+                    : height;
+                const auto destinationStride =
+                    static_cast<std::size_t>(destinationWidth) * PixelBytes + 11U;
+                const auto destinationPayload =
+                    destinationStride * destinationHeight + 5U;
+                std::vector<std::byte> destinationBacking(
+                    destinationPrefix + destinationPayload + destinationSuffix,
+                    std::byte{0xA7});
+                auto destination = std::span(destinationBacking).subspan(
+                    destinationPrefix, destinationPayload);
+                auto expectedDestination = destinationBacking;
+                const auto destinationLayout = ImageLayout::create(
+                    destinationWidth, destinationHeight, destinationStride,
+                    storageType, destinationPayload).value();
+
+                for (std::uint32_t sourceY = 0U; sourceY < height; ++sourceY) {
+                    for (std::uint32_t sourceX = 0U; sourceX < width; ++sourceX) {
+                        const auto flippedX = testCase.orientation.flipHorizontal
+                            ? width - 1U - sourceX
+                            : sourceX;
+                        const auto flippedY = testCase.orientation.flipVertical
+                            ? height - 1U - sourceY
+                            : sourceY;
+                        std::uint32_t destinationX = 0U;
+                        std::uint32_t destinationY = 0U;
+                        switch (testCase.orientation.rotation) {
+                        case Rotation::Degrees0:
+                            destinationX = flippedX;
+                            destinationY = flippedY;
+                            break;
+                        case Rotation::Degrees90:
+                            destinationX = height - 1U - flippedY;
+                            destinationY = flippedX;
+                            break;
+                        case Rotation::Degrees180:
+                            destinationX = width - 1U - flippedX;
+                            destinationY = height - 1U - flippedY;
+                            break;
+                        case Rotation::Degrees270:
+                            destinationX = flippedY;
+                            destinationY = width - 1U - flippedX;
+                            break;
+                        }
+                        const auto sample = PixelBytes == 1U
+                            ? static_cast<std::uint16_t>(
+                                  (coordinatePass == 0U ? sourceX : sourceY) + 1U)
+                            : static_cast<std::uint16_t>(
+                                  sourceY * width + sourceX + 1U);
+                        writeSample<PixelBytes>(
+                            expectedDestination.data() + destinationPrefix
+                                + static_cast<std::size_t>(destinationY)
+                                    * destinationStride
+                                + static_cast<std::size_t>(destinationX) * PixelBytes,
+                            sample);
+                    }
+                }
+
+                const auto result = OrientationTransform{}.apply(
+                    sourceLayout, storage, source, destinationLayout, destination,
+                    testCase.orientation);
+
+                ASSERT_TRUE(result.hasValue());
+                for (std::size_t index = 0U; index < sourceBacking.size(); ++index) {
+                    ASSERT_EQ(sourceBacking[index], sourceBefore[index])
+                        << "source backing byte " << index;
+                }
+                for (std::size_t index = 0U;
+                     index < destinationBacking.size(); ++index) {
+                    ASSERT_EQ(destinationBacking[index], expectedDestination[index])
+                        << "destination backing byte " << index;
+                }
+            }
+        }
+    }
+}
 
 void expectEveryOrientationOnPairedDisplays(
     DisplayStorage storage,
@@ -114,6 +270,17 @@ TEST(OrientationTransform, AppliesAllSixteenLiteralMatricesToPairedGray8Displays
 
 TEST(OrientationTransform, AppliesAllSixteenLiteralMatricesToPairedGray16Displays) {
     expectEveryOrientationOnPairedDisplays(
+        DisplayStorage::Gray16, StorageType::UInt16);
+}
+
+TEST(OrientationTransform, MatchesIndependentMappingAcrossTileBoundariesForGray8) {
+    expectIndependentMappingAcrossEdges<1U>(
+        DisplayStorage::Gray8, StorageType::UInt8);
+}
+
+TEST(OrientationTransform,
+    MatchesIndependentMappingAcrossTileBoundariesForUnalignedGray16) {
+    expectIndependentMappingAcrossEdges<2U>(
         DisplayStorage::Gray16, StorageType::UInt16);
 }
 

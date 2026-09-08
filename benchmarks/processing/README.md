@@ -19,6 +19,8 @@ cmake --build --preset linux-gcc-release-sim --target lumora_processing_benchmar
 mkdir -p out/qa/processing
 out/build/linux-gcc-release-sim/benchmarks/processing/lumora_processing_benchmark --output out/qa/processing/benchmark.json
 out/build/linux-gcc-release-sim/benchmarks/processing/lumora_processing_allocation_probe --output out/qa/processing/allocation.json
+out/build/linux-gcc-release-sim/benchmarks/processing/lumora_processing_benchmark --source-format mono12 --output out/qa/processing/benchmark-mono12.json
+out/build/linux-gcc-release-sim/benchmarks/processing/lumora_processing_allocation_probe --source-format mono12 --output out/qa/processing/allocation-mono12.json
 out/build/linux-gcc-release-sim/benchmarks/processing/lumora_processing_reference_generator --output out/qa/processing/candidate
 ```
 
@@ -53,6 +55,18 @@ is100 warm-ups/1000 successful cycles **per row**, smoke is2/20 per row and is
 explicitly nonproof. Candidate generation has13 ordinary or13 smoke cases.
 All tools reject duplicate/unknown options, missing values, permissive numeric
 prefixes, and positional arguments. `--help` must stand alone.
+
+The benchmark and allocation probe accept the closed, case-sensitive selector
+`--source-format mono16|mono12`. Omitted and explicit `mono16` preserve v2 output,
+the original full-range input, and all eleven benchmark rows per size. `mono12`
+emits v3 with `sourceFormat:"mono12"`, derives each xorshift sample as
+`uint16(state >> 16) >> 4`, records that derivation with the hash of the resulting
+max65535 PGM, and runs only the two full Standard rows per size. Normal Mono12
+benchmark evidence is the ordered identity/nonidentity pair for each of
+512,1024,2048 at100/500. Smoke is the same pair for64/128 at2/5. Complete custom
+benchmark triplets remain custom. Mono12 allocation retains64x48 and the existing
+100/1000 normal or2/20 smoke counts. The reference generator does not accept a
+source-format selector.
 
 Exit codes:0 success/help,2 CLI/admission argument error,3 output/serialization,
 4 preparation/processing,5 allocation/resource/requested heap evidence failure.
@@ -171,6 +185,9 @@ validator additionally rejects duplicate decoded member names, noncanonical
 operation metadata, inconsistent ordered row products/statistics, and reference
 payload hashes/dimensions. `schemas/build-schemas.py` maintains schema declarations;
 it is not a runtime dependency or a general JSON-Schema interpreter.
+Benchmark/allocation schemas v1 and v2 remain compatibility snapshots. Separate v3
+schemas describe strict Mono12 evidence. The canonical workstation review contract
+continues to admit only benchmark/allocation schema versions1 and2.
 
 CI enables these targets for Debug/Release and runs bounded `Processing.EvidenceSmoke`
 with a600-second evidence-only timeout, uploads JSON/PGM artifacts even after a

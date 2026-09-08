@@ -2,6 +2,8 @@
 
 #include <lumora/processing/ImageView.hpp>
 
+#include "ImageRowCopy.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>

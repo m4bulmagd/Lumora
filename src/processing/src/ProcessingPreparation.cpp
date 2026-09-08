@@ -24,6 +24,11 @@ ProcessingPreparationAssessment FrameProcessingEngine::plan(ProcessingPoolSpecif
     auto fail=[&](core::Error error) { result.error=std::move(error); return result; };
     auto overflow=[&] { return fail(detail::preparationError("processing_resource_size_overflow","Complete session storage is not representable.")); };
     try {
+        if(options.cpuExecutionSlots<1 || options.cpuExecutionSlots>4)
+            return fail(detail::preparationError("invalid_cpu_execution_slots","CPU execution slots must be in [1,4]."));
+        r.cpuExecutionSlots=options.cpuExecutionSlots;
+        r.cpuHelperThreads=options.cpuExecutionSlots-1;
+        r.cpuExecutorBytes=sizeof(detail::PreparedCpuExecutor);
         auto canonical=tight(sourceLayout,core::StorageType::UInt16,2);
         auto native=tight(sourceLayout,core::StorageType::UInt8,1);
         if(!canonical.hasValue() || !native.hasValue()) return overflow();
@@ -37,7 +42,7 @@ ProcessingPreparationAssessment FrameProcessingEngine::plan(ProcessingPoolSpecif
         if(!displays.hasValue()) return fail(displays.error());
         r.processingPoolBytes=pixels.value().requiredStorageBytes;
         r.displayPoolBytes=displays.value().requiredStorageBytes;
-        auto candidate=detail::prepareDefinition(definition,canonical.value());
+        auto candidate=detail::prepareDefinition(definition,canonical.value(),options.cpuExecutionSlots);
         if(!candidate.hasValue()) {
             const auto& e=candidate.error();
             return fail(e.preparationError ? *e.preparationError : core::Error{core::ErrorCategory::Processing,e.code,"Pipeline validation failed.",e.violations.front().detail,false});
@@ -59,7 +64,7 @@ ProcessingPreparationAssessment FrameProcessingEngine::plan(ProcessingPoolSpecif
             r.orientationBytes=aligned.value();
         }
         r.engineStateBytes=sizeof(FrameProcessingEngine)+sizeof(detail::EngineState)+sizeof(detail::EnginePlan)+detail::ownerControlReserve;
-        for(auto bytes:{r.externalSessionBytes,r.processingPoolBytes,r.displayPoolBytes,r.frameObjectBytes,r.orientationBytes,r.engineStateBytes}) {
+        for(auto bytes:{r.externalSessionBytes,r.processingPoolBytes,r.displayPoolBytes,r.frameObjectBytes,r.orientationBytes,r.engineStateBytes,r.cpuExecutorBytes}) {
             auto sum=core::checkedAdd(r.fixedStorageBytes,bytes);
             if(!sum.hasValue()) return overflow();
             r.fixedStorageBytes=sum.value();

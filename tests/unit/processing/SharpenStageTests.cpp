@@ -191,16 +191,51 @@ TEST(SharpenStage, FactoryValidatesBoundsStorageScratchAndBudget) {
     ASSERT_FALSE(budget.hasValue());
     EXPECT_EQ(budget.error().code, "sharpen_scratch_budget_exceeded");
 
+    const auto square = layout(2048U, 2048U);
+    const auto squareRadiusOne = SharpenStage::requiredScratchBytes(
+        {1.0, 1.0, 0.0}, square);
+    const auto squareRadiusFive = SharpenStage::requiredScratchBytes(
+        {1.0, 5.0, 0.0}, square);
+    ASSERT_TRUE(squareRadiusOne.hasValue());
+    ASSERT_TRUE(squareRadiusFive.hasValue());
+    EXPECT_EQ(squareRadiusOne.value(), 114744U);
+    EXPECT_EQ(squareRadiusFive.value(), 508152U);
+
     if constexpr (sizeof(std::size_t) >= sizeof(std::uint64_t)) {
         constexpr auto width = std::numeric_limits<std::uint32_t>::max();
         constexpr auto height = std::uint32_t{1073741823U};
         const auto stride = static_cast<std::size_t>(width) * 2U;
         const auto huge = layout(width, height, stride, core::StorageType::UInt16,
             stride * static_cast<std::size_t>(height));
-        const auto overflow = SharpenStage::requiredScratchBytes({}, huge);
-        ASSERT_FALSE(overflow.hasValue());
-        EXPECT_EQ(overflow.error().code, "sharpen_scratch_size_overflow");
+        const auto required = SharpenStage::requiredScratchBytes({}, huge);
+        ASSERT_TRUE(required.hasValue());
+        EXPECT_EQ(required.value(),
+            static_cast<std::size_t>(width) * 7U * sizeof(double)
+                + 7U * sizeof(double));
     }
+}
+
+TEST(SharpenStage, TallImagesUseExactRingScratchBudget) {
+    constexpr std::uint32_t width = 17U;
+    constexpr std::uint32_t height = 37U;
+    constexpr SharpenParameters parameters{1.5, 2.0, 12.5};
+    constexpr std::size_t kernelSize = 13U;
+    constexpr std::size_t expectedBytes =
+        width * kernelSize * sizeof(double) + kernelSize * sizeof(double);
+    const auto imageLayout = layout(width, height, width * 2U + 3U);
+
+    const auto required = SharpenStage::requiredScratchBytes(parameters, imageLayout);
+    ASSERT_TRUE(required.hasValue());
+    EXPECT_EQ(required.value(), expectedBytes);
+
+    auto exact = SharpenStage::create(parameters, imageLayout, expectedBytes);
+    ASSERT_TRUE(exact.hasValue());
+    EXPECT_EQ(exact.value()->scratchBytes(), expectedBytes);
+
+    const auto oneByteShort = SharpenStage::create(
+        parameters, imageLayout, expectedBytes - 1U);
+    ASSERT_FALSE(oneByteShort.hasValue());
+    EXPECT_EQ(oneByteShort.error().code, "sharpen_scratch_budget_exceeded");
 }
 
 TEST(SharpenStage, ReportsOwnedScratchAndCanonicalTraits) {

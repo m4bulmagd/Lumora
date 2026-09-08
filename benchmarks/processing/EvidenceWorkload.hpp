@@ -1,9 +1,11 @@
 #pragma once
 #include "EvidenceJson.hpp"
+#include "../../src/processing/src/PreparedCpuObservation.hpp"
 #include <lumora/processing/IProcessingStage.hpp>
 #include <lumora/core/LatestValueSlot.hpp>
 #include <lumora/processing/FrameProcessingEngine.hpp>
 #include <array>
+#include <atomic>
 namespace lumora::evidence {
 core::ImageLayout layoutFor(std::uint32_t w,std::uint32_t h,bool gray8=false);
 core::SourcePixelFormat monoFormat(bool mono12=false);
@@ -26,6 +28,18 @@ public:
     QJsonObject resources() const;
     processing::PipelineDefinition definition;
 };
+// Fresh caller-owned context, initialized before trace/tracker arming.
+struct HelperAllocationControlContext {
+    std::atomic<unsigned> mask{};
+    std::array<unsigned,4> calls{};
+    std::atomic<bool> failed{};
+};
+struct HelperAllocationControlResult {
+    std::size_t executionSlots{};
+    unsigned observedHelperMask{};
+    unsigned callbackInvocations{};
+    bool successful{};
+};
 class Session {
     std::shared_ptr<core::BufferPool> rawPool_,processingPool_,displayPool_;
     std::shared_ptr<const core::RawFrame> raw_;
@@ -35,13 +49,17 @@ class Session {
     std::array<std::shared_ptr<const core::FrameBundle>,5> retained_{};
     std::uint64_t revision_=0;
 public:
-    Session(const Image&,core::Orientation);
+    Session(const Image&,core::Orientation,SourceFormat sourceFormat=SourceFormat::Mono16);
     static processing::ProcessingPreparationAssessment assess(std::uint32_t,std::uint32_t,core::Orientation);
     bool cycle(std::size_t,std::uint64_t& fingerprint);
     void releaseMeasured();
     std::shared_ptr<const core::FrameBundle> verificationOutput();
     QJsonObject resources() const;
     bool healthy() const;
+    // Only between synchronous cycles; context/callback must outlive attached jobs.
+    // Detach with (nullptr,nullptr) before destroying the caller-owned context.
+    void setCpuWorkObserver(void* context,processing::detail::CpuWorkObserver) noexcept;
+    HelperAllocationControlResult helperAllocationControl(HelperAllocationControlContext&) noexcept;
 };
 Image displayImage(const core::DisplayFrame&);
 std::string fullChecksum(const core::FrameBundle&);

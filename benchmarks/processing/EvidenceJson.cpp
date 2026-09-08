@@ -63,6 +63,15 @@ QJsonObject descriptorJson(const core::SourcePixelFormat& f,const core::ImageLay
     return {{"canonicalName",qs(f.canonicalName)},{"canonicalEncoding",integer(f.canonicalEncoding)},{"validBits",integer(f.validBits)},{"sampleMaximum",integer(f.sampleMaximum)},{"packing",f.packing==core::SourcePacking::Unpacked?"unpacked":"packed"},{"alignment",f.alignment==core::BitAlignment::LeastSignificant?"least_significant":"most_significant"},{"applicationStorage",f.applicationStorage==core::StorageType::UInt16?"uint16":"uint8"},{"nativeDimensions",dimensions(l.width(),l.height())},{"strideBytes",integer(l.strideBytes())},{"payloadBytes",integer(l.payloadBytes())}};
 }
 const std::vector<std::string>& rowIds() {static const std::vector<std::string> ids={"normalize","window_level","brightness_contrast","gamma","clahe","denoise_gaussian","denoise_median","sharpen","invert","full_standard_identity","full_standard_nonidentity"};return ids;}
+const std::vector<std::string>& measurementRowIds(SourceFormat sourceFormat) {
+    static const std::vector<std::string> mono12={"full_standard_identity","full_standard_nonidentity"};
+    return sourceFormat==SourceFormat::Mono12?mono12:rowIds();
+}
+QJsonObject inputJson(const Image& image,SourceFormat sourceFormat) {
+    QJsonObject input{{"patternId","xorshift32_u16_v1"},{"version",1},{"seed",integer(0x6D2B79F5U)},{"sha256",qs(sha256(encodePgm(image)))}};
+    if(sourceFormat==SourceFormat::Mono12) input["derivation"]="uint16(state >> 16) >> 4";
+    return input;
+}
 QJsonObject payloadJson(const std::filesystem::path& dir,const std::string& file,const Image& im,bool gray8) {
     const auto bytes=readFile(dir/file);if(decodePgm(bytes)!=im) throw Error(3,"Written PGM differs from result");
     return {{"file",qs(file)},{"format","pgm_p5_u16"},{"width",integer(im.width)},{"height",integer(im.height)},{"maxValue",65535},{"byteOrder","big_endian"},{"payloadEncoding",gray8?"gray8_zero_extended_to_u16_big_endian":"u16_big_endian"},{"sha256",qs(sha256(bytes))}};
@@ -84,9 +93,9 @@ void ensureCandidateDirectory(const std::filesystem::path& requested) {
 }
 namespace lumora::evidence {
 QJsonObject sessionResources(const processing::ProcessingResources& r) {
-    return {{"scope","prepared_session"},{"limitScope","session_accounted_storage"},{"limitBytes",integer(r.storageBudgetBytes)},{"requiredBytes",integer(r.requiredStorageBytes)},{"fixedBytes",integer(r.fixedStorageBytes)},{"threeOwnerReserveBytes",integer(r.activationReserveBytes)},{"gammaCacheReserveBytes",integer(r.gammaCacheReserveBytes)},{"candidateRequiredBytes",integer(r.candidateRequiredBytes)},
-        {"boundedStatistics",QJsonObject{{"externalSessionBytes",integer(r.externalSessionBytes)},{"processingPoolBytes",integer(r.processingPoolBytes)},{"displayPoolBytes",integer(r.displayPoolBytes)},{"frameObjectBytes",integer(r.frameObjectBytes)},{"orientationBytes",integer(r.orientationBytes)},{"engineStateBytes",integer(r.engineStateBytes)},{"activationEnvelopeBytes",integer(r.activationEnvelopeBytes)},{"actualRetainedStageBytes",integer(r.actualRetainedStageBytes)}}},
-        {"exclusions",QJsonArray{"allocator_headers","BufferPool_two_and_FrameObjectPool_three_STL_owner_controls","compiler_probe_temporaries","retained_error_diagnostic_strings","earlier_session_frames","RawFrame_metadata_and_shared_owner_controls","tool_input_samples_JSON_retention_slot_sentinel_owner_storage"}}};
+    return {{"scope","prepared_session"},{"cpuExecutionSlots",integer(r.cpuExecutionSlots)},{"cpuHelperThreads",integer(r.cpuHelperThreads)},{"limitScope","session_accounted_storage"},{"limitBytes",integer(r.storageBudgetBytes)},{"requiredBytes",integer(r.requiredStorageBytes)},{"fixedBytes",integer(r.fixedStorageBytes)},{"threeOwnerReserveBytes",integer(r.activationReserveBytes)},{"gammaCacheReserveBytes",integer(r.gammaCacheReserveBytes)},{"candidateRequiredBytes",integer(r.candidateRequiredBytes)},
+        {"boundedStatistics",QJsonObject{{"cpuExecutorBytes",integer(r.cpuExecutorBytes)},{"externalSessionBytes",integer(r.externalSessionBytes)},{"processingPoolBytes",integer(r.processingPoolBytes)},{"displayPoolBytes",integer(r.displayPoolBytes)},{"frameObjectBytes",integer(r.frameObjectBytes)},{"orientationBytes",integer(r.orientationBytes)},{"engineStateBytes",integer(r.engineStateBytes)},{"activationEnvelopeBytes",integer(r.activationEnvelopeBytes)},{"actualRetainedStageBytes",integer(r.actualRetainedStageBytes)}}},
+        {"exclusions",QJsonArray{"allocator_headers","BufferPool_two_and_FrameObjectPool_three_STL_owner_controls","compiler_probe_temporaries","retained_error_diagnostic_strings","earlier_session_frames","RawFrame_metadata_and_shared_owner_controls","tool_input_samples_JSON_retention_slot_sentinel_owner_storage","thread_stacks_TLS_thread_library_and_OS_bookkeeping"}}};
 }
 QJsonObject standaloneResources(std::size_t scratch,std::size_t fixed,std::size_t imageBytes) {
     return {{"scope","standalone_stage"},{"limitScope","standalone_scratch_only"},{"limitBytes",integer(256U*1024U*1024U)},{"requiredBytes",integer(scratch+fixed)},{"fixedBytes",QJsonValue()},{"threeOwnerReserveBytes",QJsonValue()},{"gammaCacheReserveBytes",QJsonValue()},{"candidateRequiredBytes",QJsonValue()},

@@ -76,6 +76,13 @@ void horizontalGaussian(
     const double* coefficients,
     std::size_t kernelSize) noexcept;
 
+void horizontalGaussianRow(
+    std::span<const std::byte> sourceRow,
+    double* destinationRow,
+    std::size_t width,
+    const double* coefficients,
+    std::size_t kernelSize) noexcept;
+
 using ReflectedGaussianRows = std::array<const double*, 31U>;
 
 void prepareVerticalGaussianRows(
@@ -108,6 +115,30 @@ void writeSharpenRow(
     std::span<std::byte> destinationRow,
     double amount,
     double threshold) noexcept;
+
+// Private numerical/dispatch seam; unsupported platforms use the scalar path.
+enum class DetailRowBackend : std::uint8_t { Scalar, BaselineSse2 };
+using GaussianBlock8 = std::array<double, 8U>;
+
+void accumulateVerticalBlock8(
+    const ReflectedGaussianRows& rows,
+    const double* coefficients,
+    std::size_t kernelSize,
+    std::size_t firstX,
+    GaussianBlock8& output,
+    DetailRowBackend backend) noexcept;
+
+// Returns the number of blocks actually processed by SSE2 (zero for scalar).
+std::size_t writeSharpenRow(
+    const ReflectedGaussianRows& rows,
+    const double* coefficients,
+    std::size_t kernelSize,
+    std::size_t width,
+    std::span<const std::byte> sourceRow,
+    std::span<std::byte> destinationRow,
+    double amount,
+    double threshold,
+    DetailRowBackend backend) noexcept;
 
 [[nodiscard]] std::uint16_t roundU16(double value) noexcept;
 

@@ -4,6 +4,7 @@ Cross-field arithmetic, canonical operation metadata, byte hashes, and attachmen
 integrity are additionally checked by EvidenceValidation.cpp.
 """
 import json
+from copy import deepcopy
 from pathlib import Path
 ROOT = Path(__file__).parent
 
@@ -91,9 +92,51 @@ acceptedAcceptance={k:{'not':{'type':'null'}} for k in workstation['properties']
 workstation['allOf']=[{'if':{'properties':{'status':const('accepted')}},'then':{'properties':{**acceptedFacts,'designation':obj(machineId=S,selectedBy=S,selectedUtc=UTC),'acceptance':{'properties':acceptedAcceptance}}},'else':{'properties':{'acceptance':obj(**dict.fromkeys(acceptedAcceptance,NULL))}}}]
 for artifact in [benchmark,allocation]:
     artifact['allOf']=[{'if':{'properties':{'complete':const(True)}},'then':{'properties':{'runStatus':const('complete'),'failure':NULL,'rows':{'minItems':2}}},'else':{'properties':{'runStatus':const('incomplete')}}}]
+# Version 1 definitions above remain compatibility snapshots. Only the two
+# executor-bearing artifacts acquire version 2; references/workstation stay v1.
+sessionV2=deepcopy(session)
+sessionV2['properties']['cpuExecutionSlots']={'type':'integer','minimum':1,'maximum':4}
+sessionV2['properties']['cpuHelperThreads']={'type':'integer','minimum':0,'maximum':3}
+sessionV2['required']+=['cpuExecutionSlots','cpuHelperThreads']
+sessionV2['properties']['boundedStatistics']['properties']['cpuExecutorBytes']=P
+sessionV2['properties']['boundedStatistics']['required'].append('cpuExecutorBytes')
+sessionV2['properties']['exclusions']['contains']=const('thread_stacks_TLS_thread_library_and_OS_bookkeeping')
+D['sessionResourceV2']=sessionV2
+D['resourceV2']={'oneOf':[deepcopy(stand),sessionV2]}
+D['helperTrace']=nullable(obj(status=const('passed'),tracePath=S,traceSha256=H,events=ref('traceEvents')))
+D['helperControl']=obj(scope=const('prepared_cpu_executor_persistent_helpers'),expectedHelperMask=enum(0,2,6,14),observedHelperMask=enum(0,2,6,14),callbackInvocations={'type':'integer','minimum':0,'maximum':3},cxxAllocation=obj(scope=const('cxx_replacement_new'),calls={'type':'integer','minimum':0,'maximum':3},bytes=I,deallocations={'type':'integer','minimum':0,'maximum':3},armedRegion=const('caller reset/armed before one synchronous helper control dispatch and ended after return'),coveredRoutes=const(['ordinary']),unsupportedRoutes=const(['c_malloc_free','external_dll_private_heaps'])),glibcTrace=ref('helperTrace'))
+benchmarkV2=deepcopy(benchmark)
+benchmarkV2['properties']['schemaVersion']=const(2)
+benchmarkV2['properties']['rows']['items']['properties']['resourcePlan']=ref('resourceV2')
+allocationV2=deepcopy(allocation)
+allocationV2['properties']['schemaVersion']=const(2)
+allocationV2['properties']['rows']['items']['properties']['resourcePlan']=ref('sessionResourceV2')
+allocationV2['properties']['rows']['items']['properties']['helperControl']=ref('helperControl')
+allocationV2['properties']['rows']['items']['required'].append('helperControl')
+inputV3=obj(patternId=const('xorshift32_u16_v1'),version=const(1),seed=const(1831565813),sha256=H,derivation=const('uint16(state >> 16) >> 4'))
+sourceMono12=obj(canonicalName=const('Mono12'),canonicalEncoding=const(17825797),validBits=const(12),sampleMaximum=const(4095),packing=const('unpacked'),alignment=const('least_significant'),applicationStorage=const('uint16'),nativeDimensions=ref('dimensions'),strideBytes=P,payloadBytes=P)
+benchmarkRowV3=deepcopy(benchmarkV2['properties']['rows']['items'])
+benchmarkRowV3['properties']['rowId']=enum('full_standard_identity','full_standard_nonidentity')
+benchmarkRowV3['properties']['scope']=const('full_frame')
+benchmarkRowV3['properties']['input']=inputV3
+benchmarkRowV3['properties']['sourceDescriptor']=sourceMono12
+benchmarkRowV3['properties']['resourcePlan']=ref('sessionResourceV2')
+benchmarkV3=deepcopy(benchmarkV2)
+benchmarkV3['properties']['schemaVersion']=const(3)
+benchmarkV3['properties']['sourceFormat']=const('mono12')
+benchmarkV3['required'].append('sourceFormat')
+benchmarkV3['properties']['rows']['items']=benchmarkRowV3
+allocationRowV3=deepcopy(allocationV2['properties']['rows']['items'])
+allocationRowV3['properties']['input']=inputV3
+allocationRowV3['properties']['sourceDescriptor']=sourceMono12
+allocationV3=deepcopy(allocationV2)
+allocationV3['properties']['schemaVersion']=const(3)
+allocationV3['properties']['sourceFormat']=const('mono12')
+allocationV3['required'].append('sourceFormat')
+allocationV3['properties']['rows']['items']=allocationRowV3
 comment='Structural owned-artifact schema. EvidenceValidation.cpp additionally enforces canonical definitions/ordered row products, all cross-field arithmetic, duplicate decoded JSON keys, and on-disk payload and reviewed attachment integrity. Validation is not authority to designate or accept a workstation.'
 common={'$schema':'https://json-schema.org/draft/2020-12/schema','$id':'common.schema.json','$defs':D}
 (ROOT/'common.schema.json').write_text(json.dumps(common,indent=2)+'\n')
-for name,schema in [('processing-benchmark',benchmark),('processing-allocation',allocation),('processing-reference',reference),('reference-workstation',workstation)]:
+for name,schema in [('processing-benchmark',benchmark),('processing-allocation',allocation),('processing-benchmark-v2',benchmarkV2),('processing-allocation-v2',allocationV2),('processing-benchmark-v3',benchmarkV3),('processing-allocation-v3',allocationV3),('processing-reference',reference),('reference-workstation',workstation)]:
     document={'$schema':'https://json-schema.org/draft/2020-12/schema','$id':name+'.schema.json','$comment':comment,**schema}
     (ROOT/(name+'.schema.json')).write_text(json.dumps(document,indent=2)+'\n')

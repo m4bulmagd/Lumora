@@ -1,3 +1,6 @@
+#include "FrameEngineTestAccess.hpp"
+#include <atomic>
+#include <new>
 #include "EvidenceWorkload.hpp"
 #include "StageStorage.hpp"
 #include <lumora/processing/NormalizeStage.hpp>
@@ -62,14 +65,15 @@ processing::ProcessingPreparationAssessment Session::assess(std::uint32_t w,std:
     processing::ProcessingPreparationOptions options;options.orientation=orientation;options.externalSessionStorageBytes=raw.value().requiredStorageBytes;
     return processing::FrameProcessingEngine::plan({9,layout.payloadBytes()},{16,static_cast<std::size_t>(w)*h},layout,processing::standardPipeline(),options);
 }
-Session::Session(const Image& im,core::Orientation orientation) {
+Session::Session(const Image& im,core::Orientation orientation,SourceFormat sourceFormat) {
     const auto layout=layoutFor(im.width,im.height);auto plan=assess(im.width,im.height,orientation);if(!plan.plan) throw Error(4,"Standard session resource admission rejected");
     rawPool_=require(core::BufferPool::create(1,layout.payloadBytes()));processingPool_=require(core::BufferPool::create(9,layout.payloadBytes()));displayPool_=require(core::BufferPool::create(16,im.pixels.size()));
     auto lease=rawPool_->tryAcquire();if(!lease) throw Error(4,"Raw lease unavailable");std::memcpy(lease->bytes().data(),im.pixels.data(),layout.payloadBytes());
-    auto settings=require(core::AcquisitionSettingsSnapshot::create({"Lumora","Evidence","1","synthetic",{}},monoFormat(),{0,0,im.width,im.height},30,30,{},{}));
+    auto settings=require(core::AcquisitionSettingsSnapshot::create({"Lumora","Evidence","1","synthetic",{}},monoFormat(sourceFormat==SourceFormat::Mono12),{0,0,im.width,im.height},30,30,{},{}));
     raw_=require(core::RawFrame::create(1,layout,std::move(*lease).seal(),{{},{},{},{},std::move(settings)}));
     engine_=require(processing::FrameProcessingEngine::create(*processingPool_,*displayPool_,*plan.plan));sentinel_=verificationOutput();
 }
+void Session::setCpuWorkObserver(void* context,processing::detail::CpuWorkObserver observer) noexcept { processing::detail::FrameEngineTestAccess::setCpuWorkObserver(*engine_,context,observer); }
 bool Session::healthy() const {const auto s=engine_->status();return s.mode==processing::ProcessorMode::Enhanced && s.enhancementFailures==0 && !s.error && !s.failingOperation;}
 bool Session::cycle(std::size_t index,std::uint64_t& hash) {
     retained_[index%retained_.size()].reset();auto output=engine_->process(raw_);
@@ -110,5 +114,28 @@ QJsonObject caseMetadata(const Case& c) {
     const bool swapped=c.orientation.rotation==core::Rotation::Degrees90 || c.orientation.rotation==core::Rotation::Degrees270;
     QJsonObject stage={{"id",id},{"variant",qs(c.variant)},{"enabled",true},{"scope",full?"full_frame":c.operation=="orientation"?"presentation_operations":"standalone_stage"},{"fullStandardExecuted",full},{"sourceDomain",(c.mono12 || full)?"sensor_native":c.operation=="orientation" && !c.gray8?"display":"canonical_u16"},{"outputStorage",c.gray8?"gray8":"uint16"},{"parameters",params},{"implementation",c.exact?"Lumora exact scalar/coordinate implementation":"Lumora prepared CPU implementation"},{"provenance",c.exact?"Independent rational/identity/inverse-coordinate oracle; reviewed generator SHA256 89c056d22dc87584a75b080237b155ebdd3c90a38486f7c31f2836c41505ec30":"Lumora-owned code (Apache-2.0); adapted OpenCV 4.12.0 CLAHE source retains NVIDIA 2013/Itseez 2014 three-clause BSD terms; OpenCV coefficient generation and Lumora prepared separable-double Gaussian/detail execution; see THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt"}};
     return {{"caseId",qs(c.id)},{"classification",c.exact?"exact_independent":"provisional_backend"},{"pattern",QJsonObject{{"id",qs(c.pattern.id)},{"version",1},{"width",integer(c.pattern.width)},{"height",integer(c.pattern.height)},{"maximum",integer(c.pattern.maximum)},{"seed",c.pattern.id=="xorshift32_u16_v1"?integer(c.pattern.seed):QJsonValue()}}},{"stage",stage},{"sourceDescriptor",descriptorJson(monoFormat(c.mono12),layoutFor(c.pattern.width,c.pattern.height))},{"orientation",orientationJson(c.orientation)},{"orientedDimensions",dimensions(swapped?c.pattern.height:c.pattern.width,swapped?c.pattern.width:c.pattern.height)}};
+}
+}
+
+namespace lumora::evidence {
+HelperAllocationControlResult Session::helperAllocationControl(HelperAllocationControlContext& control) noexcept {
+    struct Control {
+        static void work(void* opaque,std::size_t slot,std::size_t,std::size_t) noexcept {
+            auto& c=*static_cast<HelperAllocationControlContext*>(opaque);++c.calls[slot];
+            if(!slot) return;
+            c.mask.fetch_or(1U<<slot);
+            try {
+                void* (*volatile allocate)(std::size_t)=::operator new;
+                void (*volatile release)(void*) noexcept=::operator delete;
+                auto* p=allocate(256+slot);release(p);
+            } catch(...) {c.failed=true;}
+        }
+    };
+    const auto executionSlots=engine_->resources().cpuExecutionSlots;
+    processing::detail::FrameEngineTestAccess::runCpu(*engine_,executionSlots,&control,Control::work);
+    bool successful=!control.failed && control.calls[0]==1;
+    unsigned callbacks=0;
+    for(std::size_t s=1;s<executionSlots;++s) {successful=successful && control.calls[s]==1;callbacks+=control.calls[s];}
+    return {executionSlots,control.mask.load(),callbacks,successful};
 }
 }

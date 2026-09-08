@@ -95,14 +95,14 @@ struct FailureHook : detail::EngineHooks {
     int exceptionKind{};
     int preparationExceptionKind{};
     core::ErrorCategory category{core::ErrorCategory::Processing};
-    core::Result<std::shared_ptr<const IProcessingStage>> prepare(const StageDefinition& stage,const core::ImageLayout& image,std::size_t scratch) override {
+    core::Result<std::shared_ptr<const IProcessingStage>> prepare(const StageDefinition& stage,const core::ImageLayout& image,std::size_t scratch,detail::PreparedCpuExecutor& executor) override {
         if(preparationExceptionKind==1) throw std::runtime_error("backend construction failed");
         if(preparationExceptionKind==2) throw std::bad_alloc{};
         if(preparationExceptionKind==3) throw 17;
         if(preparationExceptionKind==4) throw std::length_error("backend storage exceeds limits");
         if(failPreparation) return core::Result<std::shared_ptr<const IProcessingStage>>::failure(
             {core::ErrorCategory::Processing,"injected_prepare_fault","Preparation failed.","Original factory diagnostic",false,17});
-        return EngineHooks::prepare(stage,image,scratch);
+        return EngineHooks::prepare(stage,image,scratch,executor);
     }
     core::Result<void> before(ProcessingOperation operation,std::span<std::byte> destination) override {
         if(operation!=failure) return core::Result<void>::success();
@@ -320,7 +320,7 @@ TEST(FrameProcessingEngine, AggregatePlanReportsAdmissionBeforeBulkOwnership) {
     EXPECT_EQ(r.displayPoolBytes, core::BufferPool::plan(16,4).value().requiredStorageBytes);
     EXPECT_GT(r.frameObjectBytes, 0U);
     EXPECT_EQ(r.orientationBytes, 0U);
-    EXPECT_EQ(r.fixedStorageBytes, r.externalSessionBytes + r.processingPoolBytes + r.displayPoolBytes + r.frameObjectBytes + r.orientationBytes + r.engineStateBytes);
+    EXPECT_EQ(r.fixedStorageBytes, r.externalSessionBytes + r.processingPoolBytes + r.displayPoolBytes + r.frameObjectBytes + r.orientationBytes + r.engineStateBytes + r.cpuExecutorBytes);
     EXPECT_EQ(r.activationReserveBytes, 600000U);
     EXPECT_GT(r.gammaCacheReserveBytes, 131072U);
     EXPECT_EQ(r.requiredStorageBytes, r.fixedStorageBytes + r.activationReserveBytes + r.gammaCacheReserveBytes);
@@ -332,6 +332,74 @@ TEST(FrameProcessingEngine, AggregatePlanReportsAdmissionBeforeBulkOwnership) {
     EXPECT_EQ(rejected.error->category, core::ErrorCategory::ResourceExhaustion);
     EXPECT_EQ(rejected.resources.requiredStorageBytes, r.requiredStorageBytes);
     EXPECT_FALSE(rejected.plan.has_value());
+}
+
+TEST(FrameProcessingEngine, TightSharpenEnvelopeProcessesAndRejectsLargerRadius) {
+    constexpr std::uint32_t width = 64U;
+    constexpr std::uint32_t height = 64U;
+    constexpr std::size_t u16Bytes = width * height * sizeof(std::uint16_t);
+    constexpr std::size_t grayBytes = width * height;
+    auto definition = defaultPipeline();
+    definition.version.configurationRevision = 41U;
+    definition.stages[6].enabled = true;
+    definition.stages[6].parameters = SharpenParameters{1.5, 0.5, 12.5};
+
+    ProcessingPreparationOptions roomyOptions;
+    roomyOptions.activationEnvelopeBytes = 1024U * 1024U;
+    const auto roomy = FrameProcessingEngine::plan(
+        {9U, u16Bytes}, {16U, grayBytes}, layout(16U, width, height),
+        definition, roomyOptions);
+    ASSERT_TRUE(roomy.plan.has_value());
+    ASSERT_FALSE(roomy.error.has_value());
+    const auto exactEnvelope = roomy.resources.candidateRequiredBytes;
+    EXPECT_LT(exactEnvelope, width * height * sizeof(double));
+
+    auto tightOptions = roomyOptions;
+    tightOptions.activationEnvelopeBytes = exactEnvelope;
+    auto pixels = core::BufferPool::create(9U, u16Bytes).value();
+    auto displays = core::BufferPool::create(16U, grayBytes).value();
+    auto made = FrameProcessingEngine::create(*pixels, *displays,
+        layout(16U, width, height), definition, tightOptions);
+    ASSERT_TRUE(made.hasValue());
+    auto engine = std::move(made).value();
+
+    std::vector<std::uint16_t> input(width * height);
+    for (std::size_t index = 0U; index < input.size(); ++index) {
+        input[index] = static_cast<std::uint16_t>(
+            (index * 997U + (index / width) * 313U + 11U) % 65536U);
+    }
+    auto initial = engine->process(rawFrame(16U, input, 1U, 0U, height));
+    ASSERT_TRUE(initial.hasValue());
+    ASSERT_NE(initial.value()->enhanced, nullptr);
+    EXPECT_EQ(initial.value()->enhanced->pipelineVersion.configurationRevision, 41U);
+    const auto expected = samples(*initial.value()->enhanced);
+
+    auto shortOptions = tightOptions;
+    shortOptions.activationEnvelopeBytes = exactEnvelope - 1U;
+    const auto shortPlan = FrameProcessingEngine::plan(
+        {9U, u16Bytes}, {16U, grayBytes}, layout(16U, width, height),
+        definition, shortOptions);
+    ASSERT_TRUE(shortPlan.error.has_value());
+    EXPECT_EQ(shortPlan.error->code, "processing_resource_budget_exceeded");
+    EXPECT_FALSE(shortPlan.plan.has_value());
+
+    const auto serial = engine->status().activationSerial;
+    auto largerRadius = definition;
+    largerRadius.version.configurationRevision = 42U;
+    largerRadius.stages[6].parameters = SharpenParameters{1.5, 5.0, 12.5};
+    const auto rejected = engine->activate(largerRadius);
+    ASSERT_FALSE(rejected.hasValue());
+    EXPECT_EQ(rejected.error().code, "processing_resource_budget_exceeded");
+    ASSERT_TRUE(rejected.error().preparationResources.has_value());
+    EXPECT_GT(rejected.error().preparationResources->candidateRequiredBytes,
+        exactEnvelope);
+    EXPECT_EQ(engine->status().activationSerial, serial);
+
+    auto retained = engine->process(rawFrame(16U, input, 2U, 0U, height));
+    ASSERT_TRUE(retained.hasValue());
+    ASSERT_NE(retained.value()->enhanced, nullptr);
+    EXPECT_EQ(retained.value()->enhanced->pipelineVersion.configurationRevision, 41U);
+    EXPECT_EQ(samples(*retained.value()->enhanced), expected);
 }
 TEST(FrameProcessingEngine, ImmutableOrientationRotatesBothDisplaysOnly) {
     auto u16 = core::BufferPool::create(9,12).value();

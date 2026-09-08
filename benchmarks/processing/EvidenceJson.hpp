@@ -23,4 +23,6 @@ QJsonObject sessionResources(const processing::ProcessingResources&);
 QJsonObject standaloneResources(std::size_t scratch,std::size_t fixed,std::size_t imageBytes);
 QJsonObject payloadJson(const std::filesystem::path& directory,const std::string& file,const Image&,bool gray8=false);
 const std::vector<std::string>& rowIds();
+const std::vector<std::string>& measurementRowIds(SourceFormat);
+QJsonObject inputJson(const Image&,SourceFormat);
 }

@@ -1,7 +1,10 @@
+#include "PreparedCpuExecutor.hpp"
 #include "FrameEngineTestAccess.hpp"
 #include "FrameObjectPoolTestSupport.hpp"
 #include "PreparedOwner.hpp"
+#include "StageStorage.hpp"
 #include <lumora/processing/ToneStages.hpp>
+#include <lumora/processing/ProcessingDefaults.hpp>
 #include <gtest/gtest.h>
 #include <array>
 #include <atomic>
@@ -25,6 +28,8 @@ struct RecordingHook final : detail::EngineHooks {
     std::array<ProcessingOperation,64> order{};
     std::atomic<std::size_t> count{};
     std::atomic<std::size_t> gammaCreations{};
+    std::atomic<unsigned> threadStarts{};
+    void beforeCpuThreadStart(std::size_t) override { ++threadStarts; }
     std::atomic<bool> blockFactory{},failFactory{},blockFrame{},blockPrepared{};
     std::mutex historyMutex;
     std::array<std::weak_ptr<const IProcessingStage>,32> gammaHistory{};
@@ -36,7 +41,7 @@ struct RecordingHook final : detail::EngineHooks {
     ProcessingOperation blockedOperation{ProcessingOperation::Gamma};
     Gate factoryGate,frameGate;
     std::atomic<int> preparing{},maximumPreparing{};
-    core::Result<std::shared_ptr<const IProcessingStage>> prepare(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t scratch) override {
+    core::Result<std::shared_ptr<const IProcessingStage>> prepare(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t scratch,detail::PreparedCpuExecutor& executor) override {
         const auto concurrent=preparing.fetch_add(1)+1;
         auto maximum=maximumPreparing.load();
         while(maximum<concurrent && !maximumPreparing.compare_exchange_weak(maximum,concurrent)) {}
@@ -44,7 +49,7 @@ struct RecordingHook final : detail::EngineHooks {
         if(blockFactory.exchange(false)) factoryGate.block();
         if(failFactory.exchange(false)) return core::Result<std::shared_ptr<const IProcessingStage>>::failure(
             {core::ErrorCategory::Processing,"factory_refused","Candidate failed.","Original factory diagnostic",false,17});
-        auto made=EngineHooks::prepare(stage,layout,scratch);
+        auto made=EngineHooks::prepare(stage,layout,scratch,executor);
         if(made.hasValue() && stage.id==StageId::Gamma) {
             const auto index=gammaCreations.fetch_add(1);
             std::lock_guard lock(historyMutex); gammaHistory[index%gammaHistory.size()]=made.value();
@@ -85,6 +90,101 @@ PipelineDefinition gamma(double value=1,std::uint64_t revision=1) {
     auto result=defaultPipeline(); result.version.configurationRevision=revision;
     result.stages[3].enabled=true; result.stages[3].parameters=GammaParameters{value}; return result;
 }
+
+TEST(FrameProcessingEngine, ParallelStageAdmissionUsesFrozenSlotsAndRetainedPayload) {
+    auto definition=defaultPipeline();
+    definition.stages[4].enabled=true; definition.stages[4].parameters=ClaheParameters{2,2};
+    definition.stages[5].enabled=true; definition.stages[5].parameters=DenoiseParameters{DenoiseMode::Gaussian,7,1.25};
+    definition.stages[6].enabled=true; definition.stages[6].parameters=SharpenParameters{1.75,5,12.5};
+    ProcessingPreparationOptions serialOptions; serialOptions.cpuExecutionSlots=1;
+    Fixture serial(definition,257,257,serialOptions);
+    const auto baseline=serial.engine->resources();
+    for(const auto slots : {2U,4U}) {
+        ProcessingPreparationOptions options; options.cpuExecutionSlots=slots;
+        Fixture parallel(definition,257,257,options);
+        const auto resources=parallel.engine->resources();
+        const auto delta=(slots-1U)*(65536U*sizeof(std::int32_t)+257U*31U*sizeof(double));
+        EXPECT_EQ(resources.candidateRequiredBytes,baseline.candidateRequiredBytes+delta);
+        EXPECT_EQ(resources.actualRetainedStageBytes,baseline.actualRetainedStageBytes+delta);
+        // A stopped envelope large enough only for serial payload must reject parallel admission.
+        options.activationEnvelopeBytes=baseline.candidateRequiredBytes;
+        const auto rejected=FrameProcessingEngine::plan({9,257U*257U*2U},{16,257U*257U},parallel.layout,definition,options);
+        ASSERT_TRUE(rejected.error); EXPECT_EQ(rejected.error->code,"processing_resource_budget_exceeded");
+    }
+}
+
+
+TEST(FrameProcessingEngine, ParallelJobsAreAttributedAndObserverDetachesBeforeContextDies) {
+    for(const auto extent : {64U,257U}) {
+        Fixture f(standardPipeline(),extent,extent);
+        auto raw=f.raw();
+        {
+            std::array<std::atomic<unsigned>,6> masks{};
+            detail::FrameEngineTestAccess::setCpuWorkObserver(*f.engine,&masks,
+                [](void* p,detail::CpuJobKind kind,std::size_t slot,std::size_t,std::size_t) noexcept {
+                    if(slot) (*static_cast<std::array<std::atomic<unsigned>,6>*>(p))[static_cast<std::size_t>(kind)].fetch_or(1U<<slot);
+                });
+            for(unsigned run=0;run<2;++run) {
+                for(auto& mask:masks) mask=0;
+                ASSERT_TRUE(f.engine->process(raw).hasValue());
+                EXPECT_EQ(masks[1],14U); EXPECT_EQ(masks[2],14U);
+                for(const auto kind : {3U,4U,5U}) EXPECT_EQ(masks[kind],extent>=257U ? 14U : 0U);
+                EXPECT_EQ(masks[0],0U);
+            }
+            detail::FrameEngineTestAccess::setCpuWorkObserver(*f.engine,nullptr,nullptr);
+        }
+        ASSERT_TRUE(f.engine->process(raw).hasValue());
+    }
+}
+
+TEST(FrameProcessingEngine, ParallelActivationKeepsOldScratchAndOneExecutorUntilBarrierCompletes) {
+    auto initial=standardPipeline();
+    Fixture f(initial,257,257);
+    auto raw=f.raw();
+    const auto before=f.engine->resources().actualRetainedStageBytes;
+    const auto oldClahe=detail::FrameEngineTestAccess::stage(*f.engine,StageId::Clahe);
+    const auto oldGaussian=detail::FrameEngineTestAccess::stage(*f.engine,StageId::Denoise);
+    const auto oldSharpen=detail::FrameEngineTestAccess::stage(*f.engine,StageId::Sharpen);
+    struct Observation { Gate gate; std::barrier<> entered{4}; std::atomic<bool> block{true}; std::atomic<unsigned> calls{}; } observation;
+    detail::FrameEngineTestAccess::setCpuWorkObserver(*f.engine,&observation,
+        [](void* p,detail::CpuJobKind kind,std::size_t slot,std::size_t,std::size_t) noexcept {
+            auto& c=*static_cast<Observation*>(p); ++c.calls;
+            if(kind==detail::CpuJobKind::ClaheTiles) c.entered.arrive_and_wait();
+            if(kind==detail::CpuJobKind::ClaheTiles && slot==1 && c.block.exchange(false)) c.gate.block();
+        });
+    bool successful=false;
+    std::jthread processing([&]{successful=f.engine->process(raw).hasValue();});
+    Release release{observation.gate};
+    ASSERT_TRUE(observation.gate.wait());
+    auto next=initial; next.version.configurationRevision++;
+    next.stages[4].parameters=ClaheParameters{3,3};
+    next.stages[5].parameters=DenoiseParameters{DenoiseMode::Gaussian,7,1.25};
+    next.stages[6].parameters=SharpenParameters{2,5,1};
+    const auto observedBefore=observation.calls.load();
+    ASSERT_TRUE(f.engine->activate(next).hasValue());
+    EXPECT_EQ(observation.calls.load(),observedBefore); // Preparation never submits to the busy executor.
+    EXPECT_EQ(f.hook->threadStarts,3U);
+    EXPECT_FALSE(oldClahe.expired()); EXPECT_FALSE(oldGaussian.expired()); EXPECT_FALSE(oldSharpen.expired());
+    const auto during=f.engine->resources().actualRetainedStageBytes;
+    EXPECT_GT(during,before);
+    observation.gate.release(); processing.join();
+    ASSERT_TRUE(successful);
+    detail::FrameEngineTestAccess::setCpuWorkObserver(*f.engine,nullptr,nullptr);
+    EXPECT_TRUE(oldClahe.expired()); EXPECT_TRUE(oldGaussian.expired()); EXPECT_TRUE(oldSharpen.expired());
+    const auto after=f.engine->resources().actualRetainedStageBytes;
+    const auto oldArrays=detail::StageStorage::claheScratchBytes(std::get<ClaheParameters>(initial.stages[4].parameters),f.layout,4).value()
+        +detail::StageStorage::denoiseScratchBytes(std::get<DenoiseParameters>(initial.stages[5].parameters),f.layout,4).value()
+        +detail::StageStorage::sharpenScratchBytes(std::get<SharpenParameters>(initial.stages[6].parameters),f.layout,4).value();
+    const auto oldOwners=detail::StageStorage::claheOwnerBytes()+detail::StageStorage::denoiseOwnerBytes()+detail::StageStorage::sharpenOwnerBytes()+3U*detail::ownerControlReserve;
+    EXPECT_EQ(during-after,oldArrays+oldOwners);
+    auto same=next; same.version.configurationRevision++;
+    const auto reused=detail::FrameEngineTestAccess::stage(*f.engine,StageId::Sharpen).lock().get();
+    ASSERT_TRUE(f.engine->activate(same).hasValue());
+    EXPECT_EQ(detail::FrameEngineTestAccess::stage(*f.engine,StageId::Sharpen).lock().get(),reused);
+    EXPECT_EQ(f.engine->resources().actualRetainedStageBytes,after);
+    ASSERT_TRUE(f.engine->process(raw).hasValue());
+}
+
 TEST(FrameProcessingEngine, FullPreparedScheduleHasLiteralConstantOutputAndTwelveTimings) {
     auto definition=defaultPipeline(); for(auto& stage:definition.stages) stage.enabled=true;
     definition.stages[4].parameters=ClaheParameters{2,2};
@@ -206,4 +306,66 @@ TEST(FrameProcessingEngine, NewOwnerAllocatorRejectsOversizedReboundRequestsBefo
     auto* allocation=rebound.allocate(1); ASSERT_NE(allocation,nullptr); rebound.deallocate(allocation,1);
 }
 }
+TEST(FrameProcessingEngine, CpuExecutionOptionsAreAdmittedFrozenAndAccountedExactlyOnce) {
+    const auto layout=core::ImageLayout::create(4,2,8,core::StorageType::UInt16,16).value();
+    for(auto slots:{0U,5U}) {
+        ProcessingPreparationOptions options; options.cpuExecutionSlots=slots;
+        auto a=FrameProcessingEngine::plan({9,16},{16,8},layout,defaultPipeline(),options);
+        ASSERT_TRUE(a.error); EXPECT_EQ(a.error->code,"invalid_cpu_execution_slots"); EXPECT_FALSE(a.plan);
+    }
+    for(auto slots:{1U,4U}) {
+        ProcessingPreparationOptions options; options.cpuExecutionSlots=slots; options.activationEnvelopeBytes=1000000;
+        const auto a=FrameProcessingEngine::plan({9,16},{16,8},layout,defaultPipeline(),options);
+        ASSERT_FALSE(a.error); const auto& r=a.resources;
+        EXPECT_EQ(r.cpuExecutionSlots,slots); EXPECT_EQ(r.cpuHelperThreads,slots-1);
+        EXPECT_EQ(r.cpuExecutorBytes,sizeof(detail::PreparedCpuExecutor));
+        EXPECT_EQ(r.fixedStorageBytes,r.externalSessionBytes+r.processingPoolBytes+r.displayPoolBytes+r.frameObjectBytes+r.orientationBytes+r.engineStateBytes+r.cpuExecutorBytes);
+        auto p=core::BufferPool::create(9,16).value(),d=core::BufferPool::create(16,8).value();
+        auto engine=FrameProcessingEngine::create(*p,*d,*a.plan).value();
+        ASSERT_TRUE(engine->activate(gamma()).hasValue()); EXPECT_EQ(engine->resources().cpuExecutionSlots,slots);
+        options.storageBudgetBytes=r.requiredStorageBytes-1;
+        EXPECT_TRUE(FrameProcessingEngine::plan({9,16},{16,8},layout,defaultPipeline(),options).error);
+    }
+}
+TEST(FrameProcessingEngine, CpuStartupFailuresAreTypedAndActivationNeverStartsHelpers) {
+    struct Hook : detail::EngineHooks { unsigned starts{}; std::size_t failAt{2}; void beforeCpuThreadStart(std::size_t slot) override { ++starts; if(slot==failAt) throw std::runtime_error("injected"); } };
+    const auto layout=core::ImageLayout::create(4,2,8,core::StorageType::UInt16,16).value();
+    auto p=core::BufferPool::create(9,16).value(),d=core::BufferPool::create(16,8).value(); auto hook=std::make_shared<Hook>();
+    auto failed=detail::FrameEngineTestAccess::create(*p,*d,layout,defaultPipeline(),{},hook);
+    ASSERT_FALSE(failed.hasValue()); EXPECT_EQ(failed.error().code,"processing_cpu_executor_startup_failed"); EXPECT_EQ(hook->starts,2U);
+    hook->starts=0;hook->failAt=0;
+    auto engine=detail::FrameEngineTestAccess::create(*p,*d,layout,defaultPipeline(),{},hook).value();
+    EXPECT_EQ(hook->starts,3U); EXPECT_EQ(engine->resources().cpuHelperThreads,3U);
+    ASSERT_TRUE(engine->activate(gamma()).hasValue()); EXPECT_EQ(hook->starts,3U);
+}
+
+TEST(FrameProcessingEngine, BorrowingStageDestructorsStillHaveTheirLiveExecutor) {
+    struct Lifetime {
+        FrameProcessingEngine* engine{};
+        std::atomic<unsigned> mask{},destructors{};
+        static void work(void* p,std::size_t slot,std::size_t,std::size_t) noexcept {static_cast<Lifetime*>(p)->mask.fetch_or(1U<<slot);}
+    } lifetime;
+    struct Borrower : IProcessingStage {
+        std::shared_ptr<const IProcessingStage> inner; Lifetime& lifetime;
+        Borrower(std::shared_ptr<const IProcessingStage> stage,Lifetime& context):inner(std::move(stage)),lifetime(context) {}
+        ~Borrower() override { if(lifetime.engine) {detail::FrameEngineTestAccess::runCpu(*lifetime.engine,4,&lifetime,Lifetime::work);++lifetime.destructors;} }
+        StageId id() const noexcept override {return inner->id();}
+        const StageTraits& traits() const noexcept override {return inner->traits();}
+        core::Result<void> process(const ImageView& source,MutableImageView output,const core::SourcePixelFormat& format) const override {return inner->process(source,output,format);}
+    };
+    struct Hook : detail::EngineHooks {
+        Lifetime& lifetime;explicit Hook(Lifetime& context):lifetime(context) {}
+        core::Result<std::shared_ptr<const IProcessingStage>> prepare(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t scratch,detail::PreparedCpuExecutor& executor) override {
+            auto inner=EngineHooks::prepare(stage,layout,scratch,executor);if(!inner.hasValue()) return inner;
+            return core::Result<std::shared_ptr<const IProcessingStage>>::success(std::make_shared<Borrower>(inner.value(),lifetime));
+        }
+    };
+    auto p=core::BufferPool::create(9,16).value(),d=core::BufferPool::create(16,8).value();
+    auto layout=core::ImageLayout::create(4,2,8,core::StorageType::UInt16,16).value();
+    auto hook=std::make_shared<Hook>(lifetime);
+    auto engine=detail::FrameEngineTestAccess::create(*p,*d,layout,gamma(),{},hook).value();
+    lifetime.engine=engine.get();engine.reset();
+    EXPECT_EQ(lifetime.destructors,1U);EXPECT_EQ(lifetime.mask,15U);
+}
+
 }

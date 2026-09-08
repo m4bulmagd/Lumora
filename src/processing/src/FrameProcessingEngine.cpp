@@ -27,6 +27,12 @@ core::Result<std::unique_ptr<FrameProcessingEngine>> FrameProcessingEngine::crea
             return Result::failure(detail::preparationError("processing_pool_plan_mismatch","Supplied pools differ from the admitted plan."));
         auto engine=std::unique_ptr<FrameProcessingEngine>(new FrameProcessingEngine(processingPool,displayPool,plan.impl_));
         engine->state_->hooks=std::move(hooks);
+        detail::CpuExecutorTestHooks cpuHooks;
+        cpuHooks.context=engine->state_->hooks.get();
+        cpuHooks.beforeThreadStart=[](void* context,std::size_t slot) {
+            if(context) static_cast<detail::EngineHooks*>(context)->beforeCpuThreadStart(slot);
+        };
+        engine->state_->cpuExecutor=std::make_unique<detail::PreparedCpuExecutor>(plan.impl_->options.cpuExecutionSlots,cpuHooks);
         auto objects=core::FrameObjectPool::create(plan.impl_->objects);
         if(!objects.hasValue()) return Result::failure(std::move(objects).error());
         engine->state_->objects=std::move(objects).value();
@@ -35,6 +41,8 @@ core::Result<std::unique_ptr<FrameProcessingEngine>> FrameProcessingEngine::crea
         auto ready=engine->state_->workspace.prepare(plan.impl_->sourceLayout,plan.impl_->options.orientation,plan.impl_->resources.orientationBytes);
         if(!ready.hasValue()) return Result::failure(std::move(ready).error());
         return Result::success(std::move(engine));
+    } catch(const detail::CpuExecutorStartupError&) {
+        return Result::failure(detail::preparationError("processing_cpu_executor_startup_failed","Persistent CPU helpers could not start."));
     } catch(...) {
         return Result::failure(detail::preparationError("processing_preparation_allocation_failed","Prepared owner allocation failed."));
     }
@@ -44,7 +52,7 @@ core::Result<void,PipelineValidationError> FrameProcessingEngine::activate(const
     std::lock_guard preparation(state_->preparationMutex);
     std::optional<ProcessingResources> candidateResources;
     try {
-        auto prepared=detail::prepareDefinition(definition,state_->plan->canonicalLayout);
+        auto prepared=detail::prepareDefinition(definition,state_->plan->canonicalLayout,state_->plan->options.cpuExecutionSlots);
         if(!prepared.hasValue()) return Result::failure(std::move(prepared).error());
         candidateResources=state_->plan->resources;
         candidateResources->candidateRequiredBytes=prepared.value().requiredBytes;

@@ -2273,6 +2273,486 @@
           }
         }
       ]
+    },
+    "sessionResourceV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "limitScope",
+        "limitBytes",
+        "requiredBytes",
+        "fixedBytes",
+        "threeOwnerReserveBytes",
+        "gammaCacheReserveBytes",
+        "candidateRequiredBytes",
+        "boundedStatistics",
+        "exclusions",
+        "cpuExecutionSlots",
+        "cpuHelperThreads"
+      ],
+      "properties": {
+        "scope": {
+          "const": "prepared_session"
+        },
+        "limitScope": {
+          "const": "session_accounted_storage"
+        },
+        "limitBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "requiredBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "fixedBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "threeOwnerReserveBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "gammaCacheReserveBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "candidateRequiredBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "boundedStatistics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "externalSessionBytes",
+            "processingPoolBytes",
+            "displayPoolBytes",
+            "frameObjectBytes",
+            "orientationBytes",
+            "engineStateBytes",
+            "activationEnvelopeBytes",
+            "actualRetainedStageBytes",
+            "cpuExecutorBytes"
+          ],
+          "properties": {
+            "externalSessionBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "processingPoolBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "displayPoolBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "frameObjectBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "orientationBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "engineStateBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "activationEnvelopeBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "actualRetainedStageBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "cpuExecutorBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            }
+          }
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contains": {
+            "const": "thread_stacks_TLS_thread_library_and_OS_bookkeeping"
+          }
+        },
+        "cpuExecutionSlots": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "cpuHelperThreads": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        }
+      }
+    },
+    "resourceV2": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "limitScope",
+            "limitBytes",
+            "requiredBytes",
+            "fixedBytes",
+            "threeOwnerReserveBytes",
+            "gammaCacheReserveBytes",
+            "candidateRequiredBytes",
+            "boundedStatistics",
+            "exclusions"
+          ],
+          "properties": {
+            "scope": {
+              "const": "standalone_stage"
+            },
+            "limitScope": {
+              "const": "standalone_scratch_only"
+            },
+            "limitBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "requiredBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "fixedBytes": {
+              "type": "null"
+            },
+            "threeOwnerReserveBytes": {
+              "type": "null"
+            },
+            "gammaCacheReserveBytes": {
+              "type": "null"
+            },
+            "candidateRequiredBytes": {
+              "type": "null"
+            },
+            "boundedStatistics": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "scratchBytes",
+                "stageOwnerBytes",
+                "separateHarnessImageBytes"
+              ],
+              "properties": {
+                "scratchBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "stageOwnerBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "separateHarnessImageBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                }
+              }
+            },
+            "exclusions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "limitScope",
+            "limitBytes",
+            "requiredBytes",
+            "fixedBytes",
+            "threeOwnerReserveBytes",
+            "gammaCacheReserveBytes",
+            "candidateRequiredBytes",
+            "boundedStatistics",
+            "exclusions",
+            "cpuExecutionSlots",
+            "cpuHelperThreads"
+          ],
+          "properties": {
+            "scope": {
+              "const": "prepared_session"
+            },
+            "limitScope": {
+              "const": "session_accounted_storage"
+            },
+            "limitBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "requiredBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "fixedBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "threeOwnerReserveBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "gammaCacheReserveBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "candidateRequiredBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "boundedStatistics": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "externalSessionBytes",
+                "processingPoolBytes",
+                "displayPoolBytes",
+                "frameObjectBytes",
+                "orientationBytes",
+                "engineStateBytes",
+                "activationEnvelopeBytes",
+                "actualRetainedStageBytes",
+                "cpuExecutorBytes"
+              ],
+              "properties": {
+                "externalSessionBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "processingPoolBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "displayPoolBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "frameObjectBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "orientationBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "engineStateBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "activationEnvelopeBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "actualRetainedStageBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "cpuExecutorBytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                }
+              }
+            },
+            "exclusions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "contains": {
+                "const": "thread_stacks_TLS_thread_library_and_OS_bookkeeping"
+              }
+            },
+            "cpuExecutionSlots": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4
+            },
+            "cpuHelperThreads": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3
+            }
+          }
+        }
+      ]
+    },
+    "helperTrace": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "tracePath",
+            "traceSha256",
+            "events"
+          ],
+          "properties": {
+            "status": {
+              "const": "passed"
+            },
+            "tracePath": {
+              "type": "string",
+              "minLength": 1
+            },
+            "traceSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "events": {
+              "$ref": "common.schema.json#/$defs/traceEvents"
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "helperControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "expectedHelperMask",
+        "observedHelperMask",
+        "callbackInvocations",
+        "cxxAllocation",
+        "glibcTrace"
+      ],
+      "properties": {
+        "scope": {
+          "const": "prepared_cpu_executor_persistent_helpers"
+        },
+        "expectedHelperMask": {
+          "enum": [
+            0,
+            2,
+            6,
+            14
+          ]
+        },
+        "observedHelperMask": {
+          "enum": [
+            0,
+            2,
+            6,
+            14
+          ]
+        },
+        "callbackInvocations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "cxxAllocation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "calls",
+            "bytes",
+            "deallocations",
+            "armedRegion",
+            "coveredRoutes",
+            "unsupportedRoutes"
+          ],
+          "properties": {
+            "scope": {
+              "const": "cxx_replacement_new"
+            },
+            "calls": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "deallocations": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3
+            },
+            "armedRegion": {
+              "const": "caller reset/armed before one synchronous helper control dispatch and ended after return"
+            },
+            "coveredRoutes": {
+              "const": [
+                "ordinary"
+              ]
+            },
+            "unsupportedRoutes": {
+              "const": [
+                "c_malloc_free",
+                "external_dll_private_heaps"
+              ]
+            }
+          }
+        },
+        "glibcTrace": {
+          "$ref": "common.schema.json#/$defs/helperTrace"
+        }
+      }
     }
   }
 }

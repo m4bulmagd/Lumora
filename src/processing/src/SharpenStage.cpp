@@ -1,5 +1,7 @@
 #include <lumora/processing/SharpenStage.hpp>
+#include <lumora/core/CheckedMath.hpp>
 #include "StageStorage.hpp"
+#include "PreparedCpuExecutor.hpp"
 
 #include "DetailStageSupport.hpp"
 
@@ -62,6 +64,34 @@ using FactoryResult = core::Result<std::unique_ptr<SharpenStage>>;
         "sharpen", category, std::move(code), std::move(message), recoverable));
 }
 
+[[nodiscard]] core::Result<std::size_t> ringScratchBytes(
+    const core::ImageLayout& layout,
+    std::size_t kernelSize, std::size_t executionSlots) {
+    const auto fail = [] {
+        return core::Result<std::size_t>::failure(detail::stageError("sharpen",
+            core::ErrorCategory::ResourceExhaustion,
+            "sharpen_scratch_size_overflow",
+            "Computing the fixed Gaussian scratch storage overflowed size_t.",
+            true));
+    };
+    const auto ringRows = std::min(
+        static_cast<std::size_t>(layout.height()), kernelSize);
+    const auto sampleCount = core::checkedMultiply(
+        static_cast<std::size_t>(layout.width()), ringRows);
+    if (!sampleCount.hasValue()) return fail();
+    const auto intermediateBytes = core::checkedMultiply(
+        sampleCount.value(), sizeof(double));
+    if (!intermediateBytes.hasValue()) return fail();
+    const auto allRingBytes = core::checkedMultiply(intermediateBytes.value(), executionSlots);
+    if (!allRingBytes.hasValue()) return fail();
+    const auto coefficientBytes = core::checkedMultiply(kernelSize, sizeof(double));
+    if (!coefficientBytes.hasValue()) return fail();
+    const auto total = core::checkedAdd(
+        allRingBytes.value(), coefficientBytes.value());
+    if (!total.hasValue()) return fail();
+    return core::Result<std::size_t>::success(total.value());
+}
+
 }  // namespace
 
 struct SharpenStage::Impl final {
@@ -81,6 +111,7 @@ struct SharpenStage::Impl final {
           intermediate(std::move(intermediateValue)),
           coefficients(std::move(coefficientsValue)) {}
 
+    detail::PreparedCpuExecutor* executor{};
     const SharpenParameters parameters;
     const std::uint32_t width;
     const std::uint32_t height;
@@ -100,19 +131,32 @@ SharpenStage::~SharpenStage() = default;
 core::Result<std::size_t> SharpenStage::requiredScratchBytes(
     SharpenParameters parameters,
     const core::ImageLayout& layout) {
+    return detail::StageStorage::sharpenScratchBytes(parameters, layout, 1U);
+}
+
+core::Result<std::size_t> detail::StageStorage::sharpenScratchBytes(
+    SharpenParameters parameters, const core::ImageLayout& layout, std::size_t executionSlots) {
     const auto validation = validateParameters(parameters, layout);
     if (!validation.hasValue()) {
         return core::Result<std::size_t>::failure(validation.error());
     }
-    return detail::gaussianScratchBytes(
-        "sharpen", layout, detail::gaussianKernelSize(parameters.radius));
+    return ringScratchBytes(
+        layout, detail::gaussianKernelSize(parameters.radius), executionSlots);
 }
 
 core::Result<std::unique_ptr<SharpenStage>> SharpenStage::create(
     SharpenParameters parameters,
     const core::ImageLayout& layout,
     std::size_t scratchBudgetBytes) {
-    const auto required = requiredScratchBytes(parameters, layout);
+    return detail::StageStorage::createSharpen(parameters, layout, scratchBudgetBytes, nullptr);
+}
+
+core::Result<std::unique_ptr<SharpenStage>> detail::StageStorage::createSharpen(
+    SharpenParameters parameters,
+    const core::ImageLayout& layout,
+    std::size_t scratchBudgetBytes, detail::PreparedCpuExecutor* executor) {
+    const auto executionSlots = executor ? executor->slots() : 1U;
+    const auto required = sharpenScratchBytes(parameters, layout, executionSlots);
     if (!required.hasValue()) return FactoryResult::failure(required.error());
     if (required.value() > scratchBudgetBytes) {
         return factoryFailure("sharpen_scratch_budget_exceeded",
@@ -121,17 +165,19 @@ core::Result<std::unique_ptr<SharpenStage>> SharpenStage::create(
     }
 
     try {
-        const auto sampleCount = static_cast<std::size_t>(layout.width())
-            * static_cast<std::size_t>(layout.height());
         const auto kernelSize = detail::gaussianKernelSize(parameters.radius);
+        const auto ringRows = std::min(
+            static_cast<std::size_t>(layout.height()), kernelSize);
+        const auto sampleCount = static_cast<std::size_t>(layout.width()) * ringRows * executionSlots;
         auto intermediate = std::make_unique<double[]>(sampleCount);
         std::fill_n(intermediate.get(), sampleCount, 0.0);
         auto coefficients = std::make_unique<double[]>(kernelSize);
         detail::prepareGaussianKernel(
             kernelSize, parameters.radius, coefficients.get());
-        auto impl = std::make_unique<Impl>(parameters, layout.width(), layout.height(),
+        auto impl = std::make_unique<SharpenStage::Impl>(parameters, layout.width(), layout.height(),
             kernelSize, required.value(), std::move(intermediate),
             std::move(coefficients));
+        impl->executor = executor;
         return FactoryResult::success(
             std::unique_ptr<SharpenStage>(new SharpenStage(std::move(impl))));
     } catch (const std::bad_alloc&) {
@@ -179,20 +225,49 @@ core::Result<void> SharpenStage::process(
         return core::Result<void>::success();
     }
 
-    const auto width = static_cast<std::size_t>(impl_->width);
+    struct Context { Impl* impl; const ImageView& source; MutableImageView destination; } context{impl_.get(),source,destination};
+    const auto stripe = [](void* opaque, std::size_t slot, std::size_t begin, std::size_t end) noexcept {
+        auto& job = *static_cast<Context*>(opaque);
+        auto* impl_ = job.impl;
+        const auto& source = job.source;
+        const auto destination = job.destination;
+        const auto width = static_cast<std::size_t>(impl_->width);
+        const auto height = static_cast<std::size_t>(impl_->height);
+        const auto radius = impl_->kernelSize / 2U;
+        const auto ringRows = std::min(height, impl_->kernelSize);
+        auto* ring = impl_->intermediate.get() + slot * width * ringRows;
+        // Each stripe primes only its own reflected halo, using global row modulo.
+        std::size_t nextSourceRow = begin > radius ? begin - radius : 0U;
+        detail::ReflectedGaussianRows rows{};
+        for (auto y = begin; y < end; ++y) {
+            const auto finalSourceRow = std::min(height - 1U, y + radius);
+            while (nextSourceRow <= finalSourceRow) {
+                detail::horizontalGaussianRow(
+                    source.row(static_cast<std::uint32_t>(nextSourceRow)),
+                    ring + (nextSourceRow % ringRows) * width,
+                    width, impl_->coefficients.get(), impl_->kernelSize);
+                ++nextSourceRow;
+            }
+            const auto signedRadius = static_cast<std::int64_t>(radius);
+            for (std::size_t tap = 0U; tap < impl_->kernelSize; ++tap) {
+                const auto offset = static_cast<std::int64_t>(tap) - signedRadius;
+                const auto reflectedY = detail::reflect101(
+                    static_cast<std::int64_t>(y) + offset, height);
+                rows[tap] = ring
+                    + (reflectedY % ringRows) * width;
+            }
+            const auto sourceRow = source.row(static_cast<std::uint32_t>(y));
+            const auto destinationRow = destination.row(static_cast<std::uint32_t>(y));
+            detail::writeSharpenRow(rows, impl_->coefficients.get(), impl_->kernelSize,
+                width, sourceRow, destinationRow, impl_->parameters.amount,
+                impl_->parameters.threshold);
+        }
+    };
     const auto height = static_cast<std::size_t>(impl_->height);
-    detail::horizontalGaussian(source, impl_->intermediate.get(), width, height,
-        impl_->coefficients.get(), impl_->kernelSize);
-    detail::ReflectedGaussianRows rows{};
-    for (std::size_t y = 0U; y < height; ++y) {
-        detail::prepareVerticalGaussianRows(impl_->intermediate.get(), width,
-            height, y, impl_->kernelSize, rows);
-        const auto sourceRow = source.row(static_cast<std::uint32_t>(y));
-        const auto destinationRow = destination.row(static_cast<std::uint32_t>(y));
-        detail::writeSharpenRow(rows, impl_->coefficients.get(), impl_->kernelSize,
-            width, sourceRow, destinationRow, impl_->parameters.amount,
-            impl_->parameters.threshold);
-    }
+    if (impl_->executor && static_cast<std::size_t>(impl_->width) * height >= 65536U)
+        impl_->executor->run(height, &context, stripe, detail::CpuJobKind::SharpenRows);
+    else
+        stripe(&context, 0U, 0U, height);
     return core::Result<void>::success();
 }
 

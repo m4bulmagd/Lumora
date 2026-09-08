@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "processing-benchmark-v2.schema.json",
+  "$comment": "Structural owned-artifact schema. EvidenceValidation.cpp additionally enforces canonical definitions/ordered row products, all cross-field arithmetic, duplicate decoded JSON keys, and on-disk payload and reviewed attachment integrity. Validation is not authority to designate or accept a workstation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "runStatus",
+    "complete",
+    "workload",
+    "generatedUtc",
+    "rows",
+    "failure"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "artifactType": {
+      "const": "lumora.processing.benchmark"
+    },
+    "runStatus": {
+      "enum": [
+        "complete",
+        "incomplete"
+      ]
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "workload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "requestedSizes",
+            "warmUpFrames",
+            "measuredFrames"
+          ],
+          "properties": {
+            "kind": {
+              "const": "standard"
+            },
+            "requestedSizes": {
+              "const": [
+                512,
+                1024,
+                2048
+              ]
+            },
+            "warmUpFrames": {
+              "const": 100
+            },
+            "measuredFrames": {
+              "const": 500
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "requestedSizes",
+            "warmUpFrames",
+            "measuredFrames"
+          ],
+          "properties": {
+            "kind": {
+              "const": "smoke"
+            },
+            "requestedSizes": {
+              "const": [
+                64,
+                128
+              ]
+            },
+            "warmUpFrames": {
+              "const": 2
+            },
+            "measuredFrames": {
+              "const": 5
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "requestedSizes",
+            "warmUpFrames",
+            "measuredFrames"
+          ],
+          "properties": {
+            "kind": {
+              "const": "custom"
+            },
+            "requestedSizes": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 8,
+                "maximum": 2147483647
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "warmUpFrames": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "measuredFrames": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            }
+          }
+        }
+      ]
+    },
+    "generatedUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rowId",
+          "scope",
+          "size",
+          "smoke",
+          "pipelineDefinition",
+          "input",
+          "sourceDescriptor",
+          "orientation",
+          "orientedDimensions",
+          "provenance",
+          "execution",
+          "resourcePlan",
+          "warmUpFrames",
+          "measuredFrames",
+          "timing",
+          "allocation",
+          "workingSet",
+          "checksum",
+          "processingErrors",
+          "drops",
+          "complete"
+        ],
+        "properties": {
+          "rowId": {
+            "enum": [
+              "normalize",
+              "window_level",
+              "brightness_contrast",
+              "gamma",
+              "clahe",
+              "denoise_gaussian",
+              "denoise_median",
+              "sharpen",
+              "invert",
+              "full_standard_identity",
+              "full_standard_nonidentity"
+            ]
+          },
+          "scope": {
+            "enum": [
+              "standalone_stage",
+              "full_frame"
+            ]
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 8,
+            "maximum": 2147483647
+          },
+          "smoke": {
+            "type": "boolean"
+          },
+          "pipelineDefinition": {
+            "$ref": "common.schema.json#/$defs/pipeline"
+          },
+          "input": {
+            "$ref": "common.schema.json#/$defs/input"
+          },
+          "sourceDescriptor": {
+            "$ref": "common.schema.json#/$defs/source"
+          },
+          "orientation": {
+            "$ref": "common.schema.json#/$defs/orientation"
+          },
+          "orientedDimensions": {
+            "$ref": "common.schema.json#/$defs/dimensions"
+          },
+          "provenance": {
+            "$ref": "common.schema.json#/$defs/provenance"
+          },
+          "execution": {
+            "$ref": "common.schema.json#/$defs/execution"
+          },
+          "resourcePlan": {
+            "$ref": "common.schema.json#/$defs/resourceV2"
+          },
+          "warmUpFrames": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9223372036854775807
+          },
+          "measuredFrames": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9223372036854775807
+          },
+          "timing": {
+            "$ref": "common.schema.json#/$defs/timing"
+          },
+          "allocation": {
+            "$ref": "common.schema.json#/$defs/allocation"
+          },
+          "workingSet": {
+            "$ref": "common.schema.json#/$defs/workingSet"
+          },
+          "checksum": {
+            "$ref": "common.schema.json#/$defs/checksum"
+          },
+          "processingErrors": {
+            "const": 0
+          },
+          "drops": {
+            "const": 0
+          },
+          "complete": {
+            "const": true
+          }
+        }
+      }
+    },
+    "failure": {
+      "$ref": "common.schema.json#/$defs/failure"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "complete": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "runStatus": {
+            "const": "complete"
+          },
+          "failure": {
+            "type": "null"
+          },
+          "rows": {
+            "minItems": 2
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "runStatus": {
+            "const": "incomplete"
+          }
+        }
+      }
+    }
+  ]
+}

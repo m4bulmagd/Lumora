@@ -29,11 +29,17 @@ Options parseOptions(Tool tool,std::span<const std::string> args) {
         const auto& key=args[i]; if(!seen.insert(key).second) throw Error(2,"Duplicate option: "+key);
         if(key=="--smoke") {o.smoke=true; continue;}
         const bool workload=key=="--sizes" || key=="--warm-up" || key=="--measured";
-        if(key!="--output" && !(tool==Tool::Benchmark && workload) && !(tool==Tool::Allocation && key=="--heap-trace")) throw Error(2,"Unknown option: "+key);
+        const bool sourceFormat=key=="--source-format";
+        if(key!="--output" && !(tool==Tool::Benchmark && workload) && !(tool==Tool::Allocation && key=="--heap-trace") && !((tool==Tool::Benchmark || tool==Tool::Allocation) && sourceFormat)) throw Error(2,"Unknown option: "+key);
         if(++i==args.size() || args[i].empty() || args[i].starts_with("--")) throw Error(2,"Missing option value: "+key);
         const auto& value=args[i];
         if(key=="--output") o.output=std::filesystem::path(std::u8string(value.begin(),value.end()));
         else if(key=="--heap-trace") o.heapTrace=std::filesystem::path(std::u8string(value.begin(),value.end()));
+        else if(key=="--source-format") {
+            if(value=="mono16") o.sourceFormat=SourceFormat::Mono16;
+            else if(value=="mono12") o.sourceFormat=SourceFormat::Mono12;
+            else throw Error(2,"Unknown source format: "+value);
+        }
         else if(key=="--warm-up") o.warmUp=count(value);
         else if(key=="--measured") o.measured=count(value);
         else {
@@ -65,6 +71,11 @@ Image makePattern(const Pattern& p) {
         else throw Error(3,"Unknown pattern");
         out.pixels[i]=static_cast<std::uint16_t>(v);
     } return out;
+}
+Image makeMeasurementInput(std::uint32_t width,std::uint32_t height,SourceFormat sourceFormat) {
+    auto image=makePattern({"xorshift32_u16_v1",width,height});
+    if(sourceFormat==SourceFormat::Mono12) for(auto& value:image.pixels) value=static_cast<std::uint16_t>(value>>4U);
+    return image;
 }
 std::string encodePgm(const Image& in) {
     if(in.pixels.size()!=pixels(in.width,in.height)) throw Error(3,"PGM extent/payload mismatch");

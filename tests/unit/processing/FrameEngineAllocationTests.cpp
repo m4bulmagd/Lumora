@@ -264,16 +264,18 @@ public:
         return core::Result<void>::success();
     }
 };
-bool completeSchedule(bool orientation,bool fallback) {
-    std::printf("Profile preparation-start orientation=%d fallback=%d extent=8x8 CLAHE-grid=2 warmup=100 measured=1000\n", orientation ? 1 : 0, fallback ? 1 : 0);
+bool completeSchedule(bool orientation,bool fallback,std::uint32_t extent=8U,std::size_t measuredCalls=1000U) {
+    const auto pixels=static_cast<std::size_t>(extent)*extent;
+    const auto warmup=extent>=512U ? 3U : 100U;
+    std::printf("Profile preparation-start orientation=%d fallback=%d extent=%ux%u CLAHE-grid=2 warmup=%u measured=%zu\n", orientation ? 1 : 0, fallback ? 1 : 0,extent,extent,warmup,measuredCalls);
     std::fflush(stdout);
-    const auto layout=core::ImageLayout::create(8,8,16,core::StorageType::UInt16,128).value();
-    auto rawPool=core::BufferPool::create(1,128).value(); auto lease=rawPool->tryAcquire();
+    const auto layout=core::ImageLayout::create(extent,extent,extent*2U,core::StorageType::UInt16,pixels*2U).value();
+    auto rawPool=core::BufferPool::create(1,pixels*2U).value(); auto lease=rawPool->tryAcquire();
     for(auto& byte:lease->bytes()) byte=std::byte{0};
     const core::SourcePixelFormat format{"Mono16",0x01100007U,16,65535,core::SourcePacking::Unpacked,core::BitAlignment::LeastSignificant,core::StorageType::UInt16};
-    auto settings=core::AcquisitionSettingsSnapshot::create({"Test","Numeric","1","virtual",{}},format,{0,0,8,8},30,30,{},{}).value();
+    auto settings=core::AcquisitionSettingsSnapshot::create({"Test","Numeric","1","virtual",{}},format,{0,0,extent,extent},30,30,{},{}).value();
     auto raw=core::RawFrame::create(1,layout,std::move(*lease).seal(),{{},{},{},{},std::move(settings)}).value();
-    auto p=core::BufferPool::create(9,128).value(); auto d=core::BufferPool::create(16,64).value();
+    auto p=core::BufferPool::create(9,pixels*2U).value(); auto d=core::BufferPool::create(16,pixels).value();
     auto definition=processing::defaultPipeline(); for(auto& stage:definition.stages) stage.enabled=true;
     definition.stages[4].parameters=processing::ClaheParameters{2,2};
     processing::ProcessingPreparationOptions options;
@@ -296,17 +298,28 @@ bool completeSchedule(bool orientation,bool fallback) {
         retained[index%retained.size()]=std::move(output).value();
         return published.revision!=0;
     };
-    for(std::size_t i=0;i<100;++i) if(!cycle(i)) return false;
+    for(std::size_t i=0;i<warmup;++i) if(!cycle(i)) return false;
     progress("Profile warmup-complete/measurement-start");
+    std::array<std::atomic<unsigned>,6> masks{};
+    processing::detail::FrameEngineTestAccess::setCpuWorkObserver(engine,&masks,
+        [](void* p,processing::detail::CpuJobKind kind,std::size_t slot,std::size_t,std::size_t) noexcept {
+            if(slot) (*static_cast<std::array<std::atomic<unsigned>,6>*>(p))[static_cast<std::size_t>(kind)].fetch_or(1U<<slot);
+        });
     bool successful=true;
     test::beginAllocationTracking();
-    for(std::size_t i=0;i<1000;++i) successful=cycle(i) && successful;
+    for(std::size_t i=0;i<measuredCalls;++i) successful=cycle(i) && successful;
     for(auto& owner:retained) owner.reset();
     (void)latest.publish(sentinel.value());
     const auto measured=test::endAllocationMeasurement();
+    processing::detail::FrameEngineTestAccess::setCpuWorkObserver(engine,nullptr,nullptr);
+    if(!fallback) {
+        successful=successful && masks[1]==14U && masks[2]==14U;
+        for(const auto kind : {3U,4U,5U}) successful=successful && masks[kind]==(pixels>=65536U ? 14U : 0U);
+    }
+    std::printf("Actual helper masks CLAHE=%u/%u Gaussian=%u/%u sharpen=%u\n",masks[1].load(),masks[2].load(),masks[3].load(),masks[4].load(),masks[5].load());
     progress("Profile measurement-complete");
-    std::printf("Complete prepared publication: orientation=%d fallback=%d success=%d allocations=%zu bytes=%zu deallocations=%zu frames=1000\n",
-        orientation ? 1 : 0,fallback ? 1 : 0,successful ? 1 : 0,measured.allocations,measured.allocatedBytes,measured.deallocations);
+    std::printf("Complete prepared publication: orientation=%d fallback=%d success=%d allocations=%zu bytes=%zu deallocations=%zu frames=%zu\n",
+        orientation ? 1 : 0,fallback ? 1 : 0,successful ? 1 : 0,measured.allocations,measured.allocatedBytes,measured.deallocations,measuredCalls);
     std::fflush(stdout);
     return successful && measured.allocations==0 && measured.deallocations==0;
 }
@@ -319,6 +332,7 @@ int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
 #endif
+    if(!completeSchedule(false,false,512U,4U)) return 8;
     progress("Phase1 FrameObjectPool preparation failure cleanup start");
     if (!preparationFailuresReleaseResources()) return 4;
     progress("Phase1 complete; Phase2 arena exhaustion start");
@@ -347,6 +361,35 @@ int main(int argc, char** argv) {
     auto processingPool = core::BufferPool::create(9U, 8U).value();
     auto displayPool = core::BufferPool::create(16U, 4U).value();
     auto engine = processing::FrameProcessingEngine::create(*processingPool, *displayPool, layout).value();
+    struct HelperControl {
+        std::atomic<unsigned> mask{};
+        std::atomic<bool> failed{};
+        static void run(void* opaque,std::size_t slot,std::size_t,std::size_t) noexcept {
+            auto& c=*static_cast<HelperControl*>(opaque);
+            if(!slot) return;
+            c.mask.fetch_or(1U<<slot);
+            try {
+                void* (*volatile allocate)(std::size_t)=::operator new;
+                void (*volatile release)(void*) noexcept=::operator delete;
+                auto* p=allocate(256+slot); release(p);
+            } catch(...) { c.failed=true; }
+        }
+    } helperControl;
+    test::beginAllocationTracking();
+    processing::detail::FrameEngineTestAccess::runCpu(*engine,4,&helperControl,HelperControl::run);
+    const auto helperCounts=test::endAllocationMeasurement();
+    std::printf("Helper control: mask=%u calls=%zu bytes=%zu releases=%zu\n",helperControl.mask.load(),helperCounts.allocations,helperCounts.allocatedBytes,helperCounts.deallocations);
+    if(helperControl.failed || helperControl.mask!=14 || helperCounts.allocations!=3 || helperCounts.allocatedBytes!=774 || helperCounts.deallocations!=3) return 7;
+    struct Arithmetic {
+        std::array<std::size_t,4> sums{};
+        static void run(void* p,std::size_t slot,std::size_t begin,std::size_t end) noexcept {
+            auto& a=*static_cast<Arithmetic*>(p); for(auto i=begin;i<end;++i) a.sums[slot]+=i;
+        }
+    } arithmetic;
+    test::beginAllocationTracking();
+    for(unsigned i=0;i<100;++i) processing::detail::FrameEngineTestAccess::runCpu(*engine,16,&arithmetic,Arithmetic::run);
+    const auto arithmeticCounts=test::endAllocationMeasurement();
+    if(arithmeticCounts.allocations || arithmeticCounts.allocatedBytes || arithmeticCounts.deallocations || arithmetic.sums[0]+arithmetic.sums[1]+arithmetic.sums[2]+arithmetic.sums[3]!=12000) return 8;
     auto sentinel = engine->process(raw).value();
     core::LatestValueSlot<core::FrameBundle> latest;
     std::array<std::shared_ptr<const core::FrameBundle>, 5U> retained{};

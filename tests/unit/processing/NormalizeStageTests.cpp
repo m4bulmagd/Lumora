@@ -53,6 +53,19 @@ template<typename Sample, std::size_t Size>
     return values;
 }
 
+[[nodiscard]] constexpr std::uint16_t mono12Expected(std::uint16_t value) noexcept {
+    return static_cast<std::uint16_t>(
+        16U * value + (15U * value + 2047U) / 4095U);
+}
+
+[[nodiscard]] constexpr std::uint16_t genericExpected(
+    std::uint16_t value,
+    std::uint16_t maximum) noexcept {
+    const auto numerator = static_cast<std::uint64_t>(value) * 65535U
+        + static_cast<std::uint64_t>(maximum) / 2U;
+    return static_cast<std::uint16_t>(numerator / maximum);
+}
+
 // Using the observed frame range or truncating division breaks these literals.
 TEST(NormalizeStage, ScalesKnownBitDepthsWithExactIntegerRounding) {
     EXPECT_EQ(normalize(std::array<std::uint8_t, 4>{0U, 1U, 128U, 255U},
@@ -67,6 +80,238 @@ TEST(NormalizeStage, ScalesKnownBitDepthsWithExactIntegerRounding) {
     EXPECT_EQ(normalize(std::array<std::uint16_t, 4>{0U, 1U, 32768U, 65535U},
                   sourceFormat(16U, 65535U, StorageType::UInt16)),
               (std::array<std::uint16_t, 4>{0U, 1U, 32768U, 65535U}));
+}
+
+// A naive four-bit left shift misses the independently derived correction at 137.
+TEST(NormalizeStage, Mono12Constant4095MatchesExactThresholdAndEndpointValues) {
+    constexpr std::array<std::uint16_t, 5> samples{
+        0U, 136U, 137U, 2048U, 4095U};
+
+    const auto output = normalize(samples,
+        sourceFormat(12U, 4095U, StorageType::UInt16));
+
+    EXPECT_EQ(output,
+        (std::array<std::uint16_t, 5>{0U, 2176U, 2193U, 32776U, 65535U}));
+    EXPECT_EQ(mono12Expected(136U), 2176U);
+    EXPECT_EQ(mono12Expected(137U), 2193U);
+    EXPECT_EQ(mono12Expected(2048U), 32776U);
+    EXPECT_EQ(mono12Expected(4095U), 65535U);
+}
+
+// Narrowing, left-shifting, typed row access, or writing padding breaks this full-domain fixture.
+TEST(NormalizeStage, Mono12Constant4095MapsAllValuesAcrossOddUnalignedPaddedRows) {
+    constexpr std::uint32_t width = 257U;
+    constexpr std::uint32_t height = 17U;
+    constexpr std::size_t rowBytes = static_cast<std::size_t>(width) * 2U;
+    constexpr std::size_t sourceStride = rowBytes + 3U;
+    constexpr std::size_t destinationStride = rowBytes + 7U;
+    constexpr std::size_t leadingBytes = 1U;
+    constexpr std::size_t trailingBytes = 3U;
+    constexpr std::size_t sampleCount = static_cast<std::size_t>(width) * height;
+    std::vector<std::uint16_t> samples(sampleCount);
+    for (std::size_t index = 0U; index < samples.size(); ++index) {
+        samples[index] = static_cast<std::uint16_t>(index % 4096U);
+    }
+    // Repeat threshold values at two row boundaries without losing full-domain coverage.
+    samples[width - 1U] = 136U;
+    samples[width] = 137U;
+    samples[16U * width - 1U] = 136U;
+    samples[16U * width] = 137U;
+    std::array<bool, 4096> seen{};
+    for (const auto sample : samples) {
+        seen[sample] = true;
+    }
+    for (std::size_t value = 0U; value < seen.size(); ++value) {
+        ASSERT_TRUE(seen[value]) << value;
+    }
+
+    std::vector<std::byte> sourceStorage(
+        leadingBytes + sourceStride * height + trailingBytes, std::byte{0xC3});
+    std::vector<std::byte> destinationStorage(
+        leadingBytes + destinationStride * height + trailingBytes, std::byte{0x5A});
+    for (std::size_t row = 0U; row < height; ++row) {
+        std::memcpy(sourceStorage.data() + leadingBytes + row * sourceStride,
+            samples.data() + row * width, rowBytes);
+    }
+    const auto sourceBefore = sourceStorage;
+    const auto destinationBefore = destinationStorage;
+    const auto sourceLayout = ImageLayout::create(
+        width, height, sourceStride, StorageType::UInt16, sourceStride * height).value();
+    const auto destinationLayout = ImageLayout::create(width, height, destinationStride,
+        StorageType::UInt16, destinationStride * height).value();
+    const auto source = ImageView::create(sourceLayout,
+        std::span(sourceStorage).subspan(leadingBytes), ImageDomain::SensorNative).value();
+    const auto destination = MutableImageView::create(destinationLayout,
+        std::span(destinationStorage).subspan(leadingBytes),
+        ImageDomain::CanonicalU16).value();
+
+    const auto result = NormalizeStage{}.process(source, destination,
+        sourceFormat(12U, 4095U, StorageType::UInt16,
+            SourcePacking::Packed, BitAlignment::MostSignificant));
+
+    ASSERT_TRUE(result.hasValue()) << result.error().diagnosticDetail;
+    EXPECT_EQ(sourceStorage, sourceBefore);
+    for (std::size_t index = 0U; index < samples.size(); ++index) {
+        const auto row = index / width;
+        const auto column = index % width;
+        std::uint16_t actual = 0U;
+        std::memcpy(&actual, destinationStorage.data() + leadingBytes
+                + row * destinationStride + column * 2U,
+            sizeof(actual));
+        EXPECT_EQ(actual, mono12Expected(samples[index])) << index;
+    }
+    for (std::size_t index = 0U; index < destinationStorage.size(); ++index) {
+        const bool isLeading = index < leadingBytes;
+        const bool isTrailing = index >= leadingBytes + destinationStride * height;
+        const auto rowOffset = isLeading || isTrailing
+            ? destinationStride
+            : (index - leadingBytes) % destinationStride;
+        if (isLeading || isTrailing || rowOffset >= rowBytes) {
+            EXPECT_EQ(destinationStorage[index], destinationBefore[index]) << index;
+        }
+    }
+
+    const auto readOutput = [&](std::size_t index) {
+        const auto row = index / width;
+        const auto column = index % width;
+        std::uint16_t value = 0U;
+        std::memcpy(&value, destinationStorage.data() + leadingBytes
+                + row * destinationStride + column * 2U,
+            sizeof(value));
+        return value;
+    };
+    EXPECT_EQ(readOutput(136U), 2176U);
+    EXPECT_EQ(readOutput(137U), 2193U);
+    EXPECT_EQ(readOutput(2048U), 32776U);
+    EXPECT_EQ(readOutput(4095U), 65535U);
+}
+
+// Reordering validation and writes changes the exact prefix committed before the first bad lane.
+TEST(NormalizeStage, Mono12Constant4095StopsAtFirstInvalidSampleAcrossRowsAndLanes) {
+    constexpr std::uint32_t width = 4U;
+    constexpr std::uint32_t height = 3U;
+    constexpr std::size_t rowBytes = static_cast<std::size_t>(width) * 2U;
+    constexpr std::size_t sourceStride = rowBytes + 3U;
+    constexpr std::size_t destinationStride = rowBytes + 5U;
+    constexpr std::size_t leadingBytes = 1U;
+    constexpr std::size_t trailingBytes = 3U;
+    constexpr std::array<std::uint16_t, width * height> validSamples{
+        0U, 136U, 137U, 1000U,
+        2048U, 3U, 4095U, 42U,
+        100U, 200U, 300U, 400U};
+    for (const std::size_t invalidIndex : {0U, 2U, 4U, 11U}) {
+        auto samples = validSamples;
+        samples[invalidIndex] = 4096U;
+        std::array<std::byte,
+            leadingBytes + sourceStride * height + trailingBytes> sourceStorage{};
+        std::array<std::byte,
+            leadingBytes + destinationStride * height + trailingBytes> destinationStorage{};
+        sourceStorage.fill(std::byte{0xC3});
+        destinationStorage.fill(std::byte{0xE7});
+        for (std::size_t row = 0U; row < height; ++row) {
+            std::memcpy(sourceStorage.data() + leadingBytes + row * sourceStride,
+                samples.data() + row * width, rowBytes);
+        }
+        const auto sourceBefore = sourceStorage;
+        const auto destinationBefore = destinationStorage;
+        const auto sourceLayout = ImageLayout::create(width, height, sourceStride,
+            StorageType::UInt16, sourceStride * height).value();
+        const auto destinationLayout = ImageLayout::create(width, height, destinationStride,
+            StorageType::UInt16, destinationStride * height).value();
+        const auto source = ImageView::create(sourceLayout,
+            std::span(sourceStorage).subspan(leadingBytes), ImageDomain::SensorNative).value();
+        const auto destination = MutableImageView::create(destinationLayout,
+            std::span(destinationStorage).subspan(leadingBytes),
+            ImageDomain::CanonicalU16).value();
+
+        const auto result = NormalizeStage{}.process(source, destination,
+            sourceFormat(12U, 4095U, StorageType::UInt16));
+
+        ASSERT_FALSE(result.hasValue());
+        EXPECT_EQ(result.error().code, "sample_exceeds_source_maximum");
+        EXPECT_NE(result.error().diagnosticDetail.find(
+                      "x=" + std::to_string(invalidIndex % width)),
+            std::string::npos);
+        EXPECT_NE(result.error().diagnosticDetail.find(
+                      "y=" + std::to_string(invalidIndex / width)),
+            std::string::npos);
+        EXPECT_NE(result.error().diagnosticDetail.find("value=4096"), std::string::npos);
+        EXPECT_NE(result.error().diagnosticDetail.find("maximum=4095"), std::string::npos);
+        EXPECT_EQ(sourceStorage, sourceBefore);
+        for (std::size_t index = 0U; index < samples.size(); ++index) {
+            const auto row = index / width;
+            const auto column = index % width;
+            std::uint16_t actual = 0U;
+            std::memcpy(&actual, destinationStorage.data() + leadingBytes
+                    + row * destinationStride + column * 2U,
+                sizeof(actual));
+            const auto expected = index < invalidIndex
+                ? mono12Expected(samples[index])
+                : std::uint16_t{0xE7E7U};
+            EXPECT_EQ(actual, expected) << "invalidIndex=" << invalidIndex
+                                        << ", index=" << index;
+        }
+        for (std::size_t index = 0U; index < destinationStorage.size(); ++index) {
+            const bool isLeading = index < leadingBytes;
+            const bool isTrailing = index >= leadingBytes + destinationStride * height;
+            const auto rowOffset = isLeading || isTrailing
+                ? destinationStride
+                : (index - leadingBytes) % destinationStride;
+            if (isLeading || isTrailing || rowOffset >= rowBytes) {
+                EXPECT_EQ(destinationStorage[index], destinationBefore[index]) << index;
+            }
+        }
+    }
+}
+
+// Selecting the fixed path by name, valid bits, or a nearby maximum changes these results.
+TEST(NormalizeStage, KeepsNeighboringMaximaGenericAndAcceptsValidBits16Maximum4095) {
+    constexpr std::array<std::uint16_t, 5> belowSamples{
+        0U, 136U, 137U, 2048U, 4094U};
+    constexpr std::array<std::uint16_t, 5> aboveSamples{
+        0U, 136U, 137U, 4095U, 4096U};
+    constexpr std::array<std::uint16_t, 4> widerBitsSamples{
+        136U, 137U, 2048U, 4095U};
+
+    const auto below = normalize(belowSamples,
+        sourceFormat(12U, 4094U, StorageType::UInt16));
+    const auto above = normalize(aboveSamples,
+        sourceFormat(13U, 4096U, StorageType::UInt16));
+    const auto widerBits = normalize(widerBitsSamples,
+        sourceFormat(16U, 4095U, StorageType::UInt16));
+
+    for (std::size_t index = 0U; index < below.size(); ++index) {
+        EXPECT_EQ(below[index], genericExpected(belowSamples[index], 4094U));
+    }
+    for (std::size_t index = 0U; index < above.size(); ++index) {
+        EXPECT_EQ(above[index], genericExpected(aboveSamples[index], 4096U));
+    }
+    for (std::size_t index = 0U; index < widerBits.size(); ++index) {
+        EXPECT_EQ(widerBits[index], mono12Expected(widerBitsSamples[index]));
+    }
+}
+
+// Any non-identity operation on the maximum-range U16 declaration changes at least one value.
+TEST(NormalizeStage, CopiesEveryMono16ValueExactly) {
+    std::vector<std::uint16_t> samples(65536U);
+    for (std::uint32_t value = 0U; value <= 65535U; ++value)
+        samples[value] = static_cast<std::uint16_t>(value);
+    std::vector<std::byte> outputBytes(
+        samples.size() * sizeof(std::uint16_t), std::byte{0xA5});
+    const auto inputBytes = std::as_bytes(std::span(samples));
+    const auto layout = ImageLayout::create(
+        static_cast<std::uint32_t>(samples.size()), 1U, inputBytes.size(),
+        StorageType::UInt16, inputBytes.size()).value();
+    const auto input = ImageView::create(
+        layout, inputBytes, ImageDomain::SensorNative).value();
+    const auto output = MutableImageView::create(
+        layout, outputBytes, ImageDomain::CanonicalU16).value();
+
+    const auto result = NormalizeStage{}.process(input, output,
+        sourceFormat(16U, 65535U, StorageType::UInt16));
+
+    ASSERT_TRUE(result.hasValue()) << result.error().diagnosticDetail;
+    EXPECT_EQ(outputBytes, std::vector<std::byte>(inputBytes.begin(), inputBytes.end()));
 }
 
 // Special-casing powers of two or dividing by zero breaks these valid maxima.
@@ -115,6 +360,53 @@ TEST(NormalizeStage, HandlesUnalignedPaddedRowsAndPreservesPaddingAndSource) {
         EXPECT_EQ(outputStorage[index], std::byte{0xCC}) << index;
 }
 
+// Copying a payload or stride instead of each active row corrupts these independent canaries.
+TEST(NormalizeStage, CopiesMono16FullMaximumAcrossUnalignedRowsWithUnequalStrides) {
+    constexpr std::size_t sourceStride = 9U;
+    constexpr std::size_t destinationStride = 11U;
+    constexpr std::size_t suffixBytes = 2U;
+    std::array<std::byte, 1U + sourceStride * 2U + suffixBytes> sourceStorage{};
+    std::array<std::byte, 1U + destinationStride * 2U + suffixBytes> destinationStorage{};
+    sourceStorage.fill(std::byte{0xC3});
+    destinationStorage.fill(std::byte{0x5A});
+    constexpr std::array<std::uint16_t, 6> samples{
+        0U, 1U, 32768U, 65534U, 65535U, 12345U};
+    std::memcpy(sourceStorage.data() + 1U, samples.data(), 6U);
+    std::memcpy(sourceStorage.data() + 1U + sourceStride,
+        samples.data() + 3U, 6U);
+    const auto sourceBefore = sourceStorage;
+    const auto destinationBefore = destinationStorage;
+    const auto sourceLayout = ImageLayout::create(
+        3U, 2U, sourceStride, StorageType::UInt16, sourceStride * 2U).value();
+    const auto destinationLayout = ImageLayout::create(
+        3U, 2U, destinationStride, StorageType::UInt16,
+        destinationStride * 2U).value();
+    const auto source = ImageView::create(sourceLayout,
+        std::span(sourceStorage).subspan(1U), ImageDomain::SensorNative).value();
+    const auto destination = MutableImageView::create(destinationLayout,
+        std::span(destinationStorage).subspan(1U), ImageDomain::CanonicalU16).value();
+
+    const auto result = NormalizeStage{}.process(source, destination,
+        sourceFormat(16U, 65535U, StorageType::UInt16,
+            SourcePacking::Packed, BitAlignment::MostSignificant));
+
+    ASSERT_TRUE(result.hasValue()) << result.error().diagnosticDetail;
+    std::array<std::uint16_t, 6> actual{};
+    std::memcpy(actual.data(), destinationStorage.data() + 1U, 6U);
+    std::memcpy(actual.data() + 3U,
+        destinationStorage.data() + 1U + destinationStride, 6U);
+    EXPECT_EQ(actual, samples);
+    EXPECT_EQ(sourceStorage, sourceBefore);
+    for (std::size_t index = 0U; index < destinationStorage.size(); ++index) {
+        const bool isFirstRowPixel = index >= 1U && index < 7U;
+        const bool isSecondRowPixel = index >= 1U + destinationStride
+            && index < 7U + destinationStride;
+        if (!isFirstRowPixel && !isSecondRowPixel) {
+            EXPECT_EQ(destinationStorage[index], destinationBefore[index]) << index;
+        }
+    }
+}
+
 // Per-frame auto-ranging makes the shared value differ between these calls.
 TEST(NormalizeStage, SameValueIsStableAcrossFramesWithDifferentObservedRanges) {
     const auto format = sourceFormat(12U, 4095U, StorageType::UInt16);
@@ -140,10 +432,12 @@ struct ViewFixture final {
 
     [[nodiscard]] MutableImageView destination(
         std::uint32_t width = 2U, std::uint32_t height = 2U,
-        ImageDomain domain = ImageDomain::CanonicalU16) {
-        const auto stride = static_cast<std::size_t>(width) * 2U;
+        ImageDomain domain = ImageDomain::CanonicalU16,
+        StorageType storage = StorageType::UInt16) {
+        const auto stride = static_cast<std::size_t>(width) *
+            (storage == StorageType::UInt8 ? 1U : 2U);
         return MutableImageView::create(ImageLayout::create(width, height, stride,
-            StorageType::UInt16, stride * height).value(), destinationBytes, domain).value();
+            storage, stride * height).value(), destinationBytes, domain).value();
     }
 };
 
@@ -176,15 +470,19 @@ TEST(NormalizeStage, RejectsStorageExtentAndDomainMismatchesBeforeWriting) {
     const auto before = fixture.destinationBytes;
     std::vector<Case> cases;
     cases.push_back({fixture.source(2U, 2U, StorageType::UInt8), fixture.destination(),
-        sourceFormat(8U, 255U, StorageType::UInt16), "source_storage_mismatch"});
+        sourceFormat(16U, 65535U, StorageType::UInt16), "source_storage_mismatch"});
+    cases.push_back({fixture.source(),
+        fixture.destination(2U, 2U, ImageDomain::SensorNative, StorageType::UInt8),
+        sourceFormat(16U, 65535U, StorageType::UInt16),
+        "destination_storage_mismatch"});
     cases.push_back({fixture.source(), fixture.destination(3U, 2U),
-        sourceFormat(12U, 4095U, StorageType::UInt16), "image_extent_mismatch"});
+        sourceFormat(16U, 65535U, StorageType::UInt16), "image_extent_mismatch"});
     cases.push_back({fixture.source(2U, 2U, StorageType::UInt16, ImageDomain::CanonicalU16),
-        fixture.destination(), sourceFormat(12U, 4095U, StorageType::UInt16),
+        fixture.destination(), sourceFormat(16U, 65535U, StorageType::UInt16),
         "image_domain_mismatch"});
     cases.push_back({fixture.source(),
         fixture.destination(2U, 2U, ImageDomain::SensorNative),
-        sourceFormat(12U, 4095U, StorageType::UInt16), "image_domain_mismatch"});
+        sourceFormat(16U, 65535U, StorageType::UInt16), "image_domain_mismatch"});
 
     for (const auto& testCase : cases) {
         const auto result = NormalizeStage{}.process(
@@ -207,7 +505,7 @@ TEST(NormalizeStage, RejectsFullAndPartialOverlapBeforeWriting) {
         2U, 2U, 4U, StorageType::UInt16, 8U).value();
     const auto source = ImageView::create(
         sourceLayout, storage, ImageDomain::SensorNative).value();
-    const auto format = sourceFormat(12U, 4095U, StorageType::UInt16);
+    const auto format = sourceFormat(16U, 65535U, StorageType::UInt16);
 
     for (const std::size_t offset : {0U, 4U}) {
         const auto destination = MutableImageView::create(destinationLayout,
@@ -221,7 +519,7 @@ TEST(NormalizeStage, RejectsFullAndPartialOverlapBeforeWriting) {
 
 // Clamping malformed input hides acquisition corruption and loses its location.
 TEST(NormalizeStage, ReportsFirstSampleAboveMaximumWithCoordinateValueAndMaximum) {
-    const std::array<std::uint16_t, 6> samples{0U, 100U, 200U, 300U, 1001U, 1200U};
+    const std::array<std::uint16_t, 6> samples{0U, 100U, 4095U, 4096U, 4000U, 5000U};
     std::array<std::byte, 12> outputBytes{};
     outputBytes.fill(std::byte{0xEF});
     const auto layout = ImageLayout::create(3U, 2U, 6U, StorageType::UInt16, 12U).value();
@@ -231,18 +529,40 @@ TEST(NormalizeStage, ReportsFirstSampleAboveMaximumWithCoordinateValueAndMaximum
         ImageDomain::CanonicalU16).value();
 
     const auto result = NormalizeStage{}.process(source, destination,
-        sourceFormat(10U, 1000U, StorageType::UInt16));
+        sourceFormat(12U, 4095U, StorageType::UInt16));
 
     ASSERT_FALSE(result.hasValue());
     EXPECT_EQ(result.error().category, core::ErrorCategory::Processing);
     EXPECT_EQ(result.error().code, "sample_exceeds_source_maximum");
-    EXPECT_NE(result.error().diagnosticDetail.find("x=1"), std::string::npos);
+    EXPECT_NE(result.error().diagnosticDetail.find("x=0"), std::string::npos);
     EXPECT_NE(result.error().diagnosticDetail.find("y=1"), std::string::npos);
-    EXPECT_NE(result.error().diagnosticDetail.find("value=1001"), std::string::npos);
-    EXPECT_NE(result.error().diagnosticDetail.find("maximum=1000"), std::string::npos);
+    EXPECT_NE(result.error().diagnosticDetail.find("value=4096"), std::string::npos);
+    EXPECT_NE(result.error().diagnosticDetail.find("maximum=4095"), std::string::npos);
     std::uint16_t untouched = 0U;
     std::memcpy(&untouched, outputBytes.data() + 10U, sizeof(untouched));
     EXPECT_EQ(untouched, 0xEFEFU);
+}
+
+// Treating 65534 as the full-range identity accepts a malformed 65535 sample.
+TEST(NormalizeStage, MaximumBelowMono16FullRangeStillRejectsFirstInvalidSample) {
+    constexpr std::array<std::uint16_t, 2> samples{65534U, 65535U};
+    std::array<std::byte, 4> outputBytes{};
+    outputBytes.fill(std::byte{0xEF});
+    const auto layout = ImageLayout::create(
+        2U, 1U, 4U, StorageType::UInt16, 4U).value();
+    const auto source = ImageView::create(layout, std::as_bytes(std::span(samples)),
+        ImageDomain::SensorNative).value();
+    const auto destination = MutableImageView::create(
+        layout, outputBytes, ImageDomain::CanonicalU16).value();
+
+    const auto result = NormalizeStage{}.process(source, destination,
+        sourceFormat(16U, 65534U, StorageType::UInt16));
+
+    ASSERT_FALSE(result.hasValue());
+    EXPECT_EQ(result.error().code, "sample_exceeds_source_maximum");
+    EXPECT_NE(result.error().diagnosticDetail.find("x=1"), std::string::npos);
+    EXPECT_NE(result.error().diagnosticDetail.find("value=65535"), std::string::npos);
+    EXPECT_NE(result.error().diagnosticDetail.find("maximum=65534"), std::string::npos);
 }
 
 // Incorrect stage metadata lets the compiler/executor route incompatible views.

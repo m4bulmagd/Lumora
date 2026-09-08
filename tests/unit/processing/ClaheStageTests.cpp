@@ -1,4 +1,7 @@
 #include <lumora/processing/ClaheStage.hpp>
+#include "StageStorage.hpp"
+#include "PreparedCpuExecutor.hpp"
+#include <atomic>
 
 #include <gtest/gtest.h>
 
@@ -590,7 +593,8 @@ TEST(ClaheStage, ProvisionalLinuxGradientBaseline) {
 }
 
 // Omitting bin-zero residual redistribution changes 8192, while omitting the
-// whole-bin batch changes 3 for the independently derived uniform fixtures.
+// whole-bin batch changes 3. Moving sparse residuals away from their exact step
+// positions changes 49151 for the independently derived uniform fixtures.
 TEST(ClaheStage, RedistributesClippedHistogramFromBinZeroWithWholeBinBatch) {
     {
         const std::vector<std::uint16_t> input(8U * 8U, 0U);
@@ -607,6 +611,14 @@ TEST(ClaheStage, RedistributesClippedHistogramFromBinZeroWithWholeBinBatch) {
         const auto output = runTight(*stage, 514U, 514U, input);
         EXPECT_TRUE(std::all_of(output.begin(), output.end(),
             [](std::uint16_t value) { return value == 3U; }));
+    }
+    {
+        const std::vector<std::uint16_t> input(4U * 4U, 21845U);
+        auto stage = createStage(4U, 4U, {.clipLimit = 2.0, .tileGridSize = 2U});
+        ASSERT_NE(stage, nullptr);
+        const auto output = runTight(*stage, 4U, 4U, input);
+        EXPECT_TRUE(std::all_of(output.begin(), output.end(),
+            [](std::uint16_t value) { return value == 49151U; }));
     }
 }
 
@@ -829,6 +841,58 @@ TEST(ClaheStage, RejectsUnsupportedRoundingModeAtomicallyAtCreateAndProcess) {
     EXPECT_EQ(processResult.error().code, "clahe_rounding_mode_unsupported");
     EXPECT_EQ(destinationBytes, before);
     EXPECT_EQ(runTight(*stage, 4U, 4U, input), expected);
+}
+
+
+// Different source/destination odd strides and offsets protect helper row boundaries.
+std::vector<std::uint16_t> runParallelPadded(ClaheStage& stage,std::uint32_t width,std::uint32_t height,std::span<const std::uint16_t> input) {
+    const auto sourceStride=width*2U+3U,destinationStride=width*2U+5U;
+    std::vector<std::byte> source(1U+sourceStride*height+3U,std::byte{0xA5});
+    std::vector<std::byte> destination(3U+destinationStride*height+3U,std::byte{0x5A});
+    for(std::size_t y=0;y<height;++y) std::memcpy(source.data()+1U+y*sourceStride,input.data()+y*width,width*2U);
+    const auto before=source;
+    auto sourceLayout=ImageLayout::create(width,height,sourceStride,StorageType::UInt16,sourceStride*height).value();
+    auto destinationLayout=ImageLayout::create(width,height,destinationStride,StorageType::UInt16,destinationStride*height).value();
+    auto inputView=ImageView::create(sourceLayout,std::span(source).subspan(1),ImageDomain::CanonicalU16).value();
+    auto outputView=MutableImageView::create(destinationLayout,std::span(destination).subspan(3),ImageDomain::CanonicalU16).value();
+    EXPECT_TRUE(stage.process(inputView,outputView,canonicalSourceFormat()).hasValue());
+    EXPECT_EQ(source,before);
+    std::vector<std::uint16_t> output(input.size());
+    for(std::size_t y=0;y<height;++y) std::memcpy(output.data()+y*width,destination.data()+3U+y*destinationStride,width*2U);
+    for(std::size_t i=0;i<destination.size();++i) {
+        const bool active=i>=3U && i<3U+destinationStride*height && (i-3U)%destinationStride<width*2U;
+        if(!active) { EXPECT_EQ(destination[i],std::byte{0x5A}); }
+    }
+    return output;
+}
+
+TEST(ClaheStage, PreparedParallelPrivateFactoryMatchesPinnedOracleAndAdmitsHistograms) {
+    using namespace lumora::processing::detail;
+    for(const auto slots : {1U,2U,4U}) {
+        PreparedCpuExecutor executor(slots);
+        std::atomic<unsigned> mask{};
+        executor.setWorkObserver(&mask,[](void* p,CpuJobKind,std::size_t slot,std::size_t,std::size_t) noexcept {
+            if(slot) static_cast<std::atomic<unsigned>*>(p)->fetch_or(1U<<slot);
+        });
+        for(const auto [width,height,grid] : {std::array{2U,2U,2U}, {17U,19U,3U}, {513U,517U,8U}}) {
+            const ClaheParameters parameters{2.0,grid};
+            const auto imageLayout=tightLayout(width,height);
+            const auto serial=ClaheStage::requiredScratchBytes(parameters,imageLayout).value();
+            const auto expected=serial+(slots-1U)*65536U*sizeof(std::int32_t);
+            EXPECT_EQ(StageStorage::claheScratchBytes(parameters,imageLayout,slots).value(),expected);
+            EXPECT_FALSE(StageStorage::createClahe(parameters,imageLayout,expected-1U,&executor).hasValue());
+            auto made=StageStorage::createClahe(parameters,imageLayout,expected,&executor);
+            ASSERT_TRUE(made.hasValue()); EXPECT_EQ(made.value()->scratchBytes(),expected);
+            for(const auto pattern : {FixturePattern::Noise,FixturePattern::EdgeImpulses,FixturePattern::Noise}) {
+                const auto input=makeFixture(width,height,pattern);
+                mask=0;
+                EXPECT_EQ(runParallelPadded(*made.value(),width,height,input),runPinnedOpenCv(width,height,parameters,input));
+                EXPECT_EQ(mask.load(),(1U<<slots)-2U);
+            }
+        }
+        executor.setWorkObserver(nullptr,nullptr);
+    }
+    EXPECT_FALSE(StageStorage::claheScratchBytes({2.0,2U},tightLayout(8U,8U),std::numeric_limits<std::size_t>::max()).hasValue());
 }
 
 }  // namespace

@@ -108,6 +108,8 @@ template<typename Stage>
 [[nodiscard]] bool passed(const PreparedMeasurement& measurement) {
     return measurement.successfulCalls == 1000U
         && measurement.counts.allocations == 0U
+        && measurement.counts.allocatedBytes == 0U
+        && measurement.counts.deallocations == 0U
         && measurement.checksumA != measurement.checksumB;
 }
 
@@ -160,7 +162,7 @@ int main() {
     }
 
     constexpr std::uint32_t width = 11U;
-    constexpr std::uint32_t height = 7U;
+    constexpr std::uint32_t height = 37U;
     constexpr std::size_t strideA = width * 2U + 1U;
     constexpr std::size_t strideB = width * 2U + 3U;
     std::array<std::byte, 1U + strideA * height + 3U> sourceStorageA{};
