@@ -394,25 +394,39 @@ core::Result<void> ClaheStage::process(const ImageView& source,
     if (std::fegetround() != FE_TONEAREST)
         return processFailure("clahe_rounding_mode_unsupported", "Prepared CLAHE requires the FE_TONEAREST floating-point rounding mode.");
 
+    const int clipCount = impl_->clipCount;
     for (int tileY = 0; tileY < impl_->grid; ++tileY) {
         for (int tileX = 0; tileX < impl_->grid; ++tileX) {
+            const int tileWidth = impl_->tileWidth;
+            const int tileOriginX = tileX * tileWidth;
+            const bool directX = tileOriginX + tileWidth <= impl_->width;
             for (int localY = 0; localY < impl_->tileHeight; ++localY) {
                 const auto reflectedY = impl_->reflectedY[static_cast<std::size_t>(
                     tileY * impl_->tileHeight + localY)];
                 const auto sourceRow = source.row(reflectedY);
-                for (int localX = 0; localX < impl_->tileWidth; ++localX) {
-                    const auto reflectedX = impl_->reflectedX[static_cast<std::size_t>(
-                        tileX * impl_->tileWidth + localX)];
-                    const auto sample = loadU16(sourceRow.data()
-                        + static_cast<std::size_t>(reflectedX) * sizeof(std::uint16_t));
-                    ++impl_->histogram[sample];
+                if (directX) {
+                    auto sampleBytes = sourceRow.data()
+                        + static_cast<std::size_t>(tileOriginX) * sizeof(std::uint16_t);
+                    for (int localX = 0; localX < tileWidth; ++localX) {
+                        const auto sample = loadU16(sampleBytes);
+                        ++impl_->histogram[sample];
+                        sampleBytes += sizeof(std::uint16_t);
+                    }
+                } else {
+                    for (int localX = 0; localX < tileWidth; ++localX) {
+                        const auto reflectedX = impl_->reflectedX[static_cast<std::size_t>(
+                            tileOriginX + localX)];
+                        const auto sample = loadU16(sourceRow.data()
+                            + static_cast<std::size_t>(reflectedX) * sizeof(std::uint16_t));
+                        ++impl_->histogram[sample];
+                    }
                 }
             }
             int clipped = 0;
             for (auto& count : impl_->histogram) {
-                if (count > impl_->clipCount) {
-                    clipped += count - impl_->clipCount;
-                    count = impl_->clipCount;
+                if (count > clipCount) {
+                    clipped += count - clipCount;
+                    count = clipCount;
                 }
             }
             const int binCount = static_cast<int>(histogramBins);
