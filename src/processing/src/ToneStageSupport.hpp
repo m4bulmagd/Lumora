@@ -2,6 +2,8 @@
 
 #include <lumora/processing/ImageView.hpp>
 
+#include "ImageRowCopy.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -65,16 +67,6 @@ namespace lumora::processing::detail {
     std::uint16_t value = 0U;
     std::memcpy(&value, row.data() + byteOffset, sizeof(value));
     return value;
-}
-
-inline void copyActiveRows(
-    const ImageView& source,
-    MutableImageView destination) noexcept {
-    for (std::uint32_t y = 0U; y < source.layout().height(); ++y) {
-        const auto sourceRow = source.row(y);
-        const auto destinationRow = destination.row(y);
-        std::memcpy(destinationRow.data(), sourceRow.data(), sourceRow.size());
-    }
 }
 
 inline void writeU16(
