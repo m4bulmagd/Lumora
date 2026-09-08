@@ -36,4 +36,37 @@ The default identity diagnostic improves about 93.9%; this is a standalone-stage
 
 All eleven custom rows retain identical complete output SHA256/fingerprints, input patterns, pipeline definitions, resource plans and sample counts, with zero measured C++ allocation calls/bytes/releases. The before/after direct-stage output checksums also match. The benchmark artifacts retain actual build provenance: baseline clean `7a81e65`, candidate `b836334` with only this untracked documentation record reported dirty. Later clean normal evidence will retain its own build revision.
 
-The full normal protocol, final branch review and Linux/Windows CI remain required before integration. Raw evidence and commands are retained under `out/qa/m08-window-identity/` in the preserved M8 worktree. The 33.3 ms/30 FPS target and designated Windows acceptance remain open.
+## Normal Release evidence
+
+The full normal protocol completed from clean build `8877f4637efc1fb7422196dd4b5c40124ed729dd`, with source provenance captured at `2026-09-08T08:52:29Z`. This is GNU 15.2.0 Release (`-O3 -DNDEBUG`) on the Ubuntu 26.04 / i7-10510U laptop, using the same pinned dependencies and FE_TONEAREST contract as the preceding M8 evidence. The binary remained unchanged throughout the sequential run, with no concurrent local builds, tests or profiling.
+
+All 33 cases completed 100 warm-ups and 500 measured frames with zero drops, processing errors or measured C++ allocation calls/bytes/releases. Complete output SHA256/fingerprints, inputs, pipeline definitions, resource plans and sample counts match the prior clean normal `1b85953` artifacts. Independent arithmetic, resource/count, provenance and schema checks pass.
+
+| Standalone Window/Level size | Prior normal median | Current normal median |
+|---|---:|---:|
+| 512×512 | 1.563 ms | 0.026 ms |
+| 1024×1024 | 6.450 ms | 0.098 ms |
+| 2048×2048 | 25.479 ms | 1.706 ms |
+
+| Full Standard size / orientation | Median | P95 | Wall-derived FPS |
+|---|---:|---:|---:|
+| 512×512 / identity | 26.180 ms | 29.027 ms | 37.747 |
+| 512×512 / horizontal flip + 90° | 31.245 ms | 34.112 ms | 31.655 |
+| 1024×1024 / identity | 72.548 ms | 77.673 ms | 13.644 |
+| 1024×1024 / horizontal flip + 90° | 101.237 ms | 127.782 ms | 9.414 |
+| 2048×2048 / identity | 245.099 ms | 258.911 ms | 4.057 |
+| 2048×2048 / horizontal flip + 90° | 370.323 ms | 388.070 ms | 2.688 |
+
+The standalone identity improvement is consistent with the paired diagnostic. Full-pipeline results are mixed across these separate normal runs: 2048 P95 falls from 282.622/410.989 ms to 258.911/388.070 ms, but 1024 oriented P95 rises from 105.444 to 127.782 ms while its median changes from 101.525 to 101.237 ms and FPS falls from 9.822 to 9.414. Each revision has one normal run; CPU frequency, load and thermal state are not captured. These observations neither establish a general end-to-end improvement nor identify a causal regression. High-resolution 33.3 ms/30 FPS acceptance remains unmet.
+
+Both normal Standard allocation profiles (64×48, identity and horizontal flip/90°) complete 100 warm-ups and 1,000 measured cycles with zero C++ allocation calls/bytes/releases. A separate controlled glibc 2.43 tracing process completes the same profiles with zero measured allocator events; positive and empty controls, trace hashes and trace contents pass independent checks. This is bounded allocation evidence, not a full-resolution latency or Windows heap proof.
+
+The thirteen ordinary candidate cases produce 26 PGM files byte-identical to the preceding candidates. Independent checks verify their hashes, P5 headers and lengths; seven independent exact comparisons remain exact, while six backend cases remain provisional with unapproved thresholds/reviews. Candidate and allocation artifacts retain the same clean build provenance. No reference acceptance is inferred.
+
+Raw evidence, diagnostic executables, commands and verification logs remain under `out/qa/m08-window-identity/` in the preserved M8 worktree; normal outputs are in its `normal/` subdirectory.
+
+## Review, integration and next slice
+
+Independent task and whole-branch source/document review approve the implementation with no Critical/Important findings. [Linux CI at `8877f46`](https://github.com/m4bulmagd/Lumora/actions/runs/34206884738) passes 53/53 Debug and Release checks plus native X11 in both; [Windows CI at the same head](https://github.com/m4bulmagd/Lumora/actions/runs/34206884739) passes 53/53 in both configurations. Final evidence/documentation review and matching integration-head CI remain required before merge.
+
+The recommended next bounded experiment is to combine CLAHE histogram redistribution with its existing cumulative LUT pass while preserving every effective bin count and rounding operation. CLAHE is the largest measured Standard stage at 512/1024 and second-largest at 2048; this local change could remove repeated histogram writes without changing retained storage or ownership. Its speedup must be measured before selection for integration. Sharpen's larger intermediate-storage opportunity is a separate later slice. M9 controls follow the performance work; designated Windows references/workstation/freshness acceptance and the earlier deferred gates remain open.
