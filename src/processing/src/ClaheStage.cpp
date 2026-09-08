@@ -396,6 +396,7 @@ core::Result<void> ClaheStage::process(const ImageView& source,
 
     for (int tileY = 0; tileY < impl_->grid; ++tileY) {
         for (int tileX = 0; tileX < impl_->grid; ++tileX) {
+            std::fill(impl_->histogram.begin(), impl_->histogram.end(), 0);
             for (int localY = 0; localY < impl_->tileHeight; ++localY) {
                 const auto reflectedY = impl_->reflectedY[static_cast<std::size_t>(
                     tileY * impl_->tileHeight + localY)];
@@ -415,36 +416,22 @@ core::Result<void> ClaheStage::process(const ImageView& source,
                     count = impl_->clipCount;
                 }
             }
-            const int binCount = static_cast<int>(histogramBins);
-            const int batch = clipped / binCount;
-            int residual = clipped - batch * binCount;
+            const int batch = clipped / static_cast<int>(histogramBins);
+            int residual = clipped - batch * static_cast<int>(histogramBins);
+            for (auto& count : impl_->histogram) count += batch;
             if (residual != 0) {
-                const int step = std::max(binCount / residual, 1);
-                for (int bin = 0; bin < binCount && residual > 0;
+                const int step = std::max(static_cast<int>(histogramBins) / residual, 1);
+                for (int bin = 0; bin < static_cast<int>(histogramBins) && residual > 0;
                      bin += step, --residual)
                     ++impl_->histogram[static_cast<std::size_t>(bin)];
             }
             int cumulative = 0;
             const auto lutOffset = static_cast<std::size_t>(
                 tileY * impl_->grid + tileX) * histogramBins;
-            for (std::size_t bin = 0U; bin < histogramBins; bin += 4U) {
-                const int c0 = cumulative + (impl_->histogram[bin] + batch);
-                const int c1 = c0 + (impl_->histogram[bin + 1U] + batch);
-                const int c2 = c1 + (impl_->histogram[bin + 2U] + batch);
-                const int c3 = c2 + (impl_->histogram[bin + 3U] + batch);
-                cumulative = c3;
-                impl_->histogram[bin] = 0;
-                impl_->histogram[bin + 1U] = 0;
-                impl_->histogram[bin + 2U] = 0;
-                impl_->histogram[bin + 3U] = 0;
+            for (std::size_t bin = 0U; bin < histogramBins; ++bin) {
+                cumulative += impl_->histogram[bin];
                 impl_->lut[lutOffset + bin] = cv::saturate_cast<std::uint16_t>(
-                    static_cast<float>(c0) * impl_->lutScale);
-                impl_->lut[lutOffset + bin + 1U] = cv::saturate_cast<std::uint16_t>(
-                    static_cast<float>(c1) * impl_->lutScale);
-                impl_->lut[lutOffset + bin + 2U] = cv::saturate_cast<std::uint16_t>(
-                    static_cast<float>(c2) * impl_->lutScale);
-                impl_->lut[lutOffset + bin + 3U] = cv::saturate_cast<std::uint16_t>(
-                    static_cast<float>(c3) * impl_->lutScale);
+                    static_cast<float>(cumulative) * impl_->lutScale);
             }
         }
     }
