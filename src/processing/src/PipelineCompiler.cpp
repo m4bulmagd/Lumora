@@ -33,7 +33,10 @@ std::vector<StageTraits> stageRegistry() {
     for (int i = 0; i < 8; ++i) registry.push_back({static_cast<StageId>(i),
         i == 0 ? ImageDomain::SensorNative : ImageDomain::CanonicalU16,
         ImageDomain::CanonicalU16, false,
-        i == static_cast<int>(StageId::Clahe) ? 2U : 0U});
+        (i == static_cast<int>(StageId::Denoise)
+                    || i == static_cast<int>(StageId::Sharpen))
+                ? 4U
+                : 0U});
     return registry;
 }
 namespace {
@@ -75,8 +78,16 @@ void validateParameters(const StageParameters& parameters, std::size_t index, Vi
         } else if constexpr (std::is_same_v<T, DenoiseParameters>) {
             if (p.mode != DenoiseMode::Gaussian && p.mode != DenoiseMode::Median)
                 add(errors, index, "invalid_denoise_mode", "Denoise mode must be Gaussian or Median.");
-            if (p.kernelSize != 3 && p.kernelSize != 5 && p.kernelSize != 7)
-                add(errors, index, "invalid_kernel_size", "Denoise kernel must be 3, 5, or 7.");
+            if (!std::isfinite(p.sigma) || p.sigma < 0.0 || p.sigma > 5.0)
+                add(errors, index, "invalid_denoise_sigma", "Denoise sigma must be finite and within [0, 5].");
+            if (p.mode == DenoiseMode::Gaussian
+                && p.kernelSize != 3U && p.kernelSize != 5U && p.kernelSize != 7U)
+                add(errors, index, "invalid_kernel_size", "Gaussian denoise kernel must be 3, 5, or 7.");
+            if (p.mode == DenoiseMode::Median
+                && p.kernelSize != 3U && p.kernelSize != 5U)
+                add(errors, index, "invalid_kernel_size", "Median denoise kernel must be 3 or 5.");
+            if (p.mode == DenoiseMode::Median && p.sigma != 0.0)
+                add(errors, index, "invalid_denoise_sigma", "Median denoise sigma must be exactly zero.");
         } else if constexpr (std::is_same_v<T, SharpenParameters>) {
             bound(p.amount, 0, 5, "amount"); bound(p.radius, 0.5, 5, "radius"); bound(p.threshold, 0, 65535, "threshold");
         }

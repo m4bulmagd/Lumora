@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lumora/core/BufferPool.hpp>
+#include <lumora/core/Frame.hpp>
 #include <lumora/processing/ImageView.hpp>
 
 #include <array>
@@ -19,16 +20,19 @@ class FrameProcessingEngine;
 class ProcessingWorkspace final {
 public:
     ProcessingWorkspace(core::BufferPool& processingPool, core::BufferPool& displayPool) noexcept;
-    [[nodiscard]] core::Result<void> prepare(const core::ImageLayout& sourceLayout);
+    [[nodiscard]] core::Result<void> prepare(const core::ImageLayout& sourceLayout,
+        core::Orientation orientation = {false,false,core::Rotation::Degrees0}, std::size_t orientationBytes = 0);
 
 private:
     friend class FrameProcessingEngine;
-    [[nodiscard]] core::Result<void> replenish();
+    [[nodiscard]] core::Result<void> replenish(bool enhanced = true);
     core::BufferPool& processingPool_;
     core::BufferPool& displayPool_;
     std::optional<core::ImageLayout> sourceLayout_;
     std::optional<core::ImageLayout> canonicalLayout_;
     std::optional<core::ImageLayout> displayLayout_;
+    std::optional<core::ImageLayout> nativeDisplayLayout_;
+    std::unique_ptr<std::byte[]> orientationScratch_;
     std::array<std::optional<core::WritableBufferLease>, 2> canonical_;
     std::array<std::optional<core::WritableBufferLease>, 2> display_;
 };

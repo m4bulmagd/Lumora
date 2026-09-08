@@ -26,19 +26,28 @@ add_test(NAME Application.StartupPreferences
 set_tests_properties(Application.StartupPreferences PROPERTIES TIMEOUT 60)
 
 add_executable(lumora_processing_tests
+  unit/processing/ProcessingDefaultsTests.cpp
   unit/processing/Mono8PassThroughProcessorTests.cpp
   unit/processing/PipelineCompilerTests.cpp
   unit/processing/ImageViewTests.cpp
   unit/processing/NormalizeStageTests.cpp
   unit/processing/WindowLevelStageTests.cpp
   unit/processing/ClaheStageTests.cpp
+  unit/processing/DetailStageBatchingTests.cpp
+  unit/processing/DenoiseStageTests.cpp
+  unit/processing/SharpenStageTests.cpp
   unit/processing/ToneStageTests.cpp
   unit/processing/DisplayMapperTests.cpp
-  unit/processing/FrameProcessingEngineTests.cpp)
+  unit/processing/OrientationTransformTests.cpp
+  unit/processing/FrameProcessingEngineTests.cpp
+  unit/processing/PreparedRuntimeTests.cpp)
+target_include_directories(lumora_processing_tests PRIVATE "${PROJECT_SOURCE_DIR}/src/processing/src" "${CMAKE_CURRENT_SOURCE_DIR}/support")
 target_link_libraries(lumora_processing_tests PRIVATE
-  lumora::processing GTest::gtest_main)
+  lumora::processing opencv_core opencv_imgproc GTest::gtest_main)
 target_compile_definitions(lumora_processing_tests PRIVATE
   LUMORA_CLAHE_REFERENCE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/reference/processing/clahe-reference.json")
+target_include_directories(lumora_processing_tests PRIVATE
+  "${PROJECT_SOURCE_DIR}/src/processing/src")
 lumora_enable_warnings(lumora_processing_tests)
 add_test(NAME Processing.Mono8PassThrough
   COMMAND lumora_processing_tests --gtest_filter=Mono8PassThroughProcessor.*)
@@ -116,6 +125,7 @@ add_executable(
 target_include_directories(
   lumora_integration_tests
   PRIVATE
+    "${PROJECT_SOURCE_DIR}/src/processing/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/support"
     "${PROJECT_SOURCE_DIR}/tools/viewer-harness"
     "${PROJECT_SOURCE_DIR}/src/app"
@@ -178,6 +188,8 @@ add_executable(
   unit/core/FrameMetadataTests.cpp
   unit/core/BufferPoolTests.cpp
   unit/core/FrameTests.cpp
+  unit/core/FrameObjectPoolTests.cpp
+  unit/core/ProcessingTimingsTests.cpp
   unit/core/LatestValueSlotTests.cpp
   unit/core/BoundedQueueTests.cpp
   unit/core/ClockTests.cpp
@@ -320,13 +332,79 @@ set_tests_properties(Processing.WindowLevelStage PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.ClaheStage
   COMMAND lumora_processing_tests --gtest_filter=ClaheStage.*)
 set_tests_properties(Processing.ClaheStage PROPERTIES TIMEOUT 60)
+add_test(NAME Processing.DetailStages
+  COMMAND lumora_processing_tests
+    --gtest_filter=DetailStageBatching.*:DenoiseStage.*:SharpenStage.*)
+set_tests_properties(Processing.DetailStages PROPERTIES TIMEOUT 60)
+
+add_executable(lumora_detail_allocation_tests
+  support/AllocationTracker.cpp
+  unit/processing/DetailStageAllocationTests.cpp)
+target_include_directories(lumora_detail_allocation_tests PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/support")
+target_link_libraries(lumora_detail_allocation_tests PRIVATE lumora::processing)
+lumora_enable_warnings(lumora_detail_allocation_tests)
+add_test(NAME Processing.DetailStageAllocation
+  COMMAND lumora_detail_allocation_tests)
+set_tests_properties(Processing.DetailStageAllocation PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.ToneStages
   COMMAND lumora_processing_tests --gtest_filter=ToneStages.*)
 set_tests_properties(Processing.ToneStages PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.DisplayMapper
   COMMAND lumora_processing_tests --gtest_filter=DisplayMapper.*)
 set_tests_properties(Processing.DisplayMapper PROPERTIES TIMEOUT 60)
+add_test(NAME Processing.OrientationTransform
+  COMMAND lumora_processing_tests --gtest_filter=OrientationTransform.*)
+set_tests_properties(Processing.OrientationTransform PROPERTIES TIMEOUT 60)
 
 add_test(NAME Processing.FrameProcessingEngine
   COMMAND lumora_processing_tests --gtest_filter=FrameProcessingEngine.*)
 set_tests_properties(Processing.FrameProcessingEngine PROPERTIES TIMEOUT 60)
+
+add_executable(lumora_frame_engine_allocation_tests
+  support/AllocationTracker.cpp
+  unit/processing/FrameEngineAllocationTests.cpp)
+target_include_directories(lumora_frame_engine_allocation_tests PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/support" "${PROJECT_SOURCE_DIR}/src/core/src" "${PROJECT_SOURCE_DIR}/src/processing/src")
+target_link_libraries(lumora_frame_engine_allocation_tests PRIVATE lumora::processing)
+lumora_enable_warnings(lumora_frame_engine_allocation_tests)
+add_test(NAME Processing.FrameEngineAllocation COMMAND lumora_frame_engine_allocation_tests)
+set_tests_properties(Processing.FrameEngineAllocation PROPERTIES TIMEOUT 180)
+
+target_compile_definitions(lumora_core PRIVATE LUMORA_FRAME_POOL_TESTS=1)
+target_include_directories(lumora_core PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+
+target_include_directories(lumora_core_tests PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/support" "${PROJECT_SOURCE_DIR}/src/core/src")
+add_test(NAME Core.FrameObjectPool COMMAND lumora_core_tests --gtest_filter=FrameObjectPool.*)
+add_test(NAME Core.ProcessingTimings COMMAND lumora_core_tests --gtest_filter=ProcessingTimings.*)
+
+add_test(NAME Processing.Defaults COMMAND lumora_processing_tests --gtest_filter=ProcessingDefaults.*)
+
+add_executable(lumora_evidence_tests unit/processing/EvidenceArtifactTests.cpp reference/processing/PipelineReferenceTests.cpp)
+target_link_libraries(lumora_evidence_tests PRIVATE lumora_processing_evidence_support Qt6::Core GTest::gtest_main)
+lumora_enable_warnings(lumora_evidence_tests)
+add_test(NAME Processing.EvidenceArtifacts COMMAND lumora_evidence_tests)
+set_tests_properties(Processing.EvidenceArtifacts PROPERTIES TIMEOUT 120)
+
+target_compile_definitions(lumora_evidence_tests PRIVATE LUMORA_EXACT_ORACLE_ROOT="${PROJECT_SOURCE_DIR}/tests/reference/processing/fixtures")
+
+target_compile_definitions(lumora_evidence_tests PRIVATE LUMORA_WORKSTATION_TEMPLATE="${PROJECT_SOURCE_DIR}/benchmarks/processing/reference-workstation.json")
+
+# The small provenance projects exercise all configurations without rebuilding Qt
+# or running image workloads. Reuse the native generator on multi-config hosts.
+if(CMAKE_CONFIGURATION_TYPES)
+  set(evidence_test_generator "${CMAKE_GENERATOR}")
+else()
+  set(evidence_test_generator "Ninja Multi-Config")
+endif()
+foreach(evidence_test_case IN ITEMS language flags)
+  add_test(NAME Processing.EvidenceProvenance.${evidence_test_case}
+    COMMAND "${CMAKE_COMMAND}" "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}"
+      "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/evidence-provenance-${evidence_test_case}"
+      "-DTEST_CASE=${evidence_test_case}" "-DTEST_GENERATOR=${evidence_test_generator}"
+      "-DTEST_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProcessingEvidenceProvenanceTests.cmake")
+  set_tests_properties(Processing.EvidenceProvenance.${evidence_test_case}
+    PROPERTIES TIMEOUT 120 LABELS "processing;evidence")
+endforeach()

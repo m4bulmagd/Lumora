@@ -2,6 +2,7 @@
 
 #include <lumora/core/Result.hpp>
 #include <lumora/processing/ProcessingConfiguration.hpp>
+#include <lumora/processing/ProcessingPreparation.hpp>
 
 #include <cstddef>
 #include <optional>
@@ -22,6 +23,9 @@ struct PipelineValidationError final {
     // stage errors; stage errors follow input order and parameter field order.
     std::string code;
     std::vector<PipelineViolation> violations;
+    std::optional<core::Error> preparationError{};
+    // Present when candidate sizing completed; ordinary compiler errors leave it empty.
+    std::optional<ProcessingResources> preparationResources{};
 };
 
 struct CompiledStage final {

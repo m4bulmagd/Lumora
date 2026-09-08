@@ -99,6 +99,18 @@ WorkstationView::WorkstationView(QWidget* parent)
     originalLabel->setStyleSheet(QStringLiteral(
         "QLabel { color: #eef0f3; font-size: 18px; font-weight: 600; }"));
     sidebarLayout->addWidget(originalLabel);
+    auto* processingWarning=new QLabel(this);
+    processingWarning->setObjectName(QStringLiteral("processingWarning"));
+    processingWarning->setAccessibleName(tr("Enhancement processing warning"));
+    processingWarning->setTextFormat(Qt::PlainText);
+    processingWarning->setWordWrap(true);
+    processingWarning->setText(tr("Enhancement paused after repeated processing failures. Showing Original."));
+    processingWarning->hide(); sidebarLayout->addWidget(processingWarning);
+    auto* processingRetry=new QPushButton(tr("Retry enhancement"),this);
+    processingRetry->setObjectName(QStringLiteral("processingRetryButton"));
+    processingRetry->setAccessibleName(tr("Retry enhancement processing"));
+    processingRetry->hide(); sidebarLayout->addWidget(processingRetry);
+    connect(processingRetry,&QPushButton::clicked,this,&WorkstationView::processingRetryRequested);
     sidebarLayout->addStretch(1);
 
     auto* pauseLiveButton = new QPushButton(tr("Pause"), sidebar_);
@@ -217,6 +229,15 @@ ViewerState WorkstationView::viewerState() const noexcept {
 
 const WorkstationStatus& WorkstationView::status() const noexcept {
     return status_;
+}
+
+void WorkstationView::setProcessingStatus(processing::ProcessorStatus status, bool retryPending) {
+    processingStatus_=std::move(status);
+    const bool warning=processingStatus_.mode==processing::ProcessorMode::OriginalOnlyLatched;
+    auto* label=findChild<QLabel*>(QStringLiteral("processingWarning"));
+    auto* retry=findChild<QPushButton*>(QStringLiteral("processingRetryButton"));
+    label->setVisible(warning); retry->setVisible(warning);
+    retry->setEnabled(warning && processingStatus_.retrySupported && !processingStatus_.retryPending && !retryPending);
 }
 
 void WorkstationView::setStatus(WorkstationStatus status) {

@@ -16,6 +16,10 @@ struct ProcessingWorkerSnapshot final {
     std::uint64_t processingErrors{0U};
     std::uint64_t displayPoolExhaustions{0U};
     std::optional<core::Error> currentError;
+    // Enhancement attempts include the third failure that publishes Original.
+    // This separate processor metric overlaps returned-frame processingErrors;
+    // callers must not sum them as disjoint failure counts.
+    processing::ProcessorStatus processorStatus;
 };
 
 // Dependencies outlive this worker. The owner serializes start/join and gives

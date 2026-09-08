@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-08
 
-**Status:** Standalone functional implementation `f5d6642` and test correction `88a9ad8` passed independent task review. Twelve CLAHE cases pass in Linux Debug/Release; full Linux application verification passed. Final branch review passed; Linux/Windows CI is in progress on [PR #11](https://github.com/m4bulmagd/Lumora/pull/11). M8 acceptance remains open.
+**Status:** Standalone functional implementation `f5d6642` and test correction `88a9ad8` passed independent task review. Twelve CLAHE cases pass in Linux Debug/Release; full Linux application verification passed. Final branch review and Linux/Windows Debug/Release CI passed; [PR #11](https://github.com/m4bulmagd/Lumora/pull/11) merged as `c0c4102`. M8 acceptance remains open.
 
 ## Authority and scope
 
@@ -55,3 +55,9 @@ Incremental Debug and Release processing-test builds passed after that correctio
 The independent final review of `d6f94e1..dd08b3f` approved the bounded standalone implementation with no Critical, Important or Minor findings, conditional on matching branch CI. It reviewed all fourteen changed files and the retained local evidence. Allocation, designated Windows references/tolerances, performance and live composition remain open.
 
 [PR #11](https://github.com/m4bulmagd/Lumora/pull/11) runs the Linux/GCC and Windows/MSVC Debug/Release simulator workflows. The initial [Linux run](https://github.com/m4bulmagd/Lumora/actions/runs/34173425084) failed compilation because GCC 13 flags two copied structured bindings in test loops under warnings-as-errors; local GCC 15 builds had passed. The correction binds those test pairs by const reference without changing test assertions, production behavior or warning policy. Final CI results and merge evidence are recorded in the pull request; a passing hosted job does not replace designated-workstation reference or native Windows 11 acceptance.
+
+## Merged checkpoint
+
+The reviewed final PR head `b85a626` merged as `c0c4102` with an identical tree. Linux PR run [34173797580](https://github.com/m4bulmagd/Lumora/actions/runs/34173797580) passed Debug 42/42 plus X11 1/1 and Release 42/42 plus X11 1/1; Windows PR run [34173797573](https://github.com/m4bulmagd/Lumora/actions/runs/34173797573) passed 42/42 in each configuration. Both branch push jobs and post-merge main jobs also passed. The earlier GCC13 compiler issue was corrected in `b85a626` and passed scoped review. No code review findings remain open.
+
+The owner subsequently authorized [Tasks 3–5 continuation](m08-continuation.md). Task5 must address the recorded backend allocation debt before claiming full steady-state allocation compliance. The designated reference/workstation and earlier native Windows acceptance gates remain open.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lumora/core/Frame.hpp>
+#include <lumora/processing/ProcessorStatus.hpp>
 #include <lumora/core/Result.hpp>
 
 #include <memory>
@@ -14,6 +15,8 @@ inline constexpr std::string_view displayBufferPoolExhaustedCode =
 class IFrameProcessor {
 public:
     virtual ~IFrameProcessor() = default;
+    [[nodiscard]] virtual ProcessorStatus status() const noexcept { return {}; }
+    [[nodiscard]] virtual bool requestRetry() noexcept { return false; }
 
     [[nodiscard]] virtual core::Result<std::shared_ptr<const core::FrameBundle>>
     process(std::shared_ptr<const core::RawFrame> raw) = 0;

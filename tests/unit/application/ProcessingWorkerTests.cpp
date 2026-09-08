@@ -126,6 +126,10 @@ public:
         return core::FrameBundle::create(raw, std::move(display).value(), nullptr, nullptr);
     }
 
+    processing::ProcessorStatus status() const noexcept override {
+        std::lock_guard lock(mutex_); return status_;
+    }
+    void setStatus(processing::ProcessorStatus status) { std::lock_guard lock(mutex_); status_=std::move(status); }
     bool waitForCall(std::size_t call) {
         std::unique_lock lock(mutex_);
         return changed_.wait_for(lock, 2s, [&] { return inputs_.size() >= call; });
@@ -176,7 +180,8 @@ public:
 
 private:
     core::BufferPool* displayPool_;
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
+    processing::ProcessorStatus status_;
     std::condition_variable changed_;
     std::vector<std::uint64_t> inputs_;
     std::size_t released_{0U};
@@ -254,6 +259,24 @@ struct ProcessingFixture final {
 };
 
 // Draining raw history instead of selecting the latest value breaks call 2.
+TEST(ProcessingWorker, SuccessfulOriginalPublicationPreservesIndependentProcessorWarning) {
+    ProcessingFixture fixture;
+    processing::ProcessorStatus status;
+    status.mode=processing::ProcessorMode::OriginalOnlyLatched;
+    status.enhancementFailures=3;
+    status.error=std::make_shared<const core::Error>(core::Error{core::ErrorCategory::Processing,"enhancement_failed","Enhancement paused.","Retained original diagnostic",true});
+    fixture.processor.setStatus(status);
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    fixture.publishRaw(1); ASSERT_TRUE(fixture.processor.waitForCall(1)); fixture.processor.releaseCall(1);
+    ASSERT_TRUE(fixture.waitForBundleId(1));
+    auto snapshot=fixture.worker.snapshot();
+    EXPECT_FALSE(snapshot.currentError.has_value());
+    EXPECT_EQ(snapshot.processorStatus.mode,processing::ProcessorMode::OriginalOnlyLatched);
+    EXPECT_EQ(snapshot.processorStatus.error,status.error);
+    EXPECT_EQ(snapshot.processorStatus.enhancementFailures,3U);
+    EXPECT_EQ(snapshot.processingErrors,0U);
+}
+
 TEST(ProcessingWorker, ProcessesNewestAvailableFrameAfterDelay) {
     ProcessingFixture fixture;
     ASSERT_TRUE(fixture.worker.start().hasValue());

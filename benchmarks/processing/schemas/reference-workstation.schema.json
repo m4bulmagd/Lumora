@@ -1,0 +1,1321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reference-workstation.schema.json",
+  "$comment": "Structural owned-artifact schema. EvidenceValidation.cpp additionally enforces canonical definitions/ordered row products, all cross-field arithmetic, duplicate decoded JSON keys, and on-disk payload and reviewed attachment integrity. Validation is not authority to designate or accept a workstation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "status",
+    "designation",
+    "machine",
+    "cpu",
+    "gpu",
+    "ram",
+    "os",
+    "compiler",
+    "dependencies",
+    "drivers",
+    "power",
+    "threading",
+    "build",
+    "requirements",
+    "acceptance"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "artifactType": {
+      "const": "lumora.processing.reference-workstation"
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "accepted"
+      ]
+    },
+    "designation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "machineId",
+        "selectedBy",
+        "selectedUtc"
+      ],
+      "properties": {
+        "machineId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "selectedBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "selectedUtc": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "machine": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "manufacturer",
+            "model",
+            "firmware"
+          ],
+          "properties": {
+            "manufacturer": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "model": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "firmware": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cpu": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "manufacturer",
+            "model",
+            "architecture",
+            "physicalCores",
+            "logicalCores"
+          ],
+          "properties": {
+            "manufacturer": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "model": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "architecture": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "physicalCores": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "logicalCores": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "gpu": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "manufacturer",
+            "model",
+            "dedicatedMemoryBytes"
+          ],
+          "properties": {
+            "manufacturer": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "model": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "dedicatedMemoryBytes": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ram": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "installedBytes",
+            "speedMtPerSecond"
+          ],
+          "properties": {
+            "installedBytes": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "speedMtPerSecond": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "os": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "edition",
+            "version",
+            "build"
+          ],
+          "properties": {
+            "name": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "edition": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "version": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "build": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "compiler": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "version": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "dependencies": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "opencvVersion",
+            "opencvVcpkgPortVersion",
+            "vcpkgBaseline",
+            "qtVersion"
+          ],
+          "properties": {
+            "opencvVersion": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "opencvVcpkgPortVersion": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "vcpkgBaseline": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "qtVersion": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "drivers": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gpu",
+            "chipset"
+          ],
+          "properties": {
+            "gpu": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "chipset": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "power": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "plan",
+            "acPower",
+            "thermalCondition"
+          ],
+          "properties": {
+            "plan": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "acPower": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "thermalCondition": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threading": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threadModel",
+            "opencvThreads",
+            "logicalProcessorAffinity"
+          ],
+          "properties": {
+            "threadModel": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "opencvThreads": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "logicalProcessorAffinity": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "build": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "configuration",
+            "compileOptions",
+            "sourceRevision",
+            "sourceDirty",
+            "artifactSha256"
+          ],
+          "properties": {
+            "configuration": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "compileOptions": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sourceRevision": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sourceDirty": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "artifactSha256": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "requirements": {
+      "const": {
+        "standard2048P95MaxMilliseconds": 33.3,
+        "sustainedFpsMinimum": 30.0,
+        "requiredEvidence": [
+          "full_standard_benchmark",
+          "allocation_proof",
+          "reviewed_reference_manifest",
+          "freshness_60fps"
+        ]
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "benchmarkArtifactSha256",
+        "allocationArtifactSha256",
+        "referenceManifestSha256",
+        "freshnessArtifactSha256",
+        "approvedThresholds",
+        "approvedReferenceHashes",
+        "reviewedBy",
+        "reviewedUtc"
+      ],
+      "properties": {
+        "benchmarkArtifactSha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "allocationArtifactSha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "referenceManifestSha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "freshnessArtifactSha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approvedThresholds": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "caseId",
+                  "maxAbsoluteU16Error",
+                  "changedPixelFraction",
+                  "meanAbsoluteError"
+                ],
+                "properties": {
+                  "caseId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "maxAbsoluteU16Error": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "changedPixelFraction": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "meanAbsoluteError": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 65535
+                  }
+                }
+              },
+              "minItems": 6,
+              "maxItems": 6
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approvedReferenceHashes": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "caseId",
+                  "sourceSha256",
+                  "expectedSha256"
+                ],
+                "properties": {
+                  "caseId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sourceSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "expectedSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              },
+              "minItems": 6,
+              "maxItems": 6
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewedBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewedUtc": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "accepted"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "machine": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "manufacturer",
+              "model",
+              "firmware"
+            ],
+            "properties": {
+              "manufacturer": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "firmware": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "cpu": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "manufacturer",
+              "model",
+              "architecture",
+              "physicalCores",
+              "logicalCores"
+            ],
+            "properties": {
+              "manufacturer": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "architecture": {
+                "type": "string",
+                "minLength": 1
+              },
+              "physicalCores": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "logicalCores": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              }
+            }
+          },
+          "gpu": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "manufacturer",
+              "model",
+              "dedicatedMemoryBytes"
+            ],
+            "properties": {
+              "manufacturer": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "dedicatedMemoryBytes": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9223372036854775807
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "ram": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "installedBytes",
+              "speedMtPerSecond"
+            ],
+            "properties": {
+              "installedBytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "speedMtPerSecond": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9223372036854775807
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "os": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "edition",
+              "version",
+              "build"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "edition": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "build": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "compiler": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "version"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "dependencies": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "opencvVersion",
+              "opencvVcpkgPortVersion",
+              "vcpkgBaseline",
+              "qtVersion"
+            ],
+            "properties": {
+              "opencvVersion": {
+                "type": "string",
+                "minLength": 1
+              },
+              "opencvVcpkgPortVersion": {
+                "type": "string",
+                "minLength": 1
+              },
+              "vcpkgBaseline": {
+                "type": "string",
+                "minLength": 1
+              },
+              "qtVersion": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "drivers": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "gpu",
+              "chipset"
+            ],
+            "properties": {
+              "gpu": {
+                "type": "string",
+                "minLength": 1
+              },
+              "chipset": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "power": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "plan",
+              "acPower",
+              "thermalCondition"
+            ],
+            "properties": {
+              "plan": {
+                "type": "string",
+                "minLength": 1
+              },
+              "acPower": {
+                "type": "boolean"
+              },
+              "thermalCondition": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "threading": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "threadModel",
+              "opencvThreads",
+              "logicalProcessorAffinity"
+            ],
+            "properties": {
+              "threadModel": {
+                "type": "string",
+                "minLength": 1
+              },
+              "opencvThreads": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "logicalProcessorAffinity": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "build": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "configuration",
+              "compileOptions",
+              "sourceRevision",
+              "sourceDirty",
+              "artifactSha256"
+            ],
+            "properties": {
+              "configuration": {
+                "type": "string",
+                "minLength": 1
+              },
+              "compileOptions": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sourceRevision": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sourceDirty": {
+                "type": "boolean"
+              },
+              "artifactSha256": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "designation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "machineId",
+              "selectedBy",
+              "selectedUtc"
+            ],
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "selectedBy": {
+                "type": "string",
+                "minLength": 1
+              },
+              "selectedUtc": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "Z$"
+              }
+            }
+          },
+          "acceptance": {
+            "properties": {
+              "benchmarkArtifactSha256": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "allocationArtifactSha256": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "referenceManifestSha256": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "freshnessArtifactSha256": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "approvedThresholds": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "approvedReferenceHashes": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "reviewedBy": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "reviewedUtc": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "acceptance": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "benchmarkArtifactSha256",
+              "allocationArtifactSha256",
+              "referenceManifestSha256",
+              "freshnessArtifactSha256",
+              "approvedThresholds",
+              "approvedReferenceHashes",
+              "reviewedBy",
+              "reviewedUtc"
+            ],
+            "properties": {
+              "benchmarkArtifactSha256": {
+                "type": "null"
+              },
+              "allocationArtifactSha256": {
+                "type": "null"
+              },
+              "referenceManifestSha256": {
+                "type": "null"
+              },
+              "freshnessArtifactSha256": {
+                "type": "null"
+              },
+              "approvedThresholds": {
+                "type": "null"
+              },
+              "approvedReferenceHashes": {
+                "type": "null"
+              },
+              "reviewedBy": {
+                "type": "null"
+              },
+              "reviewedUtc": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

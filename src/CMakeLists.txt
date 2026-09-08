@@ -15,6 +15,8 @@ add_library(
   core/include/lumora/core/Clock.hpp
   core/include/lumora/core/Error.hpp
   core/include/lumora/core/Frame.hpp
+  core/include/lumora/core/FrameObjectPool.hpp
+  core/include/lumora/core/ProcessingTimings.hpp
   core/include/lumora/core/FrameMetadata.hpp
   core/include/lumora/core/ImageLayout.hpp
   core/include/lumora/core/LatestValueSlot.hpp
@@ -24,6 +26,10 @@ add_library(
   core/src/BufferPool.cpp
   core/src/Clock.cpp
   core/src/CheckedMath.cpp
+  core/src/FrameObjectPool.cpp
+  core/src/FrameObjectPoolState.hpp
+  core/src/FrameObjectPoolState.cpp
+  core/src/ProcessingTimings.cpp
   core/src/Frame.cpp
   core/src/FrameMetadata.cpp
   core/src/ImageLayout.cpp
@@ -42,23 +48,37 @@ add_library(
   processing/include/lumora/processing/NormalizeStage.hpp
   processing/include/lumora/processing/WindowLevelStage.hpp
   processing/include/lumora/processing/ClaheStage.hpp
+  processing/include/lumora/processing/DenoiseStage.hpp
+  processing/include/lumora/processing/SharpenStage.hpp
   processing/include/lumora/processing/ToneStages.hpp
   processing/include/lumora/processing/DisplayMapper.hpp
+  processing/include/lumora/processing/OrientationTransform.hpp
   processing/include/lumora/processing/ProcessingPipeline.hpp
   processing/include/lumora/processing/ProcessingWorkspace.hpp
   processing/include/lumora/processing/FrameProcessingEngine.hpp
   processing/src/ProcessingPipeline.cpp
   processing/src/ProcessingWorkspace.cpp
   processing/src/FrameProcessingEngine.cpp
+  processing/src/FrameExecution.cpp
+  processing/src/ProcessingPreparation.cpp
+  processing/src/PreparedStageFactory.cpp
+  processing/src/FrameEngineTestAccess.cpp
+  processing/src/ProcessorStatus.cpp
   processing/src/ImageView.cpp
   processing/src/NormalizeStage.cpp
   processing/src/WindowLevelStage.cpp
   processing/src/ClaheStage.cpp
+  processing/src/DetailStageSupport.hpp
+  processing/src/DetailStageSupport.cpp
+  processing/src/DenoiseStage.cpp
+  processing/src/SharpenStage.cpp
   processing/src/ToneStageSupport.hpp
   processing/src/BrightnessContrastStage.cpp
   processing/src/GammaStage.cpp
   processing/src/InvertStage.cpp
   processing/src/DisplayMapper.cpp
+  processing/src/OrientationTransform.cpp
+  processing/src/ProcessingDefaults.cpp
   processing/src/PipelineCompiler.cpp
   processing/src/Mono8PassThroughProcessor.cpp
 )
@@ -109,6 +129,7 @@ add_library(
   application/src/StartupPreferences.cpp
   application/include/lumora/application/LivePipeline.hpp
   application/src/LivePipeline.cpp
+  application/src/LiveResourcePreparation.cpp
 )
 add_library(lumora::application ALIAS lumora_application)
 target_include_directories(lumora_application PUBLIC

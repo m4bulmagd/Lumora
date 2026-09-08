@@ -29,6 +29,23 @@ static_assert(std::is_move_constructible_v<WritableBufferLease>);
 static_assert(std::is_same_v<decltype(std::declval<SharedBuffer>().bytes()),
                              std::span<const std::byte>>);
 
+TEST(BufferPool, PlanIncludesAlignedPixelsAndRequestedBookkeepingBeforeAllocation) {
+    const auto result = BufferPool::plan(3U, 1U);
+    ASSERT_TRUE(result.hasValue());
+    const auto& plan = result.value();
+    EXPECT_EQ(plan.capacity, 3U);
+    EXPECT_EQ(plan.bytesPerBuffer, 1U);
+    EXPECT_EQ(plan.blockStride, alignof(std::max_align_t));
+    EXPECT_EQ(plan.pixelStorageBytes, 3U * alignof(std::max_align_t));
+    EXPECT_EQ(plan.bookkeepingStorageBytes, 3U * (sizeof(std::size_t) + sizeof(std::atomic_size_t)));
+    EXPECT_GE(plan.fixedStorageBytes, sizeof(BufferPool));
+    EXPECT_EQ(plan.requiredStorageBytes, plan.pixelStorageBytes + plan.bookkeepingStorageBytes + plan.fixedStorageBytes);
+    EXPECT_FALSE(BufferPool::plan(0U, 1U).hasValue());
+    EXPECT_FALSE(BufferPool::plan(1U, 0U).hasValue());
+    EXPECT_FALSE(BufferPool::plan(1U, std::numeric_limits<std::size_t>::max()).hasValue());
+    EXPECT_FALSE(BufferPool::plan(std::numeric_limits<std::size_t>::max() / sizeof(std::atomic_size_t), 1U).hasValue());
+}
+
 TEST(BufferPool, RejectsInvalidAndOverflowingConfiguration) {
     const auto zeroCapacity = BufferPool::create(0U, 4096U);
     const auto zeroBytes = BufferPool::create(2U, 0U);

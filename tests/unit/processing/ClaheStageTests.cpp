@@ -2,9 +2,13 @@
 
 #include <gtest/gtest.h>
 
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cfenv>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
@@ -84,6 +88,60 @@ using lumora::processing::StageId;
         std::memcpy(output.data(), destinationBytes.data(), destinationBytes.size());
     }
     return output;
+}
+
+[[nodiscard]] std::vector<std::uint16_t> runPinnedOpenCv(
+    std::uint32_t width,
+    std::uint32_t height,
+    ClaheParameters parameters,
+    std::span<const std::uint16_t> input) {
+    cv::Mat source(static_cast<int>(height), static_cast<int>(width), CV_16UC1,
+        const_cast<std::uint16_t*>(input.data()),
+        static_cast<std::size_t>(width) * sizeof(std::uint16_t));
+    cv::Mat destination;
+    cv::createCLAHE(parameters.clipLimit,
+        cv::Size(static_cast<int>(parameters.tileGridSize),
+            static_cast<int>(parameters.tileGridSize)))
+        ->apply(source, destination);
+    std::vector<std::uint16_t> output(input.size());
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        std::memcpy(output.data() + static_cast<std::size_t>(y) * width,
+            destination.ptr(static_cast<int>(y)),
+            static_cast<std::size_t>(width) * sizeof(std::uint16_t));
+    }
+    return output;
+}
+
+enum class FixturePattern { Ramp, EdgeImpulses, Noise };
+
+[[nodiscard]] std::vector<std::uint16_t> makeFixture(
+    std::uint32_t width,
+    std::uint32_t height,
+    FixturePattern pattern) {
+    std::vector<std::uint16_t> values(
+        static_cast<std::size_t>(width) * height);
+    std::uint32_t state = 0xC001D00DU;
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            const auto index = static_cast<std::size_t>(y) * width + x;
+            switch (pattern) {
+            case FixturePattern::Ramp:
+                values[index] = static_cast<std::uint16_t>(
+                    (index * 7919U + x * 257U + y * 101U) & 0xFFFFU);
+                break;
+            case FixturePattern::EdgeImpulses:
+                values[index] = (x == 0U || y + 1U == height) ? 65535U
+                    : (x + 1U == width || y == 0U) ? 1U
+                    : static_cast<std::uint16_t>((x * 4093U + y * 6151U) & 0xFFFFU);
+                break;
+            case FixturePattern::Noise:
+                state = state * 1664525U + 1013904223U;
+                values[index] = static_cast<std::uint16_t>(state >> 16U);
+                break;
+            }
+        }
+    }
+    return values;
 }
 
 #if !defined(_WIN32)
@@ -230,7 +288,7 @@ TEST(ClaheStage, FactoryRejectsUnsafeOpenCvArithmeticBeforeAllocation) {
 }
 
 // Changing the declared scratch count lets preparation under-budget the stage.
-TEST(ClaheStage, ReportsCanonicalTraitsAndTwoPreparedBridgeImages) {
+TEST(ClaheStage, ReportsCanonicalTraitsWithoutImageScratch) {
     auto stage = createStage(4U, 4U, {.clipLimit = 2.0, .tileGridSize = 2U});
     ASSERT_NE(stage, nullptr);
     EXPECT_EQ(stage->id(), StageId::Clahe);
@@ -238,16 +296,18 @@ TEST(ClaheStage, ReportsCanonicalTraitsAndTwoPreparedBridgeImages) {
     EXPECT_EQ(stage->traits().inputDomain, ImageDomain::CanonicalU16);
     EXPECT_EQ(stage->traits().outputDomain, ImageDomain::CanonicalU16);
     EXPECT_FALSE(stage->traits().changesDimensions);
-    EXPECT_EQ(stage->traits().scratchImages, 2U);
+    EXPECT_EQ(stage->traits().scratchImages, 0U);
     EXPECT_EQ(stage->traits().historyFrames, 0U);
     EXPECT_FALSE(stage->traits().requiresCalibrationAsset);
+    EXPECT_EQ(stage->traits().backend,
+        lumora::processing::ExecutionBackend::Cpu);
 
     const auto registry = lumora::processing::stageRegistry();
     const auto entry = std::find_if(registry.begin(), registry.end(), [](const auto& traits) {
         return traits.id == StageId::Clahe;
     });
     ASSERT_NE(entry, registry.end());
-    EXPECT_EQ(entry->scratchImages, 2U);
+    EXPECT_EQ(entry->scratchImages, 0U);
 }
 
 // Dropping a view guard permits reinterpretation, stale preparation, or aliased writes.
@@ -527,6 +587,248 @@ TEST(ClaheStage, ProvisionalLinuxGradientBaseline) {
 
     EXPECT_EQ(runTight(*stage, 9U, 8U, input), expected);
 #endif
+}
+
+// Omitting bin-zero residual redistribution changes 8192, while omitting the
+// whole-bin batch changes 3 for the independently derived uniform fixtures.
+TEST(ClaheStage, RedistributesClippedHistogramFromBinZeroWithWholeBinBatch) {
+    {
+        const std::vector<std::uint16_t> input(8U * 8U, 0U);
+        auto stage = createStage(8U, 8U, {.clipLimit = 2.0, .tileGridSize = 2U});
+        ASSERT_NE(stage, nullptr);
+        const auto output = runTight(*stage, 8U, 8U, input);
+        EXPECT_TRUE(std::all_of(output.begin(), output.end(),
+            [](std::uint16_t value) { return value == 8192U; }));
+    }
+    {
+        const std::vector<std::uint16_t> input(514U * 514U, 0U);
+        auto stage = createStage(514U, 514U, {.clipLimit = 0.1, .tileGridSize = 2U});
+        ASSERT_NE(stage, nullptr);
+        const auto output = runTight(*stage, 514U, 514U, input);
+        EXPECT_TRUE(std::all_of(output.begin(), output.end(),
+            [](std::uint16_t value) { return value == 3U; }));
+    }
+}
+
+// Changing double-to-int truncation or ignoring clipLimit changes these pinned
+// two-level values. Tile area is exactly 65536, so nextafter(2,0) yields a
+// clip count of 1 and 2.0 yields 2.
+TEST(ClaheStage, ScalesAndTruncatesClipLimitAtKnownTileArea) {
+    constexpr std::uint32_t width = 512U;
+    constexpr std::uint32_t height = 512U;
+    std::vector<std::uint16_t> input(width * height, 1000U);
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        for (std::uint32_t x = 0U; x < width; x += 4U) {
+            input[static_cast<std::size_t>(y) * width + x] = 50000U;
+        }
+    }
+    struct Case final {
+        double clip;
+        std::uint16_t low;
+        std::uint16_t high;
+    };
+    const std::array cases{
+        Case{0.1, 1002U, 50002U},
+        Case{std::nextafter(2.0, 0.0), 1002U, 50002U},
+        Case{2.0, 1003U, 50004U},
+        Case{40.0, 1041U, 50080U},
+    };
+    for (const auto& testCase : cases) {
+        auto stage = createStage(width, height,
+            {.clipLimit = testCase.clip, .tileGridSize = 2U});
+        ASSERT_NE(stage, nullptr);
+        const auto output = runTight(*stage, width, height, input);
+        for (std::size_t index = 0U; index < output.size(); ++index) {
+            EXPECT_EQ(output[index], input[index] == 1000U
+                    ? testCase.low : testCase.high)
+                << index;
+        }
+    }
+}
+
+// Half-up rounding changes the fourth row to 10923 in the first fixture.
+// The literal 10922.5 rounds to even-down; 32767.5 rounds to even-up.
+TEST(ClaheStage, RoundsExactHalfTiesToEven) {
+    constexpr std::array<std::uint16_t, 12> evenDownInput{
+        10000U, 10000U, 20000U, 20000U, 30000U, 30000U,
+        0U, 0U, 40000U, 40000U, 50000U, 50000U};
+    constexpr std::array<std::uint16_t, 12> evenDownExpected{
+        21845U, 21845U, 43690U, 43690U, 58253U, 58253U,
+        10922U, 10922U, 47331U, 47331U, 65535U, 65535U};
+    constexpr std::array<std::uint16_t, 12> evenUpInput{
+        10000U, 10000U, 30000U, 30000U, 40000U, 40000U,
+        20000U, 20000U, 0U, 0U, 60000U, 60000U};
+    constexpr std::array<std::uint16_t, 12> evenUpExpected{
+        21845U, 21845U, 43690U, 43690U, 61894U, 61894U,
+        32768U, 32768U, 18204U, 18204U, 65535U, 65535U};
+    auto stage = createStage(2U, 6U, {.clipLimit = 2.0, .tileGridSize = 2U});
+    ASSERT_NE(stage, nullptr);
+    EXPECT_EQ(runTight(*stage, 2U, 6U, evenDownInput),
+        (std::vector<std::uint16_t>(evenDownExpected.begin(), evenDownExpected.end())));
+    EXPECT_EQ(runTight(*stage, 2U, 6U, evenUpInput),
+        (std::vector<std::uint16_t>(evenUpExpected.begin(), evenUpExpected.end())));
+}
+
+// A ceil-only reflected extent, wrong border mode, dropped low bits, or altered
+// float grouping differs from the pinned backend in at least one matrix case.
+TEST(ClaheStage, MatchesPinnedOpenCvAcrossGeometryClipAndInputMatrix) {
+    struct Case final {
+        std::uint32_t width;
+        std::uint32_t height;
+        std::uint32_t grid;
+        double clip;
+        FixturePattern pattern;
+    };
+    constexpr std::array cases{
+        Case{2U, 3U, 2U, 0.1, FixturePattern::EdgeImpulses},
+        Case{3U, 2U, 2U, 2.0, FixturePattern::Ramp},
+        Case{3U, 3U, 2U, 40.0, FixturePattern::Noise},
+        Case{9U, 8U, 2U, 2.0, FixturePattern::EdgeImpulses},
+        Case{8U, 9U, 2U, 40.0, FixturePattern::Ramp},
+        Case{9U, 9U, 2U, 0.1, FixturePattern::Noise},
+        Case{7U, 8U, 3U, 40.0, FixturePattern::EdgeImpulses},
+        Case{8U, 8U, 8U, 0.1, FixturePattern::Noise},
+        Case{9U, 10U, 8U, 2.0, FixturePattern::Ramp},
+        Case{32U, 33U, 32U, 40.0, FixturePattern::EdgeImpulses},
+    };
+    for (const auto& testCase : cases) {
+        SCOPED_TRACE(::testing::Message() << testCase.width << 'x' << testCase.height
+            << " grid=" << testCase.grid << " clip=" << testCase.clip);
+        const auto input = makeFixture(
+            testCase.width, testCase.height, testCase.pattern);
+        auto stage = createStage(testCase.width, testCase.height,
+            {.clipLimit = testCase.clip, .tileGridSize = testCase.grid});
+        ASSERT_NE(stage, nullptr);
+        EXPECT_EQ(runTight(*stage, testCase.width, testCase.height, input),
+            runPinnedOpenCv(testCase.width, testCase.height,
+                {.clipLimit = testCase.clip, .tileGridSize = testCase.grid}, input));
+    }
+}
+
+// Any omitted retained array or accidental bridge image changes these exact bytes.
+TEST(ClaheStage, ReportsExactPreparedScratchAndEnforcesBudget) {
+    const auto tiny = tightLayout(4U, 4U);
+    const auto tinyRequired = ClaheStage::requiredScratchBytes({2.0, 2U}, tiny);
+    ASSERT_TRUE(tinyRequired.hasValue());
+    EXPECT_EQ(tinyRequired.value(), 786528U);
+    EXPECT_EQ(ClaheStage::requiredScratchBytes({2.0, 2U}, tightLayout(5U, 6U)).value(),
+        786568U);
+    EXPECT_EQ(ClaheStage::requiredScratchBytes({2.0, 8U}, tightLayout(2048U, 2048U)).value(),
+        8699904U);
+
+    auto result = ClaheStage::create({2.0, 2U}, tiny, tinyRequired.value() - 1U);
+    ASSERT_FALSE(result.hasValue());
+    EXPECT_EQ(result.error().code, "clahe_scratch_budget_exceeded");
+    result = ClaheStage::create({2.0, 2U}, tiny, 0U);
+    ASSERT_FALSE(result.hasValue());
+    EXPECT_EQ(result.error().code, "clahe_scratch_budget_exceeded");
+    result = ClaheStage::create({2.0, 2U}, tiny, tinyRequired.value());
+    ASSERT_TRUE(result.hasValue());
+    EXPECT_EQ(result.value()->scratchBytes(), tinyRequired.value());
+}
+
+// Retained state contamination, stride caching, or unsafe U16 casts breaks the
+// tight-A / even-padded-B / unaligned-odd-padded-A sequence.
+TEST(ClaheStage, ReusesPreparedOwnerAcrossTightEvenAndOddStridedABA) {
+    constexpr std::uint32_t width = 5U;
+    constexpr std::uint32_t height = 6U;
+    const auto first = makeFixture(width, height, FixturePattern::EdgeImpulses);
+    const auto second = makeFixture(width, height, FixturePattern::Noise);
+    auto stage = createStage(width, height, {.clipLimit = 2.0, .tileGridSize = 2U});
+    ASSERT_NE(stage, nullptr);
+    const auto firstTight = runTight(*stage, width, height, first);
+
+    const auto runStrided = [&](std::span<const std::uint16_t> input,
+                                std::size_t stride,
+                                std::size_t offset,
+                                std::byte sourceCanary,
+                                std::byte destinationCanary) {
+        const auto payload = stride * static_cast<std::size_t>(height);
+        std::vector<std::byte> sourceStorage(offset + payload + 3U, sourceCanary);
+        std::vector<std::byte> destinationStorage(
+            offset + payload + 3U, destinationCanary);
+        for (std::uint32_t y = 0U; y < height; ++y) {
+            std::memcpy(sourceStorage.data() + offset + static_cast<std::size_t>(y) * stride,
+                input.data() + static_cast<std::size_t>(y) * width,
+                static_cast<std::size_t>(width) * sizeof(std::uint16_t));
+        }
+        const auto sourceBefore = sourceStorage;
+        const auto layout = ImageLayout::create(
+            width, height, stride, StorageType::UInt16, payload).value();
+        const auto source = ImageView::create(layout,
+            std::span(sourceStorage).subspan(offset), ImageDomain::CanonicalU16).value();
+        const auto destination = MutableImageView::create(layout,
+            std::span(destinationStorage).subspan(offset),
+            ImageDomain::CanonicalU16).value();
+        const auto processResult = stage->process(
+            source, destination, canonicalSourceFormat());
+        EXPECT_TRUE(processResult.hasValue());
+        EXPECT_EQ(sourceStorage, sourceBefore);
+
+        std::vector<std::uint16_t> output(input.size());
+        for (std::uint32_t y = 0U; y < height; ++y) {
+            std::memcpy(output.data() + static_cast<std::size_t>(y) * width,
+                destinationStorage.data() + offset + static_cast<std::size_t>(y) * stride,
+                static_cast<std::size_t>(width) * sizeof(std::uint16_t));
+            for (std::size_t byte = static_cast<std::size_t>(width) * 2U;
+                 byte < stride; ++byte) {
+                EXPECT_EQ(destinationStorage[
+                    offset + static_cast<std::size_t>(y) * stride + byte],
+                    destinationCanary);
+            }
+        }
+        for (std::size_t index = 0U; index < offset; ++index)
+            EXPECT_EQ(destinationStorage[index], destinationCanary);
+        for (std::size_t index = offset + payload;
+             index < destinationStorage.size(); ++index)
+            EXPECT_EQ(destinationStorage[index], destinationCanary);
+        return output;
+    };
+
+    const auto secondEven = runStrided(second, 14U, 0U,
+        std::byte{0x37}, std::byte{0x49});
+    EXPECT_EQ(secondEven, runPinnedOpenCv(width, height,
+        {.clipLimit = 2.0, .tileGridSize = 2U}, second));
+    const auto firstOdd = runStrided(first, 13U, 1U,
+        std::byte{0x5B}, std::byte{0x6D});
+    EXPECT_EQ(firstOdd, firstTight);
+}
+
+// Prepared float state is valid only under FE_TONEAREST. Rejection must occur
+// without destination writes, and the same object must remain reusable afterward.
+TEST(ClaheStage, RejectsUnsupportedRoundingModeAtomicallyAtCreateAndProcess) {
+    const int originalMode = std::fegetround();
+    ASSERT_NE(originalMode, -1);
+    ASSERT_EQ(std::fesetround(FE_DOWNWARD), 0);
+    auto rejected = ClaheStage::create({2.0, 2U}, tightLayout(4U, 4U));
+    ASSERT_EQ(std::fesetround(originalMode), 0);
+    ASSERT_FALSE(rejected.hasValue());
+    EXPECT_EQ(rejected.error().code, "clahe_rounding_mode_unsupported");
+
+    constexpr std::array<std::uint16_t, 16> input{
+        0U, 1U, 0U, 1U, 2U, 3U, 2U, 3U,
+        0U, 1U, 0U, 1U, 2U, 3U, 2U, 3U};
+    auto stage = createStage(4U, 4U, {.clipLimit = 2.0, .tileGridSize = 2U});
+    ASSERT_NE(stage, nullptr);
+    const auto expected = runTight(*stage, 4U, 4U, input);
+    const auto layout = tightLayout(4U, 4U);
+    std::array<std::byte, input.size() * sizeof(std::uint16_t)> sourceBytes{};
+    std::memcpy(sourceBytes.data(), input.data(), sourceBytes.size());
+    std::array<std::byte, input.size() * sizeof(std::uint16_t)> destinationBytes{};
+    destinationBytes.fill(std::byte{0xA5});
+    const auto before = destinationBytes;
+    const auto source = ImageView::create(
+        layout, sourceBytes, ImageDomain::CanonicalU16).value();
+    const auto destination = MutableImageView::create(
+        layout, destinationBytes, ImageDomain::CanonicalU16).value();
+
+    ASSERT_EQ(std::fesetround(FE_UPWARD), 0);
+    const auto processResult = stage->process(source, destination, canonicalSourceFormat());
+    ASSERT_EQ(std::fesetround(originalMode), 0);
+    ASSERT_FALSE(processResult.hasValue());
+    EXPECT_EQ(processResult.error().code, "clahe_rounding_mode_unsupported");
+    EXPECT_EQ(destinationBytes, before);
+    EXPECT_EQ(runTight(*stage, 4U, 4U, input), expected);
 }
 
 }  // namespace

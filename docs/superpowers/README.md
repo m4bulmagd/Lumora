@@ -50,7 +50,7 @@ These are intentional deferred inputs, not contradictions and not permission to 
 | External signing | Before any external package | Organization signing identity/certificate custody, timestamp service, protected pipeline, and release authority. |
 | Clinical release | Before enabling a clinical build class | Separately approved Egypt-specific regulatory and clinical program with traceability and release authority. |
 
-M1-M5 may proceed without a selected physical camera. The [2026-09-07 continuation](../architecture/milestones/m07-preflight.md) permits simulator-only M7 implementation while M4/M5 native Windows checks and M6 remain pending. The owner's subsequent approval extends development to [M8 Task 1](../architecture/milestones/m08-tone-stages.md). These exceptions do not authorize M6 implementation without its profile or acceptance of the deferred milestones.
+M1-M5 may proceed without a selected physical camera. The [2026-09-07 continuation](../architecture/milestones/m07-preflight.md) permits simulator-only M7 implementation while M4/M5 native Windows checks and M6 remain pending. The owner's subsequent approvals extend development through the [M8 implementation continuation](../architecture/milestones/m08-continuation.md). These exceptions do not authorize M6 implementation without its profile or acceptance of the deferred milestones.
 
 ## M4 verification and scoped deferral (2026-09-07)
 
@@ -81,3 +81,9 @@ The owner approved the [bounded tone-stage continuation](../architecture/milesto
 ## M8 Task 2 CLAHE continuation (2026-09-08)
 
 The owner approved bounded [U16 CLAHE development](../architecture/milestones/m08-clahe.md) after Task 1 integration. The prepared, single-worker stage preserves the existing const interface and supports padded/unaligned U16 views through aligned bridge buffers. A provisional Linux fixture does not supply the designated Windows reference; reviewed cross-platform tolerances and OpenCV's known per-apply allocations remain explicit acceptance gaps. Tasks 3–5 and M9 UI are subsequent work.
+
+## M8 remaining implementation continuation (2026-09-08)
+
+The owner subsequently authorized [Tasks 3–5](../architecture/milestones/m08-continuation.md). Detail stages, shared orientation, pooled output ownership and a native prepared CLAHE backend are implemented and independently reviewed on `feat/m08-completion`, with passing Linux/Windows CI at the recorded checkpoints. The native backend preserves pinned CLAHE arithmetic while removing the per-call backend allocation gap. Complete execution, resource admission and fallback/retry are also implemented and independently reviewed; shared Standard and benchmark/reference/allocation tooling are implemented and independently reviewed. Complete execution now passes both platform CI jobs at `a4de229`; the final tooling and branch verification below follow the same authorization. M9 configuration controls remain subsequent work. Designated Windows references, workstation performance, deferred M4/M5 checks and M6 hardware entry remain separate gates.
+
+Remaining M8 source is now independently approved through `73eb61f` with passing Linux/Windows Debug/Release CI and normal Standard allocation proofs. The [final continuation evidence](../architecture/milestones/m08-continuation.md#normal-release-characterization-and-allocation-evidence) records the actual Linux timing gap: 2048 P95 is 282.6 ms identity / 411.0 ms oriented, so 33.3 ms/30 FPS acceptance is not met on this host. Latency optimization is the next development priority before high-resolution real-time claims; M9 presets/controls/Compare remain planned afterward. The designated Windows and earlier deferred gates remain intact. Integration is still pending.

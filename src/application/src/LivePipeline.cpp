@@ -1,4 +1,5 @@
 #include <lumora/application/LivePipeline.hpp>
+#include "LiveResourcePreparation.hpp"
 #include <lumora/application/StartupPreferences.hpp>
 #include <lumora/core/CheckedMath.hpp>
 #include <lumora/processing/FrameProcessingEngine.hpp>
@@ -7,6 +8,7 @@
 #include <atomic>
 #include <cmath>
 #include <thread>
+#include <utility>
 
 namespace lumora::application {
 namespace {
@@ -16,54 +18,16 @@ core::Error failure(std::string code, std::string detail,
     return {category,std::move(code),"Live pipeline operation failed.",std::move(detail),false};
 }
 
-struct ResourcePlan final {
-    core::ImageLayout sourceLayout;
-    std::size_t rawBytes;
-    std::size_t canonicalBytes;
-    std::size_t displayBytes;
-    std::size_t totalBytes;
-};
-core::Result<ResourcePlan> planResources(const camera::CameraConfiguration& request) {
-    using PlanResult = core::Result<ResourcePlan>;
-    auto format = core::validateSourcePixelFormat(request.pixelFormat);
-    if (!format.hasValue()) return PlanResult::failure(format.error());
-    if (request.roi.width == 0 || request.roi.height == 0 || !request.requestedFps
-        || !std::isfinite(*request.requestedFps) || *request.requestedFps <= 0
-        || request.acquisitionMode != camera::AcquisitionMode::Continuous) {
-        return PlanResult::failure(failure("unsupported_pipeline_mode",
-            "The pipeline requires nonzero dimensions and a finite positive-rate continuous native mode."));
-    }
-    const auto sampleBytes = request.pixelFormat.applicationStorage == core::StorageType::UInt8 ? 1U : 2U;
-    auto pixels = core::checkedMultiply(request.roi.width, request.roi.height);
-    if (!pixels.hasValue()) return PlanResult::failure(pixels.error());
-    auto stride = core::checkedMultiply(request.roi.width, sampleBytes);
-    if (!stride.hasValue()) return PlanResult::failure(stride.error());
-    auto rawBytes = core::checkedMultiply(stride.value(), request.roi.height);
-    if (!rawBytes.hasValue()) return PlanResult::failure(rawBytes.error());
-    auto canonicalBytes = core::checkedMultiply(pixels.value(), 2U);
-    if (!canonicalBytes.hasValue()) return PlanResult::failure(canonicalBytes.error());
-    const std::array<std::pair<std::size_t, std::size_t>, 3> pools{{
-        {10U, rawBytes.value()}, {9U, canonicalBytes.value()}, {16U, pixels.value()}}};
-    std::size_t total = 0;
-    for (const auto& [count, bytes] : pools) {
-        auto poolBytes = core::checkedMultiply(count, bytes);
-        if (!poolBytes.hasValue()) return PlanResult::failure(poolBytes.error());
-        auto accumulated = core::checkedAdd(total, poolBytes.value());
-        if (!accumulated.hasValue()) return PlanResult::failure(accumulated.error());
-        total = accumulated.value();
-    }
-    auto layout = core::ImageLayout::create(request.roi.width, request.roi.height,
-        stride.value(), request.pixelFormat.applicationStorage, rawBytes.value());
-    if (!layout.hasValue()) return PlanResult::failure(layout.error());
-    return PlanResult::success({layout.value(), rawBytes.value(), canonicalBytes.value(), pixels.value(), total});
-}
+
 }
 struct LivePipeline::Impl {
     camera::ICameraProvider& provider;
     core::IClock& clock;
     camera::CameraConfiguration fixed;
     ProcessorFactory factory;
-    std::optional<ResourcePlan> resources;
+    std::optional<detail::LiveResourcePreparation> resources;
+    processing::ProcessingPreparationOptions preparationOptions;
+    std::optional<std::uint64_t> retryIntent;
     mutable std::mutex mutex;
     std::condition_variable_any changed;
     LivePipelineSnapshot state;
@@ -84,9 +48,10 @@ struct LivePipeline::Impl {
     bool started{false};
     bool terminal{false};
 
-    Impl(camera::ICameraProvider& p,core::IClock& c,camera::CameraConfiguration request,ProcessorFactory f)
-        :provider(p),clock(c),fixed(std::move(request)),factory(std::move(f)) {}
+    Impl(camera::ICameraProvider& p,core::IClock& c,camera::CameraConfiguration request,ProcessorFactory f,processing::ProcessingPreparationOptions options)
+        :provider(p),clock(c),fixed(std::move(request)),factory(std::move(f)),preparationOptions(options) {}
     void stopWorkers() noexcept {
+        { std::lock_guard lock(mutex); state.processingAvailable=false; state.processingRetryPending=false; retryIntent.reset(); state.processing={}; }
         if(cameraWorker) { cameraWorker->requestStop(); cameraWorker->join(); cameraWorker.reset(); }
         if(processingWorker) { processingWorker->requestStop(); processingWorker->join(); processingWorker.reset(); }
         processor.reset(); cameraCommands.reset(); cameraStatus.reset();
@@ -105,12 +70,12 @@ struct LivePipeline::Impl {
         if(!display.hasValue()) return Result::failure(display.error());
         prepared->displayPool=std::move(display.value());
         if(factory) {
-            auto made=factory(*prepared->processingPool, *prepared->displayPool, plan.sourceLayout);
+            auto made=factory(*prepared->processingPool, *prepared->displayPool, *plan.sourceLayout);
             if(!made.hasValue()) return Result::failure(made.error());
             processor=std::move(made.value());
         } else {
             auto made = processing::FrameProcessingEngine::create(*prepared->processingPool,
-                *prepared->displayPool, plan.sourceLayout);
+                *prepared->displayPool, *plan.enginePlan);
             if (!made.hasValue()) return Result::failure(made.error());
             processor = std::move(made).value();
         }
@@ -128,18 +93,24 @@ struct LivePipeline::Impl {
         if(!cameraStarted.hasValue()) return cameraStarted;
         statusRevision=0;
         auto initialSnapshot=std::make_shared<CameraStatusSnapshot>(std::move(seed));
+        const auto initialProcessingStatus=processor->status();
         {
             std::lock_guard lock(mutex);
             state.context=context;
             state.contextBound=false;
             state.camera=std::move(initialSnapshot);
+            state.processing={}; state.processing.processorStatus=initialProcessingStatus;
+            state.processingAvailable=true; state.processingRetryPending=false; retryIntent.reset();
         }
         return Result::success();
     }
     void observe() {
         if(processingWorker) {
             auto diagnostics=processingWorker->snapshot();
-            std::lock_guard lock(mutex);state.processing=std::move(diagnostics);
+            diagnostics.processorStatus=processor->status();
+            std::lock_guard lock(mutex);
+            state.processingRetryPending=retryIntent.has_value() || diagnostics.processorStatus.retryPending;
+            state.processing=std::move(diagnostics);
         }
         if(!cameraStatus) return;
         auto value=cameraStatus->consumeAfter(statusRevision);
@@ -156,6 +127,17 @@ struct LivePipeline::Impl {
         if(outcome && active && outcome->requestId==active->requestId) {
             state.ordinaryOutcome=outcome;
             active.reset();
+        }
+    }
+    void dispatchProcessingRetry() {
+        std::optional<std::uint64_t> intent;
+        { std::lock_guard lock(mutex); intent=std::exchange(retryIntent,std::nullopt); }
+        if(!intent) return;
+        const bool accepted=context && context->generation==*intent && processor && processor->requestRetry();
+        auto status=processor ? processor->status() : processing::ProcessorStatus{};
+        { std::lock_guard lock(mutex);
+            state.processingRetryPending=retryIntent.has_value() || (accepted && status.retryPending);
+            state.processing.processorStatus=std::move(status);
         }
     }
     void send(CameraCommand command,bool isPriority) {
@@ -226,6 +208,7 @@ struct LivePipeline::Impl {
             auto ready=prepare(seed);
             if(!ready.hasValue()) { std::lock_guard lock(mutex);state.error=ready.error(); }
             while(ready.hasValue() && !stop.stop_requested()) {
+                dispatchProcessingRetry();
                 observe();
                 bool bound=false;
                 { std::lock_guard lock(mutex);bound=state.contextBound; }
@@ -270,15 +253,16 @@ struct LivePipeline::Impl {
     }
 };
 LivePipeline::LivePipeline(camera::ICameraProvider& provider,core::IClock& clock,
-    camera::CameraConfiguration request,ProcessorFactory factory)
-    :impl_(std::make_unique<Impl>(provider,clock,std::move(request),std::move(factory))) {}
+    camera::CameraConfiguration request,ProcessorFactory factory,processing::ProcessingPreparationOptions options)
+    :impl_(std::make_unique<Impl>(provider,clock,std::move(request),std::move(factory),options)) {}
 LivePipeline::~LivePipeline() { shutdown(); }
 Result LivePipeline::start() {
     std::lock_guard lock(impl_->mutex);
     if(impl_->started || impl_->terminal) return Result::failure(failure("pipeline_already_started","Pipeline is single-use."));
-    auto resources = planResources(impl_->fixed);
-    if (!resources.hasValue()) return Result::failure(resources.error());
-    impl_->resources = std::move(resources).value();
+    auto resources = detail::prepareLiveResources(impl_->fixed,impl_->preparationOptions,static_cast<bool>(impl_->factory));
+    impl_->state.resources=resources.resources;
+    if(resources.error) { impl_->state.error=resources.error; return Result::failure(std::move(*resources.error)); }
+    impl_->resources=std::move(resources);
     impl_->started=true;
     impl_->accepting.store(true);
     try { impl_->control=std::jthread([this]{impl_->run(impl_->cancellation.get_token());}); }
@@ -301,6 +285,18 @@ Result LivePipeline::post(CameraCommand command) {
         apply && !cameraConfigurationsEqual(apply->configuration,impl_->fixed))
         return Result::failure(failure("unsupported_pipeline_request","The pipeline accepts only its explicit fixed configuration."));
     auto result=impl_->incoming.post(std::move(command));impl_->changed.notify_all();return result;
+}
+Result LivePipeline::requestProcessingRetry(std::uint64_t generation) {
+    std::lock_guard lock(impl_->mutex);
+    if(impl_->state.context && impl_->state.context->generation!=generation)
+        return Result::failure(failure("stale_processing_session","The processing session was replaced."));
+    if(!impl_->accepting.load() || impl_->terminal || !impl_->state.context || !impl_->state.processingAvailable
+        || !impl_->state.processing.processorStatus.retrySupported)
+        return Result::failure(failure("processing_retry_unavailable","Processing retry is unavailable."));
+    if(!impl_->state.processingRetryPending) impl_->retryIntent=generation;
+    impl_->state.processingRetryPending=true;
+    impl_->changed.notify_all();
+    return Result::success();
 }
 LivePipelineSnapshot LivePipeline::snapshot() const { std::lock_guard lock(impl_->mutex);return impl_->state; }
 Result LivePipeline::acknowledgeContext(std::uint64_t generation) {

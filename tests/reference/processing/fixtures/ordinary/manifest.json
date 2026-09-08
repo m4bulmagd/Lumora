@@ -1,0 +1,637 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "lumora.processing.reference-manifest",
+  "status": "pending",
+  "sizeProfile": "ordinary",
+  "complete": true,
+  "updatedUtc": "2026-09-08T00:00:00.000Z",
+  "pipelineDefinition": {
+    "configurationRevision": 0,
+    "orderVersion": 1,
+    "schemaVersion": 1,
+    "stages": [
+      {
+        "enabled": true,
+        "id": "normalize",
+        "parameters": {}
+      },
+      {
+        "enabled": true,
+        "id": "window_level",
+        "parameters": {
+          "level": 32767.5,
+          "window": 65535
+        }
+      },
+      {
+        "enabled": true,
+        "id": "brightness_contrast",
+        "parameters": {
+          "brightness": 0,
+          "contrast": 1
+        }
+      },
+      {
+        "enabled": true,
+        "id": "gamma",
+        "parameters": {
+          "gamma": 1
+        }
+      },
+      {
+        "enabled": true,
+        "id": "clahe",
+        "parameters": {
+          "clipLimit": 2,
+          "tileGridSize": 8
+        }
+      },
+      {
+        "enabled": true,
+        "id": "denoise",
+        "parameters": {
+          "kernelSize": 3,
+          "mode": "gaussian",
+          "sigma": 0
+        }
+      },
+      {
+        "enabled": true,
+        "id": "sharpen",
+        "parameters": {
+          "amount": 1,
+          "radius": 1,
+          "threshold": 0
+        }
+      },
+      {
+        "enabled": false,
+        "id": "invert",
+        "parameters": {}
+      }
+    ]
+  },
+  "cases": [
+    {
+      "acceptance": {
+        "status": "exact",
+        "thresholds": {
+          "maxAbsoluteU16Error": 0,
+          "changedPixelFraction": 0.0,
+          "meanAbsoluteError": 0.0
+        },
+        "review": null
+      },
+      "caseId": "normalize_mono12_ramp",
+      "classification": "exact_independent",
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 1,
+        "width": 257
+      },
+      "pattern": {
+        "height": 1,
+        "id": "ramp_u16_v1",
+        "maximum": 4095,
+        "seed": null,
+        "version": 1,
+        "width": 257
+      },
+      "source": {
+        "file": "normalize_mono12_ramp-source.pgm",
+        "width": 257,
+        "height": 1,
+        "sha256": "ed13f7803ff27a16e47a73de109021d3c0a4eddd4a4197a972ee9f8cbaac1c47",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      },
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825797,
+        "canonicalName": "Mono12",
+        "nativeDimensions": {
+          "height": 1,
+          "width": 257
+        },
+        "packing": "unpacked",
+        "payloadBytes": 514,
+        "sampleMaximum": 4095,
+        "strideBytes": 514,
+        "validBits": 12
+      },
+      "stage": {
+        "enabled": true,
+        "fullStandardExecuted": false,
+        "id": "normalize",
+        "implementation": "Lumora exact scalar/coordinate implementation",
+        "outputStorage": "uint16",
+        "parameters": {},
+        "provenance": "Independent rational/identity/inverse-coordinate oracle; reviewed generator SHA256 89c056d22dc87584a75b080237b155ebdd3c90a38486f7c31f2836c41505ec30",
+        "scope": "standalone_stage",
+        "sourceDomain": "sensor_native",
+        "variant": "standard"
+      },
+      "expected": {
+        "file": "normalize_mono12_ramp-expected.pgm",
+        "width": 257,
+        "height": 1,
+        "sha256": "35232dfbfea37ca6f7127993e6af9b391860cdcde4b6dd3dc74afbb6f2d3fc95",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      }
+    },
+    {
+      "acceptance": {
+        "status": "exact",
+        "thresholds": {
+          "maxAbsoluteU16Error": 0,
+          "changedPixelFraction": 0.0,
+          "meanAbsoluteError": 0.0
+        },
+        "review": null
+      },
+      "caseId": "window_level_gradient",
+      "classification": "exact_independent",
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 53,
+        "width": 67
+      },
+      "pattern": {
+        "height": 53,
+        "id": "gradient_xy_u16_v1",
+        "maximum": 65535,
+        "seed": null,
+        "version": 1,
+        "width": 67
+      },
+      "source": {
+        "file": "window_level_gradient-source.pgm",
+        "width": 67,
+        "height": 53,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      },
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 53,
+          "width": 67
+        },
+        "packing": "unpacked",
+        "payloadBytes": 7102,
+        "sampleMaximum": 65535,
+        "strideBytes": 134,
+        "validBits": 16
+      },
+      "stage": {
+        "enabled": true,
+        "fullStandardExecuted": false,
+        "id": "window_level",
+        "implementation": "Lumora exact scalar/coordinate implementation",
+        "outputStorage": "uint16",
+        "parameters": {
+          "level": 32767.5,
+          "window": 65535
+        },
+        "provenance": "Independent rational/identity/inverse-coordinate oracle; reviewed generator SHA256 89c056d22dc87584a75b080237b155ebdd3c90a38486f7c31f2836c41505ec30",
+        "scope": "standalone_stage",
+        "sourceDomain": "canonical_u16",
+        "variant": "standard"
+      },
+      "expected": {
+        "file": "window_level_gradient-expected.pgm",
+        "width": 67,
+        "height": 53,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      }
+    },
+    {
+      "acceptance": {
+        "status": "exact",
+        "thresholds": {
+          "maxAbsoluteU16Error": 0,
+          "changedPixelFraction": 0.0,
+          "meanAbsoluteError": 0.0
+        },
+        "review": null
+      },
+      "caseId": "brightness_contrast_gradient",
+      "classification": "exact_independent",
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 53,
+        "width": 67
+      },
+      "pattern": {
+        "height": 53,
+        "id": "gradient_xy_u16_v1",
+        "maximum": 65535,
+        "seed": null,
+        "version": 1,
+        "width": 67
+      },
+      "source": {
+        "file": "brightness_contrast_gradient-source.pgm",
+        "width": 67,
+        "height": 53,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      },
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 53,
+          "width": 67
+        },
+        "packing": "unpacked",
+        "payloadBytes": 7102,
+        "sampleMaximum": 65535,
+        "strideBytes": 134,
+        "validBits": 16
+      },
+      "stage": {
+        "enabled": true,
+        "fullStandardExecuted": false,
+        "id": "brightness_contrast",
+        "implementation": "Lumora exact scalar/coordinate implementation",
+        "outputStorage": "uint16",
+        "parameters": {
+          "brightness": 0,
+          "contrast": 1
+        },
+        "provenance": "Independent rational/identity/inverse-coordinate oracle; reviewed generator SHA256 89c056d22dc87584a75b080237b155ebdd3c90a38486f7c31f2836c41505ec30",
+        "scope": "standalone_stage",
+        "sourceDomain": "canonical_u16",
+        "variant": "standard"
+      },
+      "expected": {
+        "file": "brightness_contrast_gradient-expected.pgm",
+        "width": 67,
+        "height": 53,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      }
+    },
+    {
+      "acceptance": {
+        "status": "exact",
+        "thresholds": {
+          "maxAbsoluteU16Error": 0,
+          "changedPixelFraction": 0.0,
+          "meanAbsoluteError": 0.0
+        },
+        "review": null
+      },
+      "caseId": "gamma_gradient",
+      "classification": "exact_independent",
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 53,
+        "width": 67
+      },
+      "pattern": {
+        "height": 53,
+        "id": "gradient_xy_u16_v1",
+        "maximum": 65535,
+        "seed": null,
+        "version": 1,
+        "width": 67
+      },
+      "source": {
+        "file": "gamma_gradient-source.pgm",
+        "width": 67,
+        "height": 53,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      },
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 53,
+          "width": 67
+        },
+        "packing": "unpacked",
+        "payloadBytes": 7102,
+        "sampleMaximum": 65535,
+        "strideBytes": 134,
+        "validBits": 16
+      },
+      "stage": {
+        "enabled": true,
+        "fullStandardExecuted": false,
+        "id": "gamma",
+        "implementation": "Lumora exact scalar/coordinate implementation",
+        "outputStorage": "uint16",
+        "parameters": {
+          "gamma": 1
+        },
+        "provenance": "Independent rational/identity/inverse-coordinate oracle; reviewed generator SHA256 89c056d22dc87584a75b080237b155ebdd3c90a38486f7c31f2836c41505ec30",
+        "scope": "standalone_stage",
+        "sourceDomain": "canonical_u16",
+        "variant": "standard"
+      },
+      "expected": {
+        "file": "gamma_gradient-expected.pgm",
+        "width": 67,
+        "height": 53,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      }
+    },
+    {
+      "acceptance": {
+        "status": "exact",
+        "thresholds": {
+          "maxAbsoluteU16Error": 0,
+          "changedPixelFraction": 0.0,
+          "meanAbsoluteError": 0.0
+        },
+        "review": null
+      },
+      "caseId": "invert_ramp",
+      "classification": "exact_independent",
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rotation": "degrees0"
+      },
+      "orientedDimensions": {
+        "height": 1,
+        "width": 257
+      },
+      "pattern": {
+        "height": 1,
+        "id": "ramp_u16_v1",
+        "maximum": 65535,
+        "seed": null,
+        "version": 1,
+        "width": 257
+      },
+      "source": {
+        "file": "invert_ramp-source.pgm",
+        "width": 257,
+        "height": 1,
+        "sha256": "7f40d1fcbb25bff37a52ad8b175652fe08d403829af4d26dc10ef2f020447132",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      },
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 1,
+          "width": 257
+        },
+        "packing": "unpacked",
+        "payloadBytes": 514,
+        "sampleMaximum": 65535,
+        "strideBytes": 514,
+        "validBits": 16
+      },
+      "stage": {
+        "enabled": true,
+        "fullStandardExecuted": false,
+        "id": "invert",
+        "implementation": "Lumora exact scalar/coordinate implementation",
+        "outputStorage": "uint16",
+        "parameters": {},
+        "provenance": "Independent rational/identity/inverse-coordinate oracle; reviewed generator SHA256 89c056d22dc87584a75b080237b155ebdd3c90a38486f7c31f2836c41505ec30",
+        "scope": "standalone_stage",
+        "sourceDomain": "canonical_u16",
+        "variant": "standard"
+      },
+      "expected": {
+        "file": "invert_ramp-expected.pgm",
+        "width": 257,
+        "height": 1,
+        "sha256": "bbfdb09c760f97d86caf17c623fe70982334a06c3bfbc8c0e4222001ac047586",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      }
+    },
+    {
+      "acceptance": {
+        "status": "exact",
+        "thresholds": {
+          "maxAbsoluteU16Error": 0,
+          "changedPixelFraction": 0.0,
+          "meanAbsoluteError": 0.0
+        },
+        "review": null
+      },
+      "caseId": "orientation_asymmetric_gray8",
+      "classification": "exact_independent",
+      "orientation": {
+        "flipHorizontal": true,
+        "flipVertical": false,
+        "rotation": "degrees90"
+      },
+      "orientedDimensions": {
+        "height": 7,
+        "width": 5
+      },
+      "pattern": {
+        "height": 5,
+        "id": "orientation_asymmetric_u16_v1",
+        "maximum": 65535,
+        "seed": null,
+        "version": 1,
+        "width": 7
+      },
+      "source": {
+        "file": "orientation_asymmetric_gray8-source.pgm",
+        "width": 7,
+        "height": 5,
+        "sha256": "95cc6518b96de5cf867d40fad0bb8a0abaddd53fba95d716bee7999f629efcae",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      },
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 5,
+          "width": 7
+        },
+        "packing": "unpacked",
+        "payloadBytes": 70,
+        "sampleMaximum": 65535,
+        "strideBytes": 14,
+        "validBits": 16
+      },
+      "stage": {
+        "enabled": true,
+        "fullStandardExecuted": false,
+        "id": "orientation",
+        "implementation": "Lumora exact scalar/coordinate implementation",
+        "outputStorage": "gray8",
+        "parameters": {
+          "orientation": {
+            "flipHorizontal": true,
+            "flipVertical": false,
+            "rotation": "degrees90"
+          },
+          "terminalMapping": "nearest_positive_v_div_257"
+        },
+        "provenance": "Independent rational/identity/inverse-coordinate oracle; reviewed generator SHA256 89c056d22dc87584a75b080237b155ebdd3c90a38486f7c31f2836c41505ec30",
+        "scope": "presentation_operations",
+        "sourceDomain": "canonical_u16",
+        "variant": "gray8"
+      },
+      "expected": {
+        "file": "orientation_asymmetric_gray8-expected.pgm",
+        "width": 5,
+        "height": 7,
+        "sha256": "980213f8f436c6c54fa4a6e9476f1833937c5752fb088194552678522e4f96b8",
+        "payloadEncoding": "gray8_zero_extended_to_u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      }
+    },
+    {
+      "acceptance": {
+        "status": "exact",
+        "thresholds": {
+          "maxAbsoluteU16Error": 0,
+          "changedPixelFraction": 0.0,
+          "meanAbsoluteError": 0.0
+        },
+        "review": null
+      },
+      "caseId": "orientation_asymmetric_gray16",
+      "classification": "exact_independent",
+      "orientation": {
+        "flipHorizontal": false,
+        "flipVertical": true,
+        "rotation": "degrees270"
+      },
+      "orientedDimensions": {
+        "height": 7,
+        "width": 5
+      },
+      "pattern": {
+        "height": 5,
+        "id": "orientation_asymmetric_u16_v1",
+        "maximum": 65535,
+        "seed": null,
+        "version": 1,
+        "width": 7
+      },
+      "source": {
+        "file": "orientation_asymmetric_gray16-source.pgm",
+        "width": 7,
+        "height": 5,
+        "sha256": "95cc6518b96de5cf867d40fad0bb8a0abaddd53fba95d716bee7999f629efcae",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      },
+      "sourceDescriptor": {
+        "alignment": "least_significant",
+        "applicationStorage": "uint16",
+        "canonicalEncoding": 17825799,
+        "canonicalName": "Mono16",
+        "nativeDimensions": {
+          "height": 5,
+          "width": 7
+        },
+        "packing": "unpacked",
+        "payloadBytes": 70,
+        "sampleMaximum": 65535,
+        "strideBytes": 14,
+        "validBits": 16
+      },
+      "stage": {
+        "enabled": true,
+        "fullStandardExecuted": false,
+        "id": "orientation",
+        "implementation": "Lumora exact scalar/coordinate implementation",
+        "outputStorage": "uint16",
+        "parameters": {
+          "orientation": {
+            "flipHorizontal": false,
+            "flipVertical": true,
+            "rotation": "degrees270"
+          },
+          "terminalMapping": "identity_u16"
+        },
+        "provenance": "Independent rational/identity/inverse-coordinate oracle; reviewed generator SHA256 89c056d22dc87584a75b080237b155ebdd3c90a38486f7c31f2836c41505ec30",
+        "scope": "presentation_operations",
+        "sourceDomain": "display",
+        "variant": "gray16"
+      },
+      "expected": {
+        "file": "orientation_asymmetric_gray16-expected.pgm",
+        "width": 5,
+        "height": 7,
+        "sha256": "72a70ce321aca5842472b109483e14c807ddba00ec9a8fccffc658165eba17b7",
+        "payloadEncoding": "u16_big_endian",
+        "format": "pgm_p5_u16",
+        "maxValue": 65535,
+        "byteOrder": "big_endian"
+      }
+    }
+  ]
+}

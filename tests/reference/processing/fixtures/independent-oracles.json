@@ -1,0 +1,896 @@
+{
+  "status": "independent_oracle_preparation",
+  "productVerification": false,
+  "designatedWorkstationAcceptance": false,
+  "generatorSha256": "89c056d22dc87584a75b080237b155ebdd3c90a38486f7c31f2836c41505ec30",
+  "cases": [
+    {
+      "kind": "candidate",
+      "caseId": "normalize_mono12_ramp",
+      "sizeProfile": "ordinary",
+      "source": {
+        "file": "normalize_mono12_ramp-source.pgm",
+        "width": 257,
+        "height": 1,
+        "fileBytes": 529,
+        "sha256": "ed13f7803ff27a16e47a73de109021d3c0a4eddd4a4197a972ee9f8cbaac1c47",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "normalize_mono12_ramp-expected.pgm",
+        "width": 257,
+        "height": 1,
+        "fileBytes": 529,
+        "sha256": "35232dfbfea37ca6f7127993e6af9b391860cdcde4b6dd3dc74afbb6f2d3fc95",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "standalone_stage",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "normalize",
+            "enabled": true,
+            "parameters": {}
+          }
+        ],
+        "sourceSamples": {
+          "domain": "Source",
+          "format": "Mono12",
+          "storage": "UInt16",
+          "packing": "Unpacked",
+          "bitAlignment": "LeastSignificant",
+          "validBits": 12,
+          "maximum": 4095
+        },
+        "expectedSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "nearest rational value*65535/4095; quotient/remainder comparison",
+      "expectedFirstValues": [
+        0,
+        240,
+        496,
+        752,
+        1008,
+        1264,
+        1520,
+        1776,
+        2032,
+        2289,
+        2545,
+        2801
+      ]
+    },
+    {
+      "kind": "candidate",
+      "caseId": "window_level_gradient",
+      "sizeProfile": "ordinary",
+      "source": {
+        "file": "window_level_gradient-source.pgm",
+        "width": 67,
+        "height": 53,
+        "fileBytes": 7117,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "window_level_gradient-expected.pgm",
+        "width": 67,
+        "height": 53,
+        "fileBytes": 7117,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "standalone_stage",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "window_level",
+            "enabled": true,
+            "parameters": {
+              "window": 65535,
+              "level": 32767.5
+            }
+          }
+        ],
+        "sourceSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "independently derived Standard identity",
+      "expectedFirstValues": [
+        0,
+        496,
+        992,
+        1489,
+        1985,
+        2482,
+        2978,
+        3475,
+        3971,
+        4468,
+        4964,
+        5461
+      ]
+    },
+    {
+      "kind": "candidate",
+      "caseId": "brightness_contrast_gradient",
+      "sizeProfile": "ordinary",
+      "source": {
+        "file": "brightness_contrast_gradient-source.pgm",
+        "width": 67,
+        "height": 53,
+        "fileBytes": 7117,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "brightness_contrast_gradient-expected.pgm",
+        "width": 67,
+        "height": 53,
+        "fileBytes": 7117,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "standalone_stage",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "brightness_contrast",
+            "enabled": true,
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          }
+        ],
+        "sourceSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "independently derived Standard identity",
+      "expectedFirstValues": [
+        0,
+        496,
+        992,
+        1489,
+        1985,
+        2482,
+        2978,
+        3475,
+        3971,
+        4468,
+        4964,
+        5461
+      ]
+    },
+    {
+      "kind": "candidate",
+      "caseId": "gamma_gradient",
+      "sizeProfile": "ordinary",
+      "source": {
+        "file": "gamma_gradient-source.pgm",
+        "width": 67,
+        "height": 53,
+        "fileBytes": 7117,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "gamma_gradient-expected.pgm",
+        "width": 67,
+        "height": 53,
+        "fileBytes": 7117,
+        "sha256": "1ac0a62920e06d1bb9e32af29c17d9be71745a58d4608c46911e586e9eb22fb7",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "standalone_stage",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "gamma",
+            "enabled": true,
+            "parameters": {
+              "gamma": 1
+            }
+          }
+        ],
+        "sourceSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "independently derived Standard identity",
+      "expectedFirstValues": [
+        0,
+        496,
+        992,
+        1489,
+        1985,
+        2482,
+        2978,
+        3475,
+        3971,
+        4468,
+        4964,
+        5461
+      ]
+    },
+    {
+      "kind": "candidate",
+      "caseId": "invert_ramp",
+      "sizeProfile": "ordinary",
+      "source": {
+        "file": "invert_ramp-source.pgm",
+        "width": 257,
+        "height": 1,
+        "fileBytes": 529,
+        "sha256": "7f40d1fcbb25bff37a52ad8b175652fe08d403829af4d26dc10ef2f020447132",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "invert_ramp-expected.pgm",
+        "width": 257,
+        "height": 1,
+        "fileBytes": 529,
+        "sha256": "bbfdb09c760f97d86caf17c623fe70982334a06c3bfbc8c0e4222001ac047586",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "standalone_stage",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "invert",
+            "enabled": true,
+            "parameters": {},
+            "enabledInStandard": false
+          }
+        ],
+        "sourceSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "U16 complement",
+      "expectedFirstValues": [
+        65535,
+        65280,
+        65024,
+        64768,
+        64512,
+        64256,
+        64000,
+        63744,
+        63488,
+        63232,
+        62976,
+        62720
+      ]
+    },
+    {
+      "kind": "candidate",
+      "caseId": "orientation_asymmetric_gray8",
+      "sizeProfile": "ordinary",
+      "source": {
+        "file": "orientation_asymmetric_gray8-source.pgm",
+        "width": 7,
+        "height": 5,
+        "fileBytes": 83,
+        "sha256": "95cc6518b96de5cf867d40fad0bb8a0abaddd53fba95d716bee7999f629efcae",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "orientation_asymmetric_gray8-expected.pgm",
+        "width": 5,
+        "height": 7,
+        "fileBytes": 83,
+        "sha256": "980213f8f436c6c54fa4a6e9476f1833937c5752fb088194552678522e4f96b8",
+        "payloadEncoding": "gray8_zero_extended_to_u16_big_endian"
+      },
+      "context": {
+        "scope": "presentation_operations",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "terminal_gray8_mapping",
+            "enabled": true,
+            "parameters": {
+              "rounding": "nearest_positive",
+              "divisor": 257
+            }
+          },
+          {
+            "id": "installation_orientation",
+            "enabled": true,
+            "parameters": {
+              "flipHorizontal": true,
+              "flipVertical": false,
+              "clockwiseRotationDegrees": 90
+            }
+          }
+        ],
+        "sourceSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "Display",
+          "displayStorage": "Gray8",
+          "storage": "UInt8",
+          "validBits": 8,
+          "maximum": 255
+        }
+      },
+      "derivation": "nearest rational v/257, then inverse Hflip+CW90 coordinates",
+      "expectedFirstValues": [
+        148,
+        132,
+        115,
+        98,
+        81,
+        101,
+        84,
+        67,
+        50,
+        33,
+        53,
+        36
+      ]
+    },
+    {
+      "kind": "candidate",
+      "caseId": "orientation_asymmetric_gray16",
+      "sizeProfile": "ordinary",
+      "source": {
+        "file": "orientation_asymmetric_gray16-source.pgm",
+        "width": 7,
+        "height": 5,
+        "fileBytes": 83,
+        "sha256": "95cc6518b96de5cf867d40fad0bb8a0abaddd53fba95d716bee7999f629efcae",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "orientation_asymmetric_gray16-expected.pgm",
+        "width": 5,
+        "height": 7,
+        "fileBytes": 83,
+        "sha256": "72a70ce321aca5842472b109483e14c807ddba00ec9a8fccffc658165eba17b7",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "presentation_operations",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "installation_orientation",
+            "enabled": true,
+            "parameters": {
+              "flipHorizontal": false,
+              "flipVertical": true,
+              "clockwiseRotationDegrees": 270
+            }
+          }
+        ],
+        "sourceSamples": {
+          "domain": "Display",
+          "displayStorage": "Gray16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "Display",
+          "displayStorage": "Gray16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "inverse Vflip+CW270 coordinates",
+      "expectedFirstValues": [
+        38156,
+        33803,
+        29450,
+        25097,
+        20744,
+        25867,
+        21514,
+        17161,
+        12808,
+        8455,
+        13578,
+        9225
+      ]
+    },
+    {
+      "kind": "smoke",
+      "caseId": "normalize_mono12_ramp",
+      "sizeProfile": "smoke",
+      "source": {
+        "file": "normalize_mono12_ramp-source.pgm",
+        "width": 17,
+        "height": 1,
+        "fileBytes": 48,
+        "sha256": "850d7045f124c8b68e1755acc2ad4ea34b89b11b18e7f526e6fc8b5ef937dc23",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "normalize_mono12_ramp-expected.pgm",
+        "width": 17,
+        "height": 1,
+        "fileBytes": 48,
+        "sha256": "cc3ad29b46a0cb331876b83dd1f587b5bd4fbe8f9a44acd4be3b327c46246125",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "standalone_stage",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "normalize",
+            "enabled": true,
+            "parameters": {}
+          }
+        ],
+        "sourceSamples": {
+          "domain": "Source",
+          "format": "Mono12",
+          "storage": "UInt16",
+          "packing": "Unpacked",
+          "bitAlignment": "LeastSignificant",
+          "validBits": 12,
+          "maximum": 4095
+        },
+        "expectedSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "nearest rational value*65535/4095; quotient/remainder comparison",
+      "expectedFirstValues": [
+        0,
+        4081,
+        8178,
+        12275,
+        16372,
+        20469,
+        24566,
+        28663,
+        32759,
+        36856,
+        40953,
+        45050
+      ]
+    },
+    {
+      "kind": "smoke",
+      "caseId": "window_level_gradient",
+      "sizeProfile": "smoke",
+      "source": {
+        "file": "window_level_gradient-source.pgm",
+        "width": 16,
+        "height": 12,
+        "fileBytes": 399,
+        "sha256": "7b9c1c5f8150aa251abd02f45bba10627f464fceff8cc65a5b6d73c8b86af3be",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "window_level_gradient-expected.pgm",
+        "width": 16,
+        "height": 12,
+        "fileBytes": 399,
+        "sha256": "7b9c1c5f8150aa251abd02f45bba10627f464fceff8cc65a5b6d73c8b86af3be",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "standalone_stage",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "window_level",
+            "enabled": true,
+            "parameters": {
+              "window": 65535,
+              "level": 32767.5
+            }
+          }
+        ],
+        "sourceSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "independently derived Standard identity",
+      "expectedFirstValues": [
+        0,
+        2184,
+        4369,
+        6553,
+        8738,
+        10922,
+        13107,
+        15291,
+        17476,
+        19660,
+        21845,
+        24029
+      ]
+    },
+    {
+      "kind": "smoke",
+      "caseId": "brightness_contrast_gradient",
+      "sizeProfile": "smoke",
+      "source": {
+        "file": "brightness_contrast_gradient-source.pgm",
+        "width": 16,
+        "height": 12,
+        "fileBytes": 399,
+        "sha256": "7b9c1c5f8150aa251abd02f45bba10627f464fceff8cc65a5b6d73c8b86af3be",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "brightness_contrast_gradient-expected.pgm",
+        "width": 16,
+        "height": 12,
+        "fileBytes": 399,
+        "sha256": "7b9c1c5f8150aa251abd02f45bba10627f464fceff8cc65a5b6d73c8b86af3be",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "standalone_stage",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "brightness_contrast",
+            "enabled": true,
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          }
+        ],
+        "sourceSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "independently derived Standard identity",
+      "expectedFirstValues": [
+        0,
+        2184,
+        4369,
+        6553,
+        8738,
+        10922,
+        13107,
+        15291,
+        17476,
+        19660,
+        21845,
+        24029
+      ]
+    },
+    {
+      "kind": "smoke",
+      "caseId": "gamma_gradient",
+      "sizeProfile": "smoke",
+      "source": {
+        "file": "gamma_gradient-source.pgm",
+        "width": 16,
+        "height": 12,
+        "fileBytes": 399,
+        "sha256": "7b9c1c5f8150aa251abd02f45bba10627f464fceff8cc65a5b6d73c8b86af3be",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "gamma_gradient-expected.pgm",
+        "width": 16,
+        "height": 12,
+        "fileBytes": 399,
+        "sha256": "7b9c1c5f8150aa251abd02f45bba10627f464fceff8cc65a5b6d73c8b86af3be",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "standalone_stage",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "gamma",
+            "enabled": true,
+            "parameters": {
+              "gamma": 1
+            }
+          }
+        ],
+        "sourceSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "independently derived Standard identity",
+      "expectedFirstValues": [
+        0,
+        2184,
+        4369,
+        6553,
+        8738,
+        10922,
+        13107,
+        15291,
+        17476,
+        19660,
+        21845,
+        24029
+      ]
+    },
+    {
+      "kind": "smoke",
+      "caseId": "invert_ramp",
+      "sizeProfile": "smoke",
+      "source": {
+        "file": "invert_ramp-source.pgm",
+        "width": 17,
+        "height": 1,
+        "fileBytes": 48,
+        "sha256": "e286933c097fa4d640180c4e7aa1fc354f7ed078cae2df7d5d1d0a4c32d958ce",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "invert_ramp-expected.pgm",
+        "width": 17,
+        "height": 1,
+        "fileBytes": 48,
+        "sha256": "c822d09ec5b48af20a3bae317de8ec0cb195bf7652994c8fcbb4dfa15834bdf3",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "standalone_stage",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "invert",
+            "enabled": true,
+            "parameters": {},
+            "enabledInStandard": false
+          }
+        ],
+        "sourceSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "U16 complement",
+      "expectedFirstValues": [
+        65535,
+        61440,
+        57344,
+        53248,
+        49152,
+        45056,
+        40960,
+        36864,
+        32768,
+        28672,
+        24576,
+        20480
+      ]
+    },
+    {
+      "kind": "smoke",
+      "caseId": "orientation_asymmetric_gray8",
+      "sizeProfile": "smoke",
+      "source": {
+        "file": "orientation_asymmetric_gray8-source.pgm",
+        "width": 7,
+        "height": 5,
+        "fileBytes": 83,
+        "sha256": "95cc6518b96de5cf867d40fad0bb8a0abaddd53fba95d716bee7999f629efcae",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "orientation_asymmetric_gray8-expected.pgm",
+        "width": 5,
+        "height": 7,
+        "fileBytes": 83,
+        "sha256": "980213f8f436c6c54fa4a6e9476f1833937c5752fb088194552678522e4f96b8",
+        "payloadEncoding": "gray8_zero_extended_to_u16_big_endian"
+      },
+      "context": {
+        "scope": "presentation_operations",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "terminal_gray8_mapping",
+            "enabled": true,
+            "parameters": {
+              "rounding": "nearest_positive",
+              "divisor": 257
+            }
+          },
+          {
+            "id": "installation_orientation",
+            "enabled": true,
+            "parameters": {
+              "flipHorizontal": true,
+              "flipVertical": false,
+              "clockwiseRotationDegrees": 90
+            }
+          }
+        ],
+        "sourceSamples": {
+          "domain": "CanonicalU16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "Display",
+          "displayStorage": "Gray8",
+          "storage": "UInt8",
+          "validBits": 8,
+          "maximum": 255
+        }
+      },
+      "derivation": "nearest rational v/257, then inverse Hflip+CW90 coordinates",
+      "expectedFirstValues": [
+        148,
+        132,
+        115,
+        98,
+        81,
+        101,
+        84,
+        67,
+        50,
+        33,
+        53,
+        36
+      ]
+    },
+    {
+      "kind": "smoke",
+      "caseId": "orientation_asymmetric_gray16",
+      "sizeProfile": "smoke",
+      "source": {
+        "file": "orientation_asymmetric_gray16-source.pgm",
+        "width": 7,
+        "height": 5,
+        "fileBytes": 83,
+        "sha256": "95cc6518b96de5cf867d40fad0bb8a0abaddd53fba95d716bee7999f629efcae",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "expected": {
+        "file": "orientation_asymmetric_gray16-expected.pgm",
+        "width": 5,
+        "height": 7,
+        "fileBytes": 83,
+        "sha256": "72a70ce321aca5842472b109483e14c807ddba00ec9a8fccffc658165eba17b7",
+        "payloadEncoding": "u16_big_endian"
+      },
+      "context": {
+        "scope": "presentation_operations",
+        "fullStandardExecuted": false,
+        "operations": [
+          {
+            "id": "installation_orientation",
+            "enabled": true,
+            "parameters": {
+              "flipHorizontal": false,
+              "flipVertical": true,
+              "clockwiseRotationDegrees": 270
+            }
+          }
+        ],
+        "sourceSamples": {
+          "domain": "Display",
+          "displayStorage": "Gray16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        },
+        "expectedSamples": {
+          "domain": "Display",
+          "displayStorage": "Gray16",
+          "storage": "UInt16",
+          "validBits": 16,
+          "maximum": 65535
+        }
+      },
+      "derivation": "inverse Vflip+CW270 coordinates",
+      "expectedFirstValues": [
+        38156,
+        33803,
+        29450,
+        25097,
+        20744,
+        25867,
+        21514,
+        17161,
+        12808,
+        8455,
+        13578,
+        9225
+      ]
+    }
+  ]
+}

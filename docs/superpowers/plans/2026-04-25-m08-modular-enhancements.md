@@ -14,6 +14,8 @@
 
 **Task 1 continuation (2026-09-07):** The owner authorized simulator Task 1 while native Windows/hardware gates remain pending. The [execution record](../../architecture/milestones/m08-tone-stages.md) fixes arithmetic order, constructor-owned gamma caching, validation and the later composition boundary before implementation. The owner subsequently authorized Task 1 integration and bounded Task 2 development on 2026-09-08; see the CLAHE execution record. Tasks 3–5 remain subsequent work.
 
+**Tasks 3–5 continuation (2026-09-08):** The owner authorized the remaining implementation after Tasks 1–2 merged. The [continuation record](../../architecture/milestones/m08-continuation.md) fixes detail arithmetic, shared orientation, bounded preparation and output ownership, full execution/fallback, and evidence tooling. Designated Windows reference/workstation and deferred manual acceptance remain separate gates.
+
 ## Global Constraints
 
 - This milestone contributes only to the open-source evaluation release, which must display `EVALUATION — NOT FOR CLINICAL USE` and must not acquire or store real patient data.
@@ -143,53 +145,54 @@ git commit -m "feat(processing): add reusable U16 CLAHE stage"
 
 ### Task 3: Configurable denoise and unsharp sharpening
 
+**Execution clarification (2026-09-08):** [Remaining M8 contracts](../../architecture/milestones/m08-continuation.md#task3-detail-contract). Prepared kernels and locally owned execution scratch satisfy the no-per-frame-allocation requirement; this deliberately replaces per-call OpenCV GaussianBlur/medianBlur dispatch. Pinned OpenCV prepares Gaussian coefficients only. This is not a claim of bit equivalence to its quantized U16 Gaussian backend.
+
 **Files:**
 - Create: `src/processing/include/lumora/processing/DenoiseStage.hpp`
 - Create: `src/processing/include/lumora/processing/SharpenStage.hpp`
-- Create: `src/processing/src/DenoiseStage.cpp`
-- Create: `src/processing/src/SharpenStage.cpp`
-- Create: `tests/unit/processing/DenoiseStageTests.cpp`
-- Create: `tests/unit/processing/SharpenStageTests.cpp`
+- Create: `src/processing/src/DenoiseStage.cpp`, `SharpenStage.cpp` and a focused private detail-kernel helper if shared arithmetic warrants it.
+- Create: `tests/unit/processing/DenoiseStageTests.cpp`, `SharpenStageTests.cpp`
+- Modify: `ProcessingConfiguration.hpp`, `PipelineCompiler.cpp`, `PipelineCompilerTests.cpp`, source/test CMake registration.
+- Add: a separate allocation-check executable/shared test support as needed; no global allocator replacement in the main GTest executable.
 
-**Interfaces:**
-- Consumes: U16 views, denoise mode/kernel/sigma, sharpen radius/amount/threshold, and preallocated scratch images.
-- Produces: Gaussian/median denoise and thresholded unsharp mask stages.
+**Interfaces and ownership:**
+- Append `double sigma{0.0}` to `DenoiseParameters`, preserving existing aggregate initializers. Gaussian accepts kernels 3/5/7 and finite sigma [0,5]; zero selects the pinned automatic kernel. Median accepts kernels 3/5 and sigma exactly zero. Compiler and direct factory both reject unsupported settings, even when a definition disables the stage.
+- `DenoiseStage` and `SharpenStage` implement `IProcessingStage`, with immutable parameters and fixed width/height. Each exposes static `core::Result<std::size_t> requiredScratchBytes(parameters, const core::ImageLayout&)`, static `core::Result<std::unique_ptr<Stage>> create(parameters, const core::ImageLayout&, std::size_t scratchBudgetBytes = 256U * 1024U * 1024U)`, and `std::size_t scratchBytes() const noexcept` plus the existing id/traits/process methods. Use the corresponding parameter/stage type in each signature.
+- Factories validate all inputs and checked scratch arithmetic before allocation, reject requested bytes above the supplied budget, allocate/warm fixed storage, and convert allocation/backend exceptions to stable `denoise_*` or `sharpen_*` errors. Required bytes include the double intermediate and retained coefficient array; report actual owned requested storage, not a complete process working set. Median uses a bounded stack neighborhood with no retained image scratch. Task5 budgets all owners and activation reserve.
+- Prepared stages exclusively own their scratch behind PImpl; a prepared executor owns stages and keeps them alive through an in-flight frame. This is an explicit adjustment to the earlier plan's nonexistent ProcessingWorkspace scratch API. Mutable scratch is single-worker/non-concurrent; parameters, shape and capacity never change inside process. Valid source/destination strides may vary per call.
+- Gaussian and sharpen scratch metadata reports four U16-equivalent images for the double intermediate (plus separately counted coefficients); Median reports zero. The registry's mode-independent Denoise declaration conservatively reports four, Sharpen four. Exact byte accounting uses the factory requirement, never this image count alone.
 
-- [ ] **Step 1: Write impulse and edge-response tests**
+- [x] **Step 1: Write independent impulse, border and edge tests**
 
-```cpp
-TEST(DenoiseStage, MedianRemovesSinglePixelImpulse) {
-    auto input = constantImage(7, 7, 1000);
-    input(3, 3) = 65535;
-    auto output = runMedian(input, 3);
-    EXPECT_EQ(output(3, 3), 1000);
-}
-```
+Use compile-ready placeholders and literal independent expectations. Auto Gaussian3 has weights [1,2,1]/4: a 256 impulse on zeros yields a 3x3 neighborhood `[16,32,16;32,64,32;16,32,16]`. A repeated row `[0,100,400]` with REFLECT_101 yields `[50,150,250]`. Gaussian kernel3 with sigma `1/sqrt(2*ln(4))` has weights [1,4,1]/6 and yields `[100,400,100]` around a centered 600 impulse far from borders. Constants 0,1001,65535 remain unchanged.
 
-For sharpen, assert a step edge gains the expected signed detail contribution, flat fields remain unchanged, threshold suppresses small differences, and saturation never wraps.
+Median kernels3/5 remove isolated high/low impulses from a 7x7 field1000. Reflected kernel3 on a height-one row `[0,100,400]` yields `[100,100,100]`; a height-one row `[10,100]` yields `[100,10]` for kernel3 and `[10,100]` for kernel5.
 
-- [ ] **Step 2: Verify missing stages fail**
+For sharpen radius `1/sqrt(2*ln(2))`, kernel7 has weights `[1,32,256,512,256,32,1]/1090`. A long step10000→11090 gives rounded nearest-edge blur10289/10801, signed detail−289/+289 and amount1 outputs9711/11379. Threshold288.5 enhances, threshold289 and289.5 suppress. A step10000→10004 with amount0.5 gives edge outputs10000/10005 after final rounding. Test both axes, constant/identity, signed saturation and source provenance independence.
 
-Build `lumora_processing_tests`; expect failure.
+- [x] **Step 2: Observe assertion RED**
 
-- [ ] **Step 3: Implement denoise modes**
+Build the compile-ready tests and record their algorithm/validation assertion failures before implementation; missing source or compiler failure alone is not behavior evidence.
 
-Use OpenCV Gaussian blur for configured odd kernel/sigma and median blur for supported odd kernels. Validate OpenCV's U16/kernel restrictions in `PipelineCompiler` and return a stable error rather than relying on an OpenCV assertion.
+- [x] **Step 3: Implement bounded detail kernels**
 
-- [ ] **Step 4: Implement unsharp mask**
+Prepare CV_64F one-dimensional Gaussian coefficients with pinned `cv::getGaussianKernel` once. Convolve horizontally into the retained double image without intermediate rounding, then vertically; clamp the completed blur to [0,65535] and round nearest with positive halves upward once to U16. Use exact periodic BORDER_REFLECT_101 mapping, including singleton axes and kernels wider than the image. Byte-safe loads/stores accept unaligned starts and odd U16 strides.
 
-Blur into scratch, calculate signed difference at sufficient precision, apply threshold and amount, saturate to U16, and write output. Scratch comes from `ProcessingWorkspace` and is resized only while stopped.
+For Median, collect exactly9 or25 reflected U16 neighborhood samples into fixed stack storage and select the exact middle order statistic without heap allocation or OpenCV dispatch. Preserve low bits and numeric values. Do not allocate reflected full images merely to emulate the backend's border.
 
-- [ ] **Step 5: Test borders, strides, full range, and reuse**
+- [x] **Step 4: Implement thresholded unsharp mask**
 
-Fix border mode to `BORDER_REFLECT_101` and assert it in reference cases. Count workspace allocations across 1,000 same-size frames and expect zero after warm-up.
+Sharpen radius is Gaussian sigma, with half-width `ceil(3*radius)` and odd kernel `2*halfWidth+1` (5 through31). Bounds stay finite amount[0,5], radius[0.5,5], threshold[0,65535]. Compute signed detail = original − rounded U16 blur. Enhance only when `abs(detail) > threshold`; equality is suppressed. Candidate = original + amount*detail in double, saturate [0,65535], then nearest with positive halves upward. Fuse vertical convolution and detail output; no second blurred image is needed. Amount0 or threshold65535 directly copies active samples after complete validation.
 
-- [ ] **Step 6: Commit detail stages**
+- [x] **Step 5: Verify bounds, views, reuse and allocation**
 
-```powershell
-git add src/processing tests/unit/processing/DenoiseStageTests.cpp tests/unit/processing/SharpenStageTests.cpp
-git commit -m "feat(processing): add bounded U16 detail stages"
-```
+Before any output write, validate UInt16/CanonicalU16 on both views, matching prepared extents and complete-payload non-overlap. All rejected calls preserve every destination backing byte. Check valid singleton/non-square/odd shapes, variable padded/odd strides, unaligned starts, full/partial/padding-only overlap, canaries and invalid parameters (NaN/infinities and just-outside limits). Exercise checked size/budget rejection using layouts without giant backing allocations. Source-format metadata cannot rescale canonical pixels.
+
+Observe A–B–A results through one stage and use a separately linked allocation probe over1,000 prepared same-size varied calls (assertions/output outside measurement). Include a positive control proving the probe catches an allocation; count all relevant C++ new variants and explicitly state coverage. Native execution must call no backend allocator; pool counters are not a total heap measurement. Run focused detail and all Processing tests Debug/Release, retaining commands and outputs. Designated Windows reference/tolerance and workstation performance remain separate evidence; no arbitrary cross-platform tolerance is invented.
+
+- [x] **Step 6: Commit detail stages**
+
+Root commits source/tests/CMake after verification and dispatches independent task review before composition uses the stages.
 
 ### Task 4: Shared installation-orientation presentation transform
 
@@ -201,24 +204,30 @@ git commit -m "feat(processing): add bounded U16 detail stages"
 **Interfaces:**
 - Consumes: administrator-managed `Orientation { flipHorizontal, flipVertical, rotation }` and format-aware Original/Enhanced display views.
 - Produces: exact shared flips and 0/90/180/270-degree rotations with output-layout reporting; it never changes RawFrame or native-orientation Enhanced U16.
+- Public `OrientationTransform` has static `core::Result<core::ImageLayout> outputLayout(const core::ImageLayout&, core::DisplayStorage, core::Orientation)` and const `core::Result<void> apply(const core::ImageLayout& sourceLayout, core::DisplayStorage storage, std::span<const std::byte> sourceBytes, const core::ImageLayout& destinationLayout, std::span<std::byte> destinationBytes, core::Orientation orientation)`.
+- Support both existing display representations: Gray8/UInt8 and Gray16/UInt16. Output-layout reporting returns a checked tight layout; apply also accepts any valid compatible padded destination layout. Invalid enum/storage/extent/span/overlap errors use stable `orientation_*` codes and leave all destination bytes unchanged.
+- Bound source and destination to their complete declared payloads, reject full/partial/padding-only overlap before writing, and preserve source bytes, row padding and trailing canaries. Copy each U16 sample with byte-safe operations, including odd strides and unaligned starts.
+- `apply` performs no successful-call heap allocation, interpolation or configuration mutation. Even identity writes the separate destination; Task5 can skip calling it for an identity profile. The transform is separate from `IProcessingStage` and never enters the canonical enhancement registry. Task5 owns actual paired display pool preparation and uses one immutable stopped-state orientation for both routes.
 
-- [ ] **Step 1: Write coordinate-mapping tests**
+- [x] **Step 1: Write coordinate-mapping tests**
 
-Use paired Original/Enhanced 2x3 images containing unique values and assert exact matrices for every rotation, each flip, and flip-plus-rotation order. Define order as horizontal flip, vertical flip, then clockwise rotation, and assert both presentation paths receive exactly the same transform.
+Use paired Original/Enhanced 2x3 images containing unique values and assert exact hand-written matrices for all sixteen flip/rotation combinations in both Gray8 and Gray16. Define order as horizontal flip, vertical flip, then clockwise rotation, and assert both presentation paths receive exactly the same transform.
 
-- [ ] **Step 2: Verify stage is missing**
+- [x] **Step 2: Verify stage is missing**
 
-Build `lumora_processing_tests`; expect failure.
+Build compile-ready placeholders and observe coordinate assertions fail before implementing the transform.
 
-- [ ] **Step 3: Implement exact integer transforms**
+- [x] **Step 3: Implement exact integer transforms**
 
 Use an exact integer mapping with no interpolation for each supported `DisplayStorage`. Report swapped output dimensions for 90/270 degrees and request appropriately shaped pool leases before presentation.
 
-- [ ] **Step 4: Test non-square, odd, padded, and identity cases**
+- [x] **Step 4: Test non-square, odd, padded, and identity cases**
 
 Assert no sample changes, no aspect distortion, and input remains unchanged. Reject an output pool block too small for rotated stride.
 
-- [ ] **Step 5: Commit geometry**
+Register source/header and `Processing.OrientationTransform` tests in the existing target-scoped CMake files. Cover singleton axes, non-square and odd images, distinct padded layouts, unaligned U16 storage, invalid enum/storage/extents, insufficient spans, every overlap shape and unchanged rejection buffers. Exact sample matrices are independent literals; tests never calculate expectations using production coordinate helpers.
+
+- [x] **Step 5: Commit geometry**
 
 ```powershell
 git add src/processing tests/unit/processing/OrientationTransformTests.cpp
@@ -226,6 +235,8 @@ git commit -m "feat(processing): add shared installation orientation"
 ```
 
 ### Task 5: Full pipeline composition, reference presets, and benchmarks
+
+**Execution clarification (2026-09-08):** [Composition, resource and evidence decisions](../../architecture/milestones/m08-continuation.md#task5-execution-and-resource-decisions). Implement/review slices5A output metadata/timings,5B prepared CLAHE,5C complete execution/resource/fallback integration, and5D Standard/reference/benchmark evidence sequentially. Only designated Windows reference/workstation acceptance may remain externally pending. The success-path allocation scope includes output publication/release from preexisting raw input; no acquisition-allocation claim is made.
 
 **Files:**
 - Create: `tests/reference/processing/generate-reference-fixtures.cpp`
