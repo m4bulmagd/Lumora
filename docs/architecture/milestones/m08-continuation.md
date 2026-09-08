@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-08
 
-**Authority:** The owner approved continuing the following tasks after Tasks1–2 merged: denoise/sharpen, shared orientation, and full pipeline composition. Work uses `feat/m08-completion` in the retained isolated M8 worktree. Native Windows11 M4/M5 acceptance remains deferred; designated Windows reference/workstation evidence remains separately required.
+**Authority:** The owner approved continuing the following tasks after Tasks1–2 merged: denoise/sharpen, shared orientation, and full pipeline composition. Work used `feat/m08-completion` in the retained isolated M8 worktree and merged through [PR #12](https://github.com/m4bulmagd/Lumora/pull/12) as `17d1ede`. Native Windows11 M4/M5 acceptance remains deferred; designated Windows reference/workstation evidence remains separately required.
 
 ## Completed baseline
 
@@ -112,7 +112,6 @@ At `a71af97`, full local Debug/Release application builds each pass all 48 headl
 
 The expanded existing allocation regression covers four 8×8 full-enabled profiles with CLAHE grid2: identity/nonidentity orientation, each in healthy and latched Original-only mode. Every profile completes 100 warm-ups and 1,000 measured publication/retention/release cycles with zero replacement-new allocations, requested bytes and deallocations in Debug and Release. All 39 injected engine-preparation allocation failures clean up unpublished resources. These reduced fixtures establish those ownership paths; Task5D still supplies the distinct full Standard 64×48 allocation proof and normal-size characterization. No designated Windows reference or performance acceptance is implied.
 
-
 ## Task5C cross-platform verification
 
 At `a4de229`, [Linux CI](https://github.com/m4bulmagd/Lumora/actions/runs/34193745358) passes 48 headless checks plus native X11 in Debug and Release. [Windows CI](https://github.com/m4bulmagd/Lumora/actions/runs/34193745459) passes 48/48 in Debug (45.79s) and Release (23.52s).
@@ -158,4 +157,14 @@ At `73eb61f`, [Linux CI](https://github.com/m4bulmagd/Lumora/actions/runs/341978
 
 The final Qt environment guard also passes a local incremental Release benchmark build: unset and explicitly empty LD_PRELOAD each complete 22-row smoke; a valid nonempty debug-allocator preload is rejected with exit 5 before creating output or entering measurement. The fresh tests-OFF/Basler-OFF/tools-ON app/tool build and display-environment-free smoke pass, as do the affected Debug/Release evidence/provenance registrations. These later checks do not relabel the normal benchmark's earlier build provenance.
 
-The branch is ready for integration once the final documentation supplement and PR checks close. It does not claim M8 acceptance: designated Windows references/tolerances, 2048 performance and freshness remain open, alongside the separately deferred M4/M5 native checks and M6 hardware entry gate.
+The final documentation supplement is approved and the PR checks pass; integration is recorded below. It does not claim M8 acceptance: designated Windows references/tolerances, 2048 performance and freshness remain open, alongside the separately deferred M4/M5 native checks and M6 hardware entry gate.
+
+## PR integration (2026-09-08)
+
+[PR #12](https://github.com/m4bulmagd/Lumora/pull/12) merged at 07:50:30 UTC as `17d1edee02ffdc51258a507bf14a222fa748b404`. The final source/evidence/documentation review approves `a35030b` with the two disclosed nonblocking source cleanups and no new findings. Both previously pending normal-evidence and local guard conditions are closed.
+
+The complete merged tree equals reviewed PR head `a35030b2bdaad8005774d5a91e1b4dd6803c63fd`. Its [Linux PR run](https://github.com/m4bulmagd/Lumora/actions/runs/34200450036) passes 53/53 Debug (133.89 s) and Release (21.21 s), with X11 1/1 in 0.12/0.04 s. Its [Windows PR run](https://github.com/m4bulmagd/Lumora/actions/runs/34200449995) passes 53/53 Debug (81.29 s) and Release (38.57 s). Both branch-push workflows also pass. Raw logs are retained as `ci-linux-pr12-a35030b.log` and `ci-windows-pr12-a35030b.log` under the final QA directory.
+
+Local `main` was clean and fast-forwarded to the merge. The post-integration status update changes only README/progress/authority/this record; processing source and tests remain identical to the reviewed tree. The normal main workflows perform post-merge verification; [Linux main runs](https://github.com/m4bulmagd/Lumora/actions/workflows/linux-simulator.yml?query=branch%3Amain) and [Windows main runs](https://github.com/m4bulmagd/Lumora/actions/workflows/windows-simulator.yml?query=branch%3Amain) expose their current results. Exact final run IDs/logs are retained in the ignored execution ledger and QA directory, avoiding relabeling the earlier normal benchmark provenance.
+
+The feature branch and worktree, build caches, raw evidence and historical review records are preserved. The next proposed development slice is an exact full-range Window/Level identity copy, measured before broader tone/CLAHE/sharpen/orientation changes. It is a proposal, not implemented performance work. M9 follows measured latency reduction; designated Windows references/tolerances, workstation performance/freshness, M4/M5 native validation and M6 hardware entry remain open.
