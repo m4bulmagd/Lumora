@@ -3,6 +3,7 @@
 #include <lumora/core/CheckedMath.hpp>
 #include <lumora/core/Error.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -66,45 +67,170 @@ struct StorageTraits final {
         : sourceStart - destinationStart < destination.size();
 }
 
-struct SourceCoordinate final {
-    std::uint32_t x;
-    std::uint32_t y;
-};
+template<std::size_t PixelBytes>
+inline void copyPixel(
+    std::byte* destination,
+    const std::byte* source) noexcept {
+    std::memcpy(destination, source, PixelBytes);
+}
 
-[[nodiscard]] SourceCoordinate sourceCoordinate(
-    std::uint32_t destinationX,
-    std::uint32_t destinationY,
+template<std::size_t PixelBytes, bool ReverseX, bool ReverseY>
+void copySameAxes(
     const core::ImageLayout& sourceLayout,
+    std::span<const std::byte> source,
+    const core::ImageLayout& destinationLayout,
+    std::span<std::byte> destination) noexcept {
+    for (std::uint32_t destinationY = 0U;
+         destinationY < destinationLayout.height(); ++destinationY) {
+        const auto sourceY = ReverseY
+            ? sourceLayout.height() - 1U - destinationY
+            : destinationY;
+        const auto* sourceRow = source.data()
+            + static_cast<std::size_t>(sourceY) * sourceLayout.strideBytes();
+        auto* destinationRow = destination.data()
+            + static_cast<std::size_t>(destinationY)
+                * destinationLayout.strideBytes();
+        if constexpr (!ReverseX) {
+            std::memcpy(destinationRow, sourceRow, sourceLayout.rowBytes());
+        } else {
+            for (std::uint32_t destinationX = 0U;
+                 destinationX < destinationLayout.width(); ++destinationX) {
+                const auto sourceX = sourceLayout.width() - 1U - destinationX;
+                copyPixel<PixelBytes>(
+                    destinationRow
+                        + static_cast<std::size_t>(destinationX) * PixelBytes,
+                    sourceRow + static_cast<std::size_t>(sourceX) * PixelBytes);
+            }
+        }
+    }
+}
+
+template<std::size_t PixelBytes,
+    bool ReverseSourceXFromDestinationY,
+    bool ReverseSourceYFromDestinationX>
+void copySwappedAxes32(
+    const core::ImageLayout& sourceLayout,
+    std::span<const std::byte> source,
+    const core::ImageLayout& destinationLayout,
+    std::span<std::byte> destination) noexcept {
+    constexpr std::uint32_t tileSize = 32U;
+    for (std::uint32_t tileY = 0U; tileY < destinationLayout.height();) {
+        const auto tileHeight = std::min(
+            tileSize, destinationLayout.height() - tileY);
+        const auto tileEndY = tileY + tileHeight;
+        for (std::uint32_t tileX = 0U; tileX < destinationLayout.width();) {
+            const auto tileWidth = std::min(
+                tileSize, destinationLayout.width() - tileX);
+            const auto tileEndX = tileX + tileWidth;
+            for (auto destinationY = tileY;
+                 destinationY < tileEndY; ++destinationY) {
+                const auto sourceX = ReverseSourceXFromDestinationY
+                    ? sourceLayout.width() - 1U - destinationY
+                    : destinationY;
+                const auto sourceColumnOffset =
+                    static_cast<std::size_t>(sourceX) * PixelBytes;
+                auto* destinationPixel = destination.data()
+                    + static_cast<std::size_t>(destinationY)
+                        * destinationLayout.strideBytes()
+                    + static_cast<std::size_t>(tileX) * PixelBytes;
+                for (auto destinationX = tileX;
+                     destinationX < tileEndX; ++destinationX) {
+                    const auto sourceY = ReverseSourceYFromDestinationX
+                        ? sourceLayout.height() - 1U - destinationX
+                        : destinationX;
+                    const auto* sourcePixel = source.data()
+                        + static_cast<std::size_t>(sourceY)
+                            * sourceLayout.strideBytes()
+                        + sourceColumnOffset;
+                    copyPixel<PixelBytes>(destinationPixel, sourcePixel);
+                    destinationPixel += PixelBytes;
+                }
+            }
+            tileX += tileWidth;
+        }
+        tileY += tileHeight;
+    }
+}
+
+template<std::size_t PixelBytes>
+void dispatchSameAxes(
+    const core::ImageLayout& sourceLayout,
+    std::span<const std::byte> source,
+    const core::ImageLayout& destinationLayout,
+    std::span<std::byte> destination,
+    bool reverseX,
+    bool reverseY) noexcept {
+    if (reverseX) {
+        if (reverseY) {
+            copySameAxes<PixelBytes, true, true>(
+                sourceLayout, source, destinationLayout, destination);
+        } else {
+            copySameAxes<PixelBytes, true, false>(
+                sourceLayout, source, destinationLayout, destination);
+        }
+    } else if (reverseY) {
+        copySameAxes<PixelBytes, false, true>(
+            sourceLayout, source, destinationLayout, destination);
+    } else {
+        copySameAxes<PixelBytes, false, false>(
+            sourceLayout, source, destinationLayout, destination);
+    }
+}
+
+template<std::size_t PixelBytes>
+void dispatchSwappedAxes(
+    const core::ImageLayout& sourceLayout,
+    std::span<const std::byte> source,
+    const core::ImageLayout& destinationLayout,
+    std::span<std::byte> destination,
+    bool reverseSourceXFromDestinationY,
+    bool reverseSourceYFromDestinationX) noexcept {
+    if (reverseSourceXFromDestinationY) {
+        if (reverseSourceYFromDestinationX) {
+            copySwappedAxes32<PixelBytes, true, true>(
+                sourceLayout, source, destinationLayout, destination);
+        } else {
+            copySwappedAxes32<PixelBytes, true, false>(
+                sourceLayout, source, destinationLayout, destination);
+        }
+    } else if (reverseSourceYFromDestinationX) {
+        copySwappedAxes32<PixelBytes, false, true>(
+            sourceLayout, source, destinationLayout, destination);
+    } else {
+        copySwappedAxes32<PixelBytes, false, false>(
+            sourceLayout, source, destinationLayout, destination);
+    }
+}
+
+template<std::size_t PixelBytes>
+void copyOriented(
+    const core::ImageLayout& sourceLayout,
+    std::span<const std::byte> source,
+    const core::ImageLayout& destinationLayout,
+    std::span<std::byte> destination,
     core::Orientation orientation) noexcept {
-    std::uint32_t flippedX = 0U;
-    std::uint32_t flippedY = 0U;
     switch (orientation.rotation) {
     case core::Rotation::Degrees0:
-        flippedX = destinationX;
-        flippedY = destinationY;
+        dispatchSameAxes<PixelBytes>(sourceLayout, source,
+            destinationLayout, destination,
+            orientation.flipHorizontal, orientation.flipVertical);
         break;
     case core::Rotation::Degrees90:
-        flippedX = destinationY;
-        flippedY = sourceLayout.height() - 1U - destinationX;
+        dispatchSwappedAxes<PixelBytes>(sourceLayout, source,
+            destinationLayout, destination,
+            orientation.flipHorizontal, !orientation.flipVertical);
         break;
     case core::Rotation::Degrees180:
-        flippedX = sourceLayout.width() - 1U - destinationX;
-        flippedY = sourceLayout.height() - 1U - destinationY;
+        dispatchSameAxes<PixelBytes>(sourceLayout, source,
+            destinationLayout, destination,
+            !orientation.flipHorizontal, !orientation.flipVertical);
         break;
     case core::Rotation::Degrees270:
-        flippedX = sourceLayout.width() - 1U - destinationY;
-        flippedY = destinationX;
+        dispatchSwappedAxes<PixelBytes>(sourceLayout, source,
+            destinationLayout, destination,
+            !orientation.flipHorizontal, orientation.flipVertical);
         break;
     }
-
-    return {
-        orientation.flipHorizontal
-            ? sourceLayout.width() - 1U - flippedX
-            : flippedX,
-        orientation.flipVertical
-            ? sourceLayout.height() - 1U - flippedY
-            : flippedY,
-    };
 }
 
 }  // namespace
@@ -219,19 +345,15 @@ core::Result<void> OrientationTransform::apply(
             "The complete source and destination payloads must not overlap."));
     }
 
-    const auto sampleBytes = traits.bytesPerPixel;
-    for (std::uint32_t y = 0U; y < destinationLayout.height(); ++y) {
-        for (std::uint32_t x = 0U; x < destinationLayout.width(); ++x) {
-            const auto source = sourceCoordinate(x, y, sourceLayout, orientation);
-            const auto sourceOffset = static_cast<std::size_t>(source.y)
-                    * sourceLayout.strideBytes()
-                + static_cast<std::size_t>(source.x) * sampleBytes;
-            const auto destinationOffset = static_cast<std::size_t>(y)
-                    * destinationLayout.strideBytes()
-                + static_cast<std::size_t>(x) * sampleBytes;
-            std::memcpy(boundedDestination.data() + destinationOffset,
-                boundedSource.data() + sourceOffset, sampleBytes);
-        }
+    switch (storage) {
+    case core::DisplayStorage::Gray8:
+        copyOriented<1U>(sourceLayout, boundedSource,
+            destinationLayout, boundedDestination, orientation);
+        break;
+    case core::DisplayStorage::Gray16:
+        copyOriented<2U>(sourceLayout, boundedSource,
+            destinationLayout, boundedDestination, orientation);
+        break;
     }
     return core::Result<void>::success();
 }
