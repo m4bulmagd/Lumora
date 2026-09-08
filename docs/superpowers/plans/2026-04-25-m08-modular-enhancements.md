@@ -201,14 +201,18 @@ git commit -m "feat(processing): add bounded U16 detail stages"
 **Interfaces:**
 - Consumes: administrator-managed `Orientation { flipHorizontal, flipVertical, rotation }` and format-aware Original/Enhanced display views.
 - Produces: exact shared flips and 0/90/180/270-degree rotations with output-layout reporting; it never changes RawFrame or native-orientation Enhanced U16.
+- Public `OrientationTransform` has static `core::Result<core::ImageLayout> outputLayout(const core::ImageLayout&, core::DisplayStorage, core::Orientation)` and const `core::Result<void> apply(const core::ImageLayout& sourceLayout, core::DisplayStorage storage, std::span<const std::byte> sourceBytes, const core::ImageLayout& destinationLayout, std::span<std::byte> destinationBytes, core::Orientation orientation)`.
+- Support both existing display representations: Gray8/UInt8 and Gray16/UInt16. Output-layout reporting returns a checked tight layout; apply also accepts any valid compatible padded destination layout. Invalid enum/storage/extent/span/overlap errors use stable `orientation_*` codes and leave all destination bytes unchanged.
+- Bound source and destination to their complete declared payloads, reject full/partial/padding-only overlap before writing, and preserve source bytes, row padding and trailing canaries. Copy each U16 sample with byte-safe operations, including odd strides and unaligned starts.
+- `apply` performs no successful-call heap allocation, interpolation or configuration mutation. Even identity writes the separate destination; Task5 can skip calling it for an identity profile. The transform is separate from `IProcessingStage` and never enters the canonical enhancement registry. Task5 owns actual paired display pool preparation and uses one immutable stopped-state orientation for both routes.
 
 - [ ] **Step 1: Write coordinate-mapping tests**
 
-Use paired Original/Enhanced 2x3 images containing unique values and assert exact matrices for every rotation, each flip, and flip-plus-rotation order. Define order as horizontal flip, vertical flip, then clockwise rotation, and assert both presentation paths receive exactly the same transform.
+Use paired Original/Enhanced 2x3 images containing unique values and assert exact hand-written matrices for all sixteen flip/rotation combinations in both Gray8 and Gray16. Define order as horizontal flip, vertical flip, then clockwise rotation, and assert both presentation paths receive exactly the same transform.
 
 - [ ] **Step 2: Verify stage is missing**
 
-Build `lumora_processing_tests`; expect failure.
+Build compile-ready placeholders and observe coordinate assertions fail before implementing the transform.
 
 - [ ] **Step 3: Implement exact integer transforms**
 
@@ -217,6 +221,8 @@ Use an exact integer mapping with no interpolation for each supported `DisplaySt
 - [ ] **Step 4: Test non-square, odd, padded, and identity cases**
 
 Assert no sample changes, no aspect distortion, and input remains unchanged. Reject an output pool block too small for rotated stride.
+
+Register source/header and `Processing.OrientationTransform` tests in the existing target-scoped CMake files. Cover singleton axes, non-square and odd images, distinct padded layouts, unaligned U16 storage, invalid enum/storage/extents, insufficient spans, every overlap shape and unchanged rejection buffers. Exact sample matrices are independent literals; tests never calculate expectations using production coordinate helpers.
 
 - [ ] **Step 5: Commit geometry**
 
