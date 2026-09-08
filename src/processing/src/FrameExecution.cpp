@@ -16,6 +16,10 @@ constexpr std::array<std::string_view,8> stageTimingNames{
 core::Error processingError(std::string code,std::string detail) {
     return {core::ErrorCategory::Processing,std::move(code),"The frame could not be processed.",std::move(detail),false};
 }
+// Called only when translating an exception; successful dispatch keeps static IDs.
+std::string operationDiagnostic(std::string_view id,std::string_view detail) {
+    return "operation="+std::string(id)+": "+std::string(detail);
+}
 core::SharedBuffer seal(std::optional<core::WritableBufferLease>& lease) {
     auto buffer=std::move(*lease).seal(); lease.reset(); return buffer;
 }
@@ -76,12 +80,12 @@ BundleResult FrameProcessingEngine::process(std::shared_ptr<const core::RawFrame
                     if(!intercepted.hasValue()) return Result::failure(std::move(intercepted).error());
                 }
                 return operation();
-            } catch(const std::bad_alloc&) {
-                return Result::failure(detail::preparationError("processing_operation_allocation_failed","Operation allocation failed."));
+            } catch(const std::bad_alloc& error) {
+                return Result::failure(detail::preparationError("processing_operation_allocation_failed",operationDiagnostic(id,error.what())));
             } catch(const std::exception& error) {
-                return Result::failure(processingError("processing_operation_exception",error.what()));
+                return Result::failure(processingError("processing_operation_exception",operationDiagnostic(id,error.what())));
             } catch(...) {
-                return Result::failure(processingError("processing_operation_exception","Unknown stage exception."));
+                return Result::failure(processingError("processing_operation_exception",operationDiagnostic(id,"Unknown stage exception.")));
             }
         };
         auto result=invoke();

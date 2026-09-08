@@ -99,8 +99,9 @@ struct FailureHook : detail::EngineHooks {
         if(preparationExceptionKind==1) throw std::runtime_error("backend construction failed");
         if(preparationExceptionKind==2) throw std::bad_alloc{};
         if(preparationExceptionKind==3) throw 17;
+        if(preparationExceptionKind==4) throw std::length_error("backend storage exceeds limits");
         if(failPreparation) return core::Result<std::shared_ptr<const IProcessingStage>>::failure(
-            {core::ErrorCategory::Processing,"injected_prepare_fault","Preparation failed.","Original factory diagnostic",false});
+            {core::ErrorCategory::Processing,"injected_prepare_fault","Preparation failed.","Original factory diagnostic",false,17});
         return EngineHooks::prepare(stage,image,scratch);
     }
     core::Result<void> before(ProcessingOperation operation,std::span<std::byte> destination) override {
@@ -111,7 +112,7 @@ struct FailureHook : detail::EngineHooks {
         if(exceptionKind==1) throw std::runtime_error("injected backend exception");
         if(exceptionKind==2) throw std::bad_alloc{};
         if(exceptionKind==3) throw 17;
-        return core::Result<void>::failure({category,"injected_stage_fault","Injected failure.","Original diagnostic",true});
+        return core::Result<void>::failure({category,"injected_stage_fault","Injected failure.","Original diagnostic",true,23});
     }
 };
 TEST(FrameProcessingEngine, ThirdEnhancementFailurePublishesOnlyOriginalAndRetryWaitsForNextFrame) {
@@ -131,6 +132,7 @@ TEST(FrameProcessingEngine, ThirdEnhancementFailurePublishesOnlyOriginalAndRetry
     EXPECT_EQ(engine.status().mode,ProcessorMode::OriginalOnlyLatched);
     EXPECT_EQ(engine.status().enhancementFailures,3U);
     auto diagnostic=engine.status().error; ASSERT_NE(diagnostic,nullptr);
+    EXPECT_EQ(diagnostic->diagnosticDetail,"Original diagnostic"); EXPECT_EQ(diagnostic->nativeCode,23);
     EXPECT_TRUE(engine.process(raw).hasValue()); EXPECT_EQ(hook->calls,3U);
     EXPECT_EQ(engine.status().error,diagnostic);
     EXPECT_TRUE(engine.requestRetry()); EXPECT_TRUE(engine.requestRetry());
@@ -231,18 +233,36 @@ TEST(FrameProcessingEngine, TerminalEnhancementFaultsLatchButOriginalOrientation
     }
 }
 TEST(FrameProcessingEngine, StageExceptionsAreContainedAndAllocationExceptionsRemainResourceFaults) {
-    for(int kind:{1,2,3}) {
-        auto u16=core::BufferPool::create(9,8).value(); auto gray=core::BufferPool::create(16,4).value();
-        auto hook=std::make_shared<FailureHook>(); hook->exceptionKind=kind;
-        auto definition=defaultPipeline(); definition.stages.back().enabled=true;
-        auto engine=detail::FrameEngineTestAccess::create(*u16,*gray,layout(16),definition,{},hook).value();
-        auto raw=rawFrame(16,{0,1000,32768,65535});
-        for(int call=0;call<3;++call) {
-            auto result=engine->process(raw);
-            if(kind!=2 && call==2) { ASSERT_TRUE(result.hasValue()); EXPECT_EQ(result.value()->enhanced,nullptr); }
-            else { ASSERT_FALSE(result.hasValue()); EXPECT_EQ(result.error().category,kind==2 ? core::ErrorCategory::ResourceExhaustion : core::ErrorCategory::Processing); }
+    for(auto operation:{ProcessingOperation::Invert,ProcessingOperation::OriginalDisplayMap}) {
+        for(int kind:{1,2,3}) {
+            SCOPED_TRACE(::testing::Message() << "operation=" << static_cast<int>(operation) << " exception=" << kind);
+            auto u16=core::BufferPool::create(9,8).value(); auto gray=core::BufferPool::create(16,4).value();
+            auto hook=std::make_shared<FailureHook>(); hook->exceptionKind=kind; hook->failure=operation;
+            auto definition=defaultPipeline(); definition.stages.back().enabled=true;
+            auto engine=detail::FrameEngineTestAccess::create(*u16,*gray,layout(16),definition,{},hook).value();
+            auto raw=rawFrame(16,{0,1000,32768,65535});
+            const bool enhancementFailure=operation==ProcessingOperation::Invert && kind!=2;
+            const std::string identity=operation==ProcessingOperation::Invert ? "operation=invert" : "operation=original_display_map";
+            for(int call=0;call<3;++call) {
+                auto result=engine->process(raw);
+                const core::Error* diagnostic{};
+                auto status=engine->status();
+                if(enhancementFailure && call==2) {
+                    ASSERT_TRUE(result.hasValue()); EXPECT_EQ(result.value()->enhanced,nullptr);
+                    diagnostic=status.error.get();
+                } else {
+                    ASSERT_FALSE(result.hasValue()); diagnostic=&result.error();
+                }
+                ASSERT_NE(diagnostic,nullptr);
+                EXPECT_EQ(diagnostic->category,kind==2 ? core::ErrorCategory::ResourceExhaustion : core::ErrorCategory::Processing);
+                EXPECT_EQ(diagnostic->recoverable,kind==2);
+                EXPECT_NE(diagnostic->diagnosticDetail.find(identity),std::string::npos);
+                if(kind==1) { EXPECT_NE(diagnostic->diagnosticDetail.find("injected backend exception"),std::string::npos); }
+                if(kind==2) { EXPECT_NE(diagnostic->diagnosticDetail.find(std::bad_alloc{}.what()),std::string::npos); }
+            }
+            EXPECT_EQ(engine->status().enhancementFailures,enhancementFailure ? 3U : 0U);
+            if(!enhancementFailure) { EXPECT_EQ(engine->status().error,nullptr); }
         }
-        EXPECT_EQ(engine->status().enhancementFailures,kind==2 ? 0U : 3U);
     }
 }
 TEST(FrameProcessingEngine, HealthyEnhancementClearsAttemptCountButFactoryFailureCannotClearLatch) {
@@ -258,12 +278,15 @@ TEST(FrameProcessingEngine, HealthyEnhancementClearsAttemptCountButFactoryFailur
     hook->failPreparation=true; definition.stages[3].enabled=true;
     auto rejected=engine->activate(definition); ASSERT_FALSE(rejected.hasValue());
     ASSERT_TRUE(rejected.error().preparationResources); EXPECT_GT(rejected.error().preparationResources->candidateRequiredBytes,131072U);
+    ASSERT_TRUE(rejected.error().preparationError);
+    EXPECT_EQ(rejected.error().preparationError->diagnosticDetail,"Original factory diagnostic");
+    EXPECT_EQ(rejected.error().preparationError->nativeCode,17);
     EXPECT_EQ(engine->status().error,warning); EXPECT_EQ(engine->status().enhancementFailures,5U);
     auto fallback=engine->process(raw); ASSERT_TRUE(fallback.hasValue()); EXPECT_EQ(fallback.value()->enhanced,nullptr);
 }
 
 TEST(FrameProcessingEngine, FactoryExceptionsKeepTheirFailureClassAndPreviousActivation) {
-    for(int kind:{1,2,3}) {
+    for(int kind:{1,2,3,4}) {
         auto u16=core::BufferPool::create(9,8).value(); auto gray=core::BufferPool::create(16,4).value();
         auto hook=std::make_shared<FailureHook>(); hook->enabled=false;
         auto engine=detail::FrameEngineTestAccess::create(*u16,*gray,layout(16),defaultPipeline(),{},hook).value();
@@ -271,7 +294,13 @@ TEST(FrameProcessingEngine, FactoryExceptionsKeepTheirFailureClassAndPreviousAct
         auto definition=defaultPipeline(); definition.version.configurationRevision=42; definition.stages[3].enabled=true;
         auto rejected=engine->activate(definition); ASSERT_FALSE(rejected.hasValue());
         ASSERT_TRUE(rejected.error().preparationError);
-        EXPECT_EQ(rejected.error().preparationError->category,kind==2 ? core::ErrorCategory::ResourceExhaustion : core::ErrorCategory::Processing);
+        EXPECT_EQ(rejected.error().preparationError->category,(kind==2 || kind==4) ? core::ErrorCategory::ResourceExhaustion : core::ErrorCategory::Processing);
+        const auto& diagnostic=*rejected.error().preparationError;
+        EXPECT_EQ(diagnostic.recoverable,kind==2 || kind==4);
+        EXPECT_NE(diagnostic.diagnosticDetail.find("stage_id=3 (Gamma)"),std::string::npos);
+        if(kind==1) { EXPECT_NE(diagnostic.diagnosticDetail.find("backend construction failed"),std::string::npos); }
+        if(kind==2) { EXPECT_NE(diagnostic.diagnosticDetail.find(std::bad_alloc{}.what()),std::string::npos); }
+        if(kind==4) { EXPECT_NE(diagnostic.diagnosticDetail.find("backend storage exceeds limits"),std::string::npos); }
         ASSERT_TRUE(rejected.error().preparationResources);
         auto retained=engine->process(rawFrame(16,{0,1000,32768,65535})); ASSERT_TRUE(retained.hasValue());
         EXPECT_EQ(retained.value()->enhanced->pipelineVersion.configurationRevision,0U);

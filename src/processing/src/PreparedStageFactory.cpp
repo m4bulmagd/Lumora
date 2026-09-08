@@ -17,6 +17,10 @@ PipelineValidationError validationFailure(core::Error error) {
     return result;
 }
 namespace {
+// StageId is the stable canonical identity; retain its diagnostic name as context.
+std::string stageExceptionDiagnostic(StageId id,std::string_view detail) {
+    return "stage_id="+std::to_string(static_cast<int>(id))+" ("+std::string(stageName(id))+"): "+std::string(detail);
+}
 core::Result<std::size_t> stageBytes(const StageDefinition& stage,const core::ImageLayout& layout,std::size_t& scratch) {
     std::size_t owner{};
     auto arrays = core::Result<std::size_t>::success(0);
@@ -112,14 +116,14 @@ core::Result<void,PipelineValidationError> activatePrepared(EngineState& state,P
                 try {
                     return state.hooks ? state.hooks->prepare(stage,state.plan->canonicalLayout,next->definition.scratchBytes[i])
                         : makeStage(stage,state.plan->canonicalLayout,next->definition.scratchBytes[i]);
-                } catch(const std::bad_alloc&) {
-                    return core::Result<StageHandle>::failure(preparationError("processing_preparation_allocation_failed","Stage owner allocation failed."));
-                } catch(const std::length_error&) {
-                    return core::Result<StageHandle>::failure(preparationError("processing_preparation_allocation_failed","Stage storage exceeds allocation limits."));
+                } catch(const std::bad_alloc& error) {
+                    return core::Result<StageHandle>::failure(preparationError("processing_preparation_allocation_failed",stageExceptionDiagnostic(stage.id,error.what())));
+                } catch(const std::length_error& error) {
+                    return core::Result<StageHandle>::failure(preparationError("processing_preparation_allocation_failed",stageExceptionDiagnostic(stage.id,error.what())));
                 } catch(const std::exception& error) {
-                    return core::Result<StageHandle>::failure({core::ErrorCategory::Processing,"processing_stage_prepare_failed","Stage preparation failed.",error.what(),false});
+                    return core::Result<StageHandle>::failure({core::ErrorCategory::Processing,"processing_stage_prepare_failed","Stage preparation failed.",stageExceptionDiagnostic(stage.id,error.what()),false});
                 } catch(...) {
-                    return core::Result<StageHandle>::failure({core::ErrorCategory::Processing,"processing_stage_prepare_failed","Stage preparation failed.","Unknown backend construction exception.",false});
+                    return core::Result<StageHandle>::failure({core::ErrorCategory::Processing,"processing_stage_prepare_failed","Stage preparation failed.",stageExceptionDiagnostic(stage.id,"Unknown backend construction exception."),false});
                 }
             };
             auto made=prepareOne();
