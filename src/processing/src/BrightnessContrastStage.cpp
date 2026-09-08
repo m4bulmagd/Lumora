@@ -55,6 +55,11 @@ core::Result<void> BrightnessContrastStage::process(
         "brightness_contrast", "Brightness/contrast adjustment");
     if (!validation.hasValue()) return validation;
 
+    if (parameters_.brightness == 0.0 && parameters_.contrast == 1.0) {
+        detail::copyActiveRows(source, destination);
+        return core::Result<void>::success();
+    }
+
     const auto brightnessOffset = static_cast<std::int64_t>(
         std::llround(parameters_.brightness * 65535.0));
     for (std::uint32_t y = 0U; y < source.layout().height(); ++y) {

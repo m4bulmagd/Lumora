@@ -100,6 +100,16 @@ core::Result<void> NormalizeStage::process(
             "Normalization requires non-overlapping source and destination storage.");
     }
 
+    if (sourceFormat.applicationStorage == core::StorageType::UInt16
+        && sourceFormat.sampleMaximum == 65535U) {
+        for (std::uint32_t y = 0U; y < source.layout().height(); ++y) {
+            const auto sourceRow = source.row(y);
+            const auto destinationRow = destination.row(y);
+            std::memcpy(destinationRow.data(), sourceRow.data(), sourceRow.size());
+        }
+        return core::Result<void>::success();
+    }
+
     const auto width = source.layout().width();
     const auto height = source.layout().height();
     const auto maximum = sourceFormat.sampleMaximum;

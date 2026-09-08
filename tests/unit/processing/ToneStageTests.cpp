@@ -255,6 +255,15 @@ TEST(ToneStages, EveryStageHandlesDistinctPaddedUnalignedStridesWithoutMutation)
         {65535U, 64535U, 35535U, 25535U, 5535U, 0U});
 }
 
+// Copying payloads or strides for either neutral stage corrupts the destination canaries.
+TEST(ToneStages, NeutralBrightnessContrastAndGammaCopyUnalignedRowsWithUnequalStrides) {
+    constexpr std::array<std::uint16_t, 6> samples{
+        0U, 1000U, 30000U, 40000U, 60000U, 65535U};
+    expectPaddedUnalignedResult(
+        BrightnessContrastStage({.brightness = 0.0, .contrast = 1.0}), samples);
+    expectPaddedUnalignedResult(GammaStage({.gamma = 1.0}), samples);
+}
+
 void expectInvalidParameterFailure(
     const IProcessingStage& stage,
     std::string expectedCode) {

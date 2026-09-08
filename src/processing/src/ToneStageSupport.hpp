@@ -67,6 +67,16 @@ namespace lumora::processing::detail {
     return value;
 }
 
+inline void copyActiveRows(
+    const ImageView& source,
+    MutableImageView destination) noexcept {
+    for (std::uint32_t y = 0U; y < source.layout().height(); ++y) {
+        const auto sourceRow = source.row(y);
+        const auto destinationRow = destination.row(y);
+        std::memcpy(destinationRow.data(), sourceRow.data(), sourceRow.size());
+    }
+}
+
 inline void writeU16(
     std::span<std::byte> row,
     std::size_t byteOffset,

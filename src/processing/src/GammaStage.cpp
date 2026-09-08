@@ -57,6 +57,11 @@ core::Result<void> GammaStage::process(
         source, destination, "gamma", "Gamma correction");
     if (!validation.hasValue()) return validation;
 
+    if (parameters_.gamma == 1.0) {
+        detail::copyActiveRows(source, destination);
+        return core::Result<void>::success();
+    }
+
     for (std::uint32_t y = 0U; y < source.layout().height(); ++y) {
         const auto sourceRow = source.row(y);
         const auto destinationRow = destination.row(y);
