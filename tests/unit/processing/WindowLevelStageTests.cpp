@@ -124,6 +124,76 @@ TEST(WindowLevelStage, DefaultMappingIsExactIdentityForEveryCanonicalValue) {
     EXPECT_EQ(runWindowLevel(input, {}), input);
 }
 
+TEST(WindowLevelStage, CopiesDefaultIdentityAcrossUnalignedRowsWithUnequalStrides) {
+    constexpr std::size_t sourceStride = 9U;
+    constexpr std::size_t destinationStride = 11U;
+    std::array<std::byte, 1U + sourceStride * 2U + 1U> sourceStorage{};
+    std::array<std::byte, 1U + destinationStride * 2U + 1U> destinationStorage{};
+    sourceStorage.fill(std::byte{0xC3});
+    destinationStorage.fill(std::byte{0x5A});
+    constexpr std::array<std::uint16_t, 6> samples{
+        0U, 1U, 32768U, 65534U, 65535U, 12345U};
+    std::memcpy(sourceStorage.data() + 1U, samples.data(), 6U);
+    std::memcpy(sourceStorage.data() + 1U + sourceStride, samples.data() + 3U, 6U);
+    const auto sourceBefore = sourceStorage;
+    auto expectedDestination = destinationStorage;
+    std::memcpy(expectedDestination.data() + 1U, samples.data(), 6U);
+    std::memcpy(expectedDestination.data() + 1U + destinationStride,
+        samples.data() + 3U, 6U);
+    const auto sourceLayout = ImageLayout::create(
+        3U, 2U, sourceStride, StorageType::UInt16, sourceStride * 2U).value();
+    const auto destinationLayout = ImageLayout::create(
+        3U, 2U, destinationStride, StorageType::UInt16,
+        destinationStride * 2U).value();
+    const auto source = ImageView::create(sourceLayout,
+        std::span(sourceStorage).subspan(1U), ImageDomain::CanonicalU16).value();
+    const auto destination = MutableImageView::create(destinationLayout,
+        std::span(destinationStorage).subspan(1U), ImageDomain::CanonicalU16).value();
+
+    const auto result = WindowLevelStage{}.process(
+        source, destination, canonicalSourceFormat());
+
+    ASSERT_TRUE(result.hasValue());
+    EXPECT_EQ(sourceStorage, sourceBefore);
+    EXPECT_EQ(destinationStorage, expectedDestination);
+}
+
+TEST(WindowLevelStage, CopiesClippedWideIdentityForUnalignedSingletonColumn) {
+    constexpr std::size_t sourceStride = 5U;
+    constexpr std::size_t destinationStride = 7U;
+    std::array<std::byte, 1U + sourceStride * 3U + 1U> sourceStorage{};
+    std::array<std::byte, 1U + destinationStride * 3U + 1U> destinationStorage{};
+    sourceStorage.fill(std::byte{0xD4});
+    destinationStorage.fill(std::byte{0x6B});
+    constexpr std::array<std::uint16_t, 3> samples{0U, 32768U, 65535U};
+    for (std::size_t row = 0U; row < samples.size(); ++row) {
+        std::memcpy(sourceStorage.data() + 1U + row * sourceStride,
+            samples.data() + row, sizeof(std::uint16_t));
+    }
+    const auto sourceBefore = sourceStorage;
+    auto expectedDestination = destinationStorage;
+    for (std::size_t row = 0U; row < samples.size(); ++row) {
+        std::memcpy(expectedDestination.data() + 1U + row * destinationStride,
+            samples.data() + row, sizeof(std::uint16_t));
+    }
+    const auto sourceLayout = ImageLayout::create(
+        1U, 3U, sourceStride, StorageType::UInt16, sourceStride * 3U).value();
+    const auto destinationLayout = ImageLayout::create(
+        1U, 3U, destinationStride, StorageType::UInt16,
+        destinationStride * 3U).value();
+    const auto source = ImageView::create(sourceLayout,
+        std::span(sourceStorage).subspan(1U), ImageDomain::CanonicalU16).value();
+    const auto destination = MutableImageView::create(destinationLayout,
+        std::span(destinationStorage).subspan(1U), ImageDomain::CanonicalU16).value();
+
+    const auto result = WindowLevelStage({.window = 65536.0, .level = 32767.5})
+                            .process(source, destination, canonicalSourceFormat());
+
+    ASSERT_TRUE(result.hasValue());
+    EXPECT_EQ(sourceStorage, sourceBefore);
+    EXPECT_EQ(destinationStorage, expectedDestination);
+}
+
 TEST(WindowLevelStage, HandlesUnalignedPaddedRowsAndPreservesPaddingAndSource) {
     constexpr std::size_t stride = 7U;
     std::array<std::byte, 1U + stride * 2U> sourceStorage{};
@@ -187,6 +257,8 @@ TEST(WindowLevelStage, RejectsInvalidParametersBeforeWriting) {
 TEST(WindowLevelStage, RejectsStorageDomainExtentAndOverlapBeforeWriting) {
     std::array<std::byte, 24> sourceStorage{};
     std::array<std::byte, 8> separateDestination{};
+    separateDestination.fill(std::byte{0x4D});
+    const auto separateDestinationBefore = separateDestination;
     const auto sourceLayout = ImageLayout::create(
         2U, 2U, 4U, StorageType::UInt16, 8U).value();
     const auto source = ImageView::create(sourceLayout, sourceStorage,
@@ -200,15 +272,25 @@ TEST(WindowLevelStage, RejectsStorageDomainExtentAndOverlapBeforeWriting) {
         source, u8Destination, canonicalSourceFormat());
     ASSERT_FALSE(result.hasValue());
     EXPECT_EQ(result.error().code, "destination_storage_mismatch");
+    EXPECT_EQ(separateDestination, separateDestinationBefore);
+
+    const auto u8Source = ImageView::create(
+        u8Layout, sourceStorage, ImageDomain::SensorNative).value();
+    const auto goodDestination = MutableImageView::create(sourceLayout,
+        separateDestination, ImageDomain::CanonicalU16).value();
+    result = WindowLevelStage{}.process(
+        u8Source, goodDestination, canonicalSourceFormat());
+    ASSERT_FALSE(result.hasValue());
+    EXPECT_EQ(result.error().code, "source_storage_mismatch");
+    EXPECT_EQ(separateDestination, separateDestinationBefore);
 
     const auto sensorSource = ImageView::create(
         sourceLayout, sourceStorage, ImageDomain::SensorNative).value();
-    const auto goodDestination = MutableImageView::create(sourceLayout,
-        separateDestination, ImageDomain::CanonicalU16).value();
     result = WindowLevelStage{}.process(
         sensorSource, goodDestination, canonicalSourceFormat());
     ASSERT_FALSE(result.hasValue());
     EXPECT_EQ(result.error().code, "image_domain_mismatch");
+    EXPECT_EQ(separateDestination, separateDestinationBefore);
 
     const auto narrowLayout = ImageLayout::create(
         1U, 2U, 2U, StorageType::UInt16, 4U).value();
@@ -218,6 +300,7 @@ TEST(WindowLevelStage, RejectsStorageDomainExtentAndOverlapBeforeWriting) {
         source, narrowDestination, canonicalSourceFormat());
     ASSERT_FALSE(result.hasValue());
     EXPECT_EQ(result.error().code, "image_extent_mismatch");
+    EXPECT_EQ(separateDestination, separateDestinationBefore);
 
     const auto overlappingDestination = MutableImageView::create(sourceLayout,
         std::span(sourceStorage).subspan(1U), ImageDomain::CanonicalU16).value();
