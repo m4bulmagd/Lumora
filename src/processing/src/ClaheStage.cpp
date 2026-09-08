@@ -417,25 +417,20 @@ core::Result<void> ClaheStage::process(const ImageView& source,
             }
             const int binCount = static_cast<int>(histogramBins);
             const int batch = clipped / binCount;
-            const int residualCount = clipped - batch * binCount;
-            const int residualStep = residualCount == 0
-                ? 0 : std::max(binCount / residualCount, 1);
-            int residualRemaining = residualCount;
-            int nextResidualBin = 0;
+            int residual = clipped - batch * binCount;
+            if (residual != 0) {
+                const int step = std::max(binCount / residual, 1);
+                for (int bin = 0; bin < binCount && residual > 0;
+                     bin += step, --residual)
+                    ++impl_->histogram[static_cast<std::size_t>(bin)];
+            }
             int cumulative = 0;
             const auto lutOffset = static_cast<std::size_t>(
                 tileY * impl_->grid + tileX) * histogramBins;
-            for (int bin = 0; bin < binCount; ++bin) {
-                const auto index = static_cast<std::size_t>(bin);
-                int redistributed = impl_->histogram[index] + batch;
-                if (residualRemaining > 0 && bin == nextResidualBin) {
-                    ++redistributed;
-                    --residualRemaining;
-                    nextResidualBin += residualStep;
-                }
-                cumulative += redistributed;
-                impl_->histogram[index] = 0;
-                impl_->lut[lutOffset + index] = cv::saturate_cast<std::uint16_t>(
+            for (std::size_t bin = 0U; bin < histogramBins; ++bin) {
+                cumulative += impl_->histogram[bin] + batch;
+                impl_->histogram[bin] = 0;
+                impl_->lut[lutOffset + bin] = cv::saturate_cast<std::uint16_t>(
                     static_cast<float>(cumulative) * impl_->lutScale);
             }
         }
