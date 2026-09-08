@@ -10,6 +10,14 @@
 
 using namespace lumora;
 namespace {
+void progress(const char* phase) {
+    std::puts(phase);
+    std::fflush(stdout);
+}
+void injectionProgress(const char* phase, std::size_t index, const char* state) {
+    std::printf("%s failure index=%zu %s\n", phase, index, state);
+    std::fflush(stdout);
+}
 bool preparationFailuresReleaseResources() {
     namespace hooks = core::detail::testing;
     const auto before = hooks::poolCounters();
@@ -21,26 +29,40 @@ bool preparationFailuresReleaseResources() {
     pool.value().reset();
     // Includes each index allocation, State/facade allocation and their controls,
     // in addition to all four aligned slab allocations.
+    std::printf("FrameObjectPool create allocation sites=%zu\n", allocations);
+    std::fflush(stdout);
     for (std::size_t failure = 0; failure < allocations; ++failure) {
+        injectionProgress("FrameObjectPool create", failure, "start");
         test::failOneAllocationAfter(failure);
+        {
         auto failed = core::FrameObjectPool::create(plan);
         test::cancelAllocationFailure();
+        progress("Injected call returned; checking cleanup");
         if (failed.hasValue()) return false;
         const auto after = hooks::poolCounters();
         if (after.liveStates != before.liveStates || after.liveSlabs != before.liveSlabs) return false;
+        } // Destroy the failed Result before reporting cleanup complete.
+        injectionProgress("FrameObjectPool create", failure, "complete");
     }
     test::beginAllocationTracking();
     auto extraPlan = core::FrameObjectPool::plan({2,4,2,8});
     const auto planAllocations = test::endAllocationMeasurement().allocations;
     if (!extraPlan.hasValue()) return false;
+    std::printf("FrameObjectPool plan allocation sites=%zu\n", planAllocations);
+    std::fflush(stdout);
     for (std::size_t failure = 0; failure < planAllocations; ++failure) {
+        injectionProgress("FrameObjectPool plan", failure, "start");
         test::failOneAllocationAfter(failure);
+        {
         auto failed = core::FrameObjectPool::plan({2,4,2,8});
         test::cancelAllocationFailure();
+        progress("Injected call returned; checking cleanup");
         if (failed.hasValue()) return false;
         const auto after = hooks::poolCounters();
         if (after.liveStates != before.liveStates || after.liveSlabs != before.liveSlabs
             || after.liveProbeAllocations != before.liveProbeAllocations) return false;
+        } // Destroy the failed Result before reporting cleanup complete.
+        injectionProgress("FrameObjectPool plan", failure, "complete");
     }
     std::printf("Preparation failure injection: %zu create allocations and %zu plan allocations cleaned up.\n",
         allocations, planAllocations);
@@ -101,6 +123,7 @@ bool arenaExhaustionHasNoHeapFallback() {
     const auto counts = test::endAllocationMeasurement();
     std::printf("Arena exhaustion/layout rollback: allocations=%zu deallocations=%zu over 1000 cycles (error strings excluded).\n",
         counts.allocations, counts.deallocations);
+    std::fflush(stdout);
     return correct && counts.allocations == 0 && counts.deallocations == 0;
 }
 bool enginePreparationFailuresReleaseResources() {
@@ -111,15 +134,25 @@ bool enginePreparationFailuresReleaseResources() {
     test::beginAllocationTracking();
     auto baseline=processing::FrameProcessingEngine::create(*p,*d,layout,definition);
     const auto allocations=test::endAllocationMeasurement().allocations;
+    progress("Engine baseline create-returned");
     if(!baseline.hasValue()) return false;
+    progress("Engine baseline reset-start");
     baseline.value().reset();
+    progress("Engine baseline reset-complete");
+    std::printf("Complete engine preparation allocation sites=%zu\n", allocations);
+    std::fflush(stdout);
     for(std::size_t failure=0;failure<allocations;++failure) {
+        injectionProgress("Complete engine preparation", failure, "start");
         test::failOneAllocationAfter(failure);
+        {
         auto failed=processing::FrameProcessingEngine::create(*p,*d,layout,definition);
         test::cancelAllocationFailure();
+        progress("Injected engine call returned; checking cleanup");
         if(failed.hasValue()) return false;
         const auto after=core::detail::testing::poolCounters();
         if(p->stats().inUse!=0 || d->stats().inUse!=0 || before.liveStates!=after.liveStates || before.liveSlabs!=after.liveSlabs || after.liveProbeAllocations!=0) return false;
+        } // Destroy the failed Result before reporting cleanup complete.
+        injectionProgress("Complete engine preparation", failure, "complete");
     }
     std::printf("Complete engine preparation failure injection: %zu allocation sites reclaimed all unpublished resources.\n",allocations);
     return true;
@@ -133,6 +166,8 @@ public:
     }
 };
 bool completeSchedule(bool orientation,bool fallback) {
+    std::printf("Profile preparation-start orientation=%d fallback=%d extent=8x8 CLAHE-grid=2 warmup=100 measured=1000\n", orientation ? 1 : 0, fallback ? 1 : 0);
+    std::fflush(stdout);
     const auto layout=core::ImageLayout::create(8,8,16,core::StorageType::UInt16,128).value();
     auto rawPool=core::BufferPool::create(1,128).value(); auto lease=rawPool->tryAcquire();
     for(auto& byte:lease->bytes()) byte=std::byte{0};
@@ -148,8 +183,10 @@ bool completeSchedule(bool orientation,bool fallback) {
     auto made=processing::detail::FrameEngineTestAccess::create(*p,*d,layout,definition,options,hooks);
     if(!made.hasValue()) return false;
     auto& engine=*made.value();
+    progress("Profile prepared");
     if(fallback) { if(engine.process(raw).hasValue() || engine.process(raw).hasValue()) return false; }
     auto sentinel=engine.process(raw); if(!sentinel.hasValue()) return false;
+    progress("Profile latch/sentinel-complete");
     core::LatestValueSlot<core::FrameBundle> latest;
     std::array<std::shared_ptr<const core::FrameBundle>,5> retained{};
     auto cycle=[&](std::size_t index) {
@@ -161,20 +198,28 @@ bool completeSchedule(bool orientation,bool fallback) {
         return published.revision!=0;
     };
     for(std::size_t i=0;i<100;++i) if(!cycle(i)) return false;
+    progress("Profile warmup-complete/measurement-start");
     bool successful=true;
     test::beginAllocationTracking();
     for(std::size_t i=0;i<1000;++i) successful=cycle(i) && successful;
     for(auto& owner:retained) owner.reset();
     (void)latest.publish(sentinel.value());
     const auto measured=test::endAllocationMeasurement();
+    progress("Profile measurement-complete");
     std::printf("Complete prepared publication: orientation=%d fallback=%d success=%d allocations=%zu bytes=%zu deallocations=%zu frames=1000\n",
         orientation ? 1 : 0,fallback ? 1 : 0,successful ? 1 : 0,measured.allocations,measured.allocatedBytes,measured.deallocations);
+    std::fflush(stdout);
     return successful && measured.allocations==0 && measured.deallocations==0;
 }
 }  // namespace
 int main() {
-    if (!preparationFailuresReleaseResources() || !arenaExhaustionHasNoHeapFallback()
-        || !errorRenderingFailureDoesNotLeak()) return 4;
+    progress("Phase1 FrameObjectPool preparation failure cleanup start");
+    if (!preparationFailuresReleaseResources()) return 4;
+    progress("Phase1 complete; Phase2 arena exhaustion start");
+    if (!arenaExhaustionHasNoHeapFallback()) return 4;
+    progress("Phase2 arena complete; error-rendering cleanup start");
+    if (!errorRenderingFailureDoesNotLeak()) return 4;
+    progress("Phase2 error-rendering complete; positive controls start");
     test::beginAllocationTracking();
     auto* ordinary = ::operator new(7U);
     auto* aligned = ::operator new(19U, std::align_val_t{64U});
@@ -182,6 +227,7 @@ int main() {
     ::operator delete(aligned, std::align_val_t{64U});
     const auto control = test::endAllocationMeasurement();
     if (control.allocations != 2U || control.allocatedBytes != 26U || control.deallocations != 2U) return 1;
+    progress("Phase2 complete; Phase3 default-engine publication start");
     const auto layout = core::ImageLayout::create(4U, 1U, 8U, core::StorageType::UInt16, 8U).value();
     auto rawPool = core::BufferPool::create(1U, 8U).value();
     auto lease = rawPool->tryAcquire();
@@ -215,6 +261,7 @@ int main() {
         return true;
     };
     for (std::size_t frame = 0; frame < 100U; ++frame) if (!cycle(frame)) return 2;
+    progress("Phase3 warmup-complete/measurement-start");
     bool successful = true;
     test::beginAllocationTracking();
     for (std::size_t frame = 0; frame < 1000U; ++frame) successful = cycle(frame) && successful;
@@ -224,7 +271,13 @@ int main() {
     std::printf("Engine publication/retention/release: success=%d allocations=%zu bytes=%zu deallocations=%zu over 1000 frames after 100 warmups\n",
         successful ? 1 : 0, counts.allocations, counts.allocatedBytes, counts.deallocations);
     if(!successful || counts.allocations!=0U) return 3;
+    progress("Phase3 complete; Phase4 complete-engine preparation failures start");
     if(!enginePreparationFailuresReleaseResources()) return 6;
-    for(bool oriented:{false,true}) for(bool fallback:{false,true}) if(!completeSchedule(oriented,fallback)) return 5;
+    progress("Phase4 complete; Phase5 full-enabled profiles start");
+    for(bool oriented:{false,true}) for(bool fallback:{false,true}) {
+        if(!completeSchedule(oriented,fallback)) return 5;
+        progress("Profile complete");
+    }
+    progress("Phase5 complete");
     return 0;
 }
