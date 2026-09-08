@@ -639,7 +639,7 @@ TEST(DetailStageBatching, PreparedParallelFiltersMatchIndependentOracleAndDispat
         executor.setWorkObserver(&observed, [](void* c,CpuJobKind,std::size_t slot,std::size_t,std::size_t) noexcept {
             if(slot) static_cast<std::atomic<unsigned>*>(c)->fetch_or(1U<<slot);
         });
-        for (const auto [width,height] : {std::pair{1U,1U}, {17U,37U}, {257U,257U}, {3U,21847U}, {21847U,3U}, {4097U,17U}}) {
+        for (const auto& [width,height] : {std::pair{1U,1U}, {17U,37U}, {257U,257U}, {3U,21847U}, {21847U,3U}, {4097U,17U}}) {
             const auto imageLayout=layout(width,height,width*2U+3U);
             constexpr DenoiseParameters denoise{DenoiseMode::Gaussian,7U,1.25};
             constexpr SharpenParameters sharpen{1.75,5.0,12.5};
