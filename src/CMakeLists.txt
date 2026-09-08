@@ -44,6 +44,7 @@ add_library(
   processing/include/lumora/processing/ClaheStage.hpp
   processing/include/lumora/processing/ToneStages.hpp
   processing/include/lumora/processing/DisplayMapper.hpp
+  processing/include/lumora/processing/OrientationTransform.hpp
   processing/include/lumora/processing/ProcessingPipeline.hpp
   processing/include/lumora/processing/ProcessingWorkspace.hpp
   processing/include/lumora/processing/FrameProcessingEngine.hpp
@@ -59,6 +60,7 @@ add_library(
   processing/src/GammaStage.cpp
   processing/src/InvertStage.cpp
   processing/src/DisplayMapper.cpp
+  processing/src/OrientationTransform.cpp
   processing/src/PipelineCompiler.cpp
   processing/src/Mono8PassThroughProcessor.cpp
 )

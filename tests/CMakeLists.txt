@@ -34,6 +34,7 @@ add_executable(lumora_processing_tests
   unit/processing/ClaheStageTests.cpp
   unit/processing/ToneStageTests.cpp
   unit/processing/DisplayMapperTests.cpp
+  unit/processing/OrientationTransformTests.cpp
   unit/processing/FrameProcessingEngineTests.cpp)
 target_link_libraries(lumora_processing_tests PRIVATE
   lumora::processing GTest::gtest_main)
@@ -326,6 +327,9 @@ set_tests_properties(Processing.ToneStages PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.DisplayMapper
   COMMAND lumora_processing_tests --gtest_filter=DisplayMapper.*)
 set_tests_properties(Processing.DisplayMapper PROPERTIES TIMEOUT 60)
+add_test(NAME Processing.OrientationTransform
+  COMMAND lumora_processing_tests --gtest_filter=OrientationTransform.*)
+set_tests_properties(Processing.OrientationTransform PROPERTIES TIMEOUT 60)
 
 add_test(NAME Processing.FrameProcessingEngine
   COMMAND lumora_processing_tests --gtest_filter=FrameProcessingEngine.*)
