@@ -2,7 +2,7 @@
 
 **Updated:** 2026-09-08
 
-**Latest integrated implementation checkpoint:** `17d1edee02ffdc51258a507bf14a222fa748b404` on `main`.
+**Latest integrated implementation checkpoint:** `fd4c60495de269e81b54bb75d1756bb46e342b73` on `main`.
 
 This is a status and evidence summary, not a replacement for the [PRD](../prd.md), [design and milestone authority](superpowers/README.md#document-authority), or separately recorded acceptance. Documentation-only commits may follow the implementation checkpoint above.
 
@@ -81,4 +81,10 @@ Post-merge verification is tracked by the [Linux main workflow](https://github.c
 
 The owner approved continued optimization after PR #12. The [Window/Level performance record](architecture/milestones/m08-window-level-performance.md) covers the first bounded slice on `perf/m08-window-level-identity`: an exact active-row copy for validated full-range mapping. Source `b836334` is independently task-reviewed; local Debug/Release each pass 53 headless checks plus native X11. Whole-branch source review and Linux/Windows Debug/Release CI also pass at `8877f46`.
 
-Clean `8877f46` normal evidence completes all 33 cases with unchanged complete output hashes, resource plans and zero measured C++ allocations. Both normal 1,000-cycle allocation profiles and separately controlled glibc traces pass; all 26 candidate PGM files remain byte-identical. The paired standalone identity diagnostic is about 94% faster. Current 2048 full Standard P95 is 258.9/388.1 ms (4.06/2.69 FPS), while the 1024 oriented P95 is higher than the preceding normal run; the record preserves these mixed full-pipeline results without a general improvement claim. Final evidence review and integration-head CI/merge remain pending. The next recommended experiment is exact CLAHE histogram-pass fusion, followed by further measured performance work before M9 controls. M8 acceptance remains open.
+Clean `8877f46` normal evidence completes all 33 cases with unchanged complete output hashes, resource plans and zero measured C++ allocations. Both normal 1,000-cycle allocation profiles and separately controlled glibc traces pass; all 26 candidate PGM files remain byte-identical. The paired standalone identity diagnostic is about 94% faster. Current 2048 full Standard P95 is 258.9/388.1 ms (4.06/2.69 FPS), while the 1024 oriented P95 is higher than the preceding normal run; the record preserves these mixed full-pipeline results without a general improvement claim. Final evidence review approves the branch with no new findings. The next recommended experiment is exact CLAHE histogram-pass fusion, followed by further measured performance work before M9 controls. M8 acceptance remains open.
+
+### Window/Level integrated verification
+
+[PR #13](https://github.com/m4bulmagd/Lumora/pull/13) merged as `fd4c604` after source/evidence review and passing [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34209842020) and [Windows PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34209842005) at exact head `20baf34`. Each platform passes 53/53 in Debug and Release; Linux also passes native X11 in each. The merged tree equals the reviewed head, and the clean local `main` workspace was fast-forwarded. This integration update changes documentation only. The duplicate Windows branch-push workflow was still configuring dependencies at merge; both platform PR workflows were complete and successful.
+
+Final main verification uses the [Linux main workflow](https://github.com/m4bulmagd/Lumora/actions/workflows/linux-simulator.yml?query=branch%3Amain) and [Windows main workflow](https://github.com/m4bulmagd/Lumora/actions/workflows/windows-simulator.yml?query=branch%3Amain). Exact logs, candidate artifacts and the final handoff are retained under `out/qa/m08-window-identity/` and the ignored execution record in the preserved feature worktree. The performance and external acceptance gates remain open.
