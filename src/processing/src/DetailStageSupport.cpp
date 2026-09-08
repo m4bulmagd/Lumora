@@ -223,47 +223,57 @@ void horizontalGaussian(
     std::size_t height,
     const double* coefficients,
     std::size_t kernelSize) noexcept {
-    const auto radius = kernelSize / 2U;
     for (std::size_t y = 0U; y < height; ++y) {
         const auto sourceRow = source.row(static_cast<std::uint32_t>(y));
         auto* destinationRow = intermediate + y * width;
-        if (width < kernelSize) {
-            for (std::size_t x = 0U; x < width; ++x) {
-                destinationRow[x] = reflectedHorizontalAt(
-                    sourceRow, x, width, coefficients, kernelSize);
-            }
-            continue;
-        }
+        horizontalGaussianRow(sourceRow, destinationRow, width,
+            coefficients, kernelSize);
+    }
+}
 
-        for (std::size_t x = 0U; x < radius; ++x) {
+void horizontalGaussianRow(
+    std::span<const std::byte> sourceRow,
+    double* destinationRow,
+    std::size_t width,
+    const double* coefficients,
+    std::size_t kernelSize) noexcept {
+    const auto radius = kernelSize / 2U;
+    if (width < kernelSize) {
+        for (std::size_t x = 0U; x < width; ++x) {
             destinationRow[x] = reflectedHorizontalAt(
                 sourceRow, x, width, coefficients, kernelSize);
         }
+        return;
+    }
 
-        const auto interiorEnd = width - radius;
-        std::size_t x = radius;
-        for (; interiorEnd - x >= laneCount; x += laneCount) {
-            std::array<double, laneCount> sums{};
-            const auto firstX = x - radius;
-            for (std::size_t tap = 0U; tap < kernelSize; ++tap) {
-                const auto coefficient = coefficients[tap];
-                for (std::size_t lane = 0U; lane < laneCount; ++lane) {
-                    sums[lane] += coefficient * static_cast<double>(
-                        loadU16(sourceRow, firstX + tap + lane));
-                }
-            }
+    for (std::size_t x = 0U; x < radius; ++x) {
+        destinationRow[x] = reflectedHorizontalAt(
+            sourceRow, x, width, coefficients, kernelSize);
+    }
+
+    const auto interiorEnd = width - radius;
+    std::size_t x = radius;
+    for (; interiorEnd - x >= laneCount; x += laneCount) {
+        std::array<double, laneCount> sums{};
+        const auto firstX = x - radius;
+        for (std::size_t tap = 0U; tap < kernelSize; ++tap) {
+            const auto coefficient = coefficients[tap];
             for (std::size_t lane = 0U; lane < laneCount; ++lane) {
-                destinationRow[x + lane] = sums[lane];
+                sums[lane] += coefficient * static_cast<double>(
+                    loadU16(sourceRow, firstX + tap + lane));
             }
         }
-        for (; x < interiorEnd; ++x) {
-            destinationRow[x] = interiorHorizontalAt(
-                sourceRow, x - radius, coefficients, kernelSize);
+        for (std::size_t lane = 0U; lane < laneCount; ++lane) {
+            destinationRow[x + lane] = sums[lane];
         }
-        for (; x < width; ++x) {
-            destinationRow[x] = reflectedHorizontalAt(
-                sourceRow, x, width, coefficients, kernelSize);
-        }
+    }
+    for (; x < interiorEnd; ++x) {
+        destinationRow[x] = interiorHorizontalAt(
+            sourceRow, x - radius, coefficients, kernelSize);
+    }
+    for (; x < width; ++x) {
+        destinationRow[x] = reflectedHorizontalAt(
+            sourceRow, x, width, coefficients, kernelSize);
     }
 }
 
@@ -334,7 +344,7 @@ void writeSharpenRow(
 
 std::uint16_t roundU16(double value) noexcept {
     const auto clamped = std::clamp(value, 0.0, 65535.0);
-    return static_cast<std::uint16_t>(std::floor(clamped + 0.5));
+    return static_cast<std::uint16_t>(clamped + 0.5);
 }
 
 }  // namespace lumora::processing::detail

@@ -140,7 +140,15 @@ using processing::SharpenStage;
     return result;
 }
 
-enum class Pattern { Ramp, Step, BoundaryImpulse, Alternating, Constant, Noise };
+enum class Pattern {
+    Ramp,
+    Step,
+    BoundaryImpulse,
+    TopBottomImpulse,
+    Alternating,
+    Constant,
+    Noise,
+};
 
 [[nodiscard]] std::vector<std::uint16_t> makeInput(
     std::size_t width,
@@ -162,6 +170,11 @@ enum class Pattern { Ramp, Step, BoundaryImpulse, Alternating, Constant, Noise }
             result[index] = (x == 0U || x + 1U == width || index == result.size() / 2U)
                 ? 65535U : 0U;
             break;
+        case Pattern::TopBottomImpulse: {
+            const auto y = index / width;
+            result[index] = y == 0U || y + 1U == height ? 65535U : 0U;
+            break;
+        }
         case Pattern::Alternating:
             result[index] = index % 2U == 0U ? 0U : 65535U;
             break;
@@ -181,15 +194,22 @@ struct BufferedImage final {
     BufferedImage(
         std::size_t widthValue,
         std::size_t heightValue,
-        std::span<const std::uint16_t> input)
+        std::span<const std::uint16_t> input,
+        std::size_t sourcePadding = 3U,
+        std::size_t destinationPadding = 5U,
+        std::size_t sourceStartValue = 1U,
+        std::size_t destinationStartValue = 1U)
         : width(widthValue),
           height(heightValue),
-          sourceStride(width * sizeof(std::uint16_t) + 3U),
-          destinationStride(width * sizeof(std::uint16_t) + 5U),
-          source(1U + sourceStride * height + 3U, std::byte{0xC3}),
-          destination(1U + destinationStride * height + 3U, std::byte{0x5A}) {
+          sourceStride(width * sizeof(std::uint16_t) + sourcePadding),
+          destinationStride(width * sizeof(std::uint16_t) + destinationPadding),
+          sourceStart(sourceStartValue),
+          destinationStart(destinationStartValue),
+          source(sourceStart + sourceStride * height + 3U, std::byte{0xC3}),
+          destination(destinationStart + destinationStride * height + 3U,
+              std::byte{0x5A}) {
         for (std::size_t y = 0U; y < height; ++y) {
-            std::memcpy(source.data() + 1U + y * sourceStride,
+            std::memcpy(source.data() + sourceStart + y * sourceStride,
                 input.data() + y * width, width * sizeof(std::uint16_t));
         }
     }
@@ -198,7 +218,7 @@ struct BufferedImage final {
         const auto imageLayout = layout(static_cast<std::uint32_t>(width),
             static_cast<std::uint32_t>(height), sourceStride);
         return ImageView::create(imageLayout,
-            std::span(source).subspan(1U, sourceStride * height),
+            std::span(source).subspan(sourceStart, sourceStride * height),
             ImageDomain::CanonicalU16).value();
     }
 
@@ -206,7 +226,7 @@ struct BufferedImage final {
         const auto imageLayout = layout(static_cast<std::uint32_t>(width),
             static_cast<std::uint32_t>(height), destinationStride);
         return MutableImageView::create(imageLayout,
-            std::span(destination).subspan(1U, destinationStride * height),
+            std::span(destination).subspan(destinationStart, destinationStride * height),
             ImageDomain::CanonicalU16).value();
     }
 
@@ -214,7 +234,7 @@ struct BufferedImage final {
         std::vector<std::uint16_t> result(width * height);
         for (std::size_t y = 0U; y < height; ++y) {
             std::memcpy(result.data() + y * width,
-                destination.data() + 1U + y * destinationStride,
+                destination.data() + destinationStart + y * destinationStride,
                 width * sizeof(std::uint16_t));
         }
         return result;
@@ -222,10 +242,10 @@ struct BufferedImage final {
 
     [[nodiscard]] bool destinationCanariesIntact() const {
         for (std::size_t index = 0U; index < destination.size(); ++index) {
-            const auto relative = index == 0U
-                ? destinationStride : (index - 1U) % destinationStride;
-            const bool active = index > 0U
-                && index < 1U + destinationStride * height
+            const auto relative = index < destinationStart
+                ? destinationStride : (index - destinationStart) % destinationStride;
+            const bool active = index >= destinationStart
+                && index < destinationStart + destinationStride * height
                 && relative < width * sizeof(std::uint16_t);
             if (!active && destination[index] != std::byte{0x5A}) return false;
         }
@@ -236,6 +256,8 @@ struct BufferedImage final {
     std::size_t height;
     std::size_t sourceStride;
     std::size_t destinationStride;
+    std::size_t sourceStart;
+    std::size_t destinationStart;
     std::vector<std::byte> source;
     std::vector<std::byte> destination;
 };
@@ -269,12 +291,43 @@ void expectProcessMatches(
 }
 
 constexpr std::array patterns{Pattern::Ramp, Pattern::Step,
-    Pattern::BoundaryImpulse, Pattern::Alternating, Pattern::Constant, Pattern::Noise};
+    Pattern::BoundaryImpulse, Pattern::TopBottomImpulse, Pattern::Alternating,
+    Pattern::Constant, Pattern::Noise};
+
+TEST(DetailStageBatching, RoundU16ClampsAndRoundsHalfNeighbors) {
+    struct Case final {
+        double value;
+        std::uint16_t expected;
+    };
+    const auto belowHalf = std::nextafter(0.5, 0.0);
+    const auto belowRoundingHalf = std::nextafter(belowHalf, 0.0);
+    const auto aboveHalf = std::nextafter(0.5, 1.0);
+    const auto belowUpperHalf = std::nextafter(65534.5, 65534.0);
+    const auto aboveUpperHalf = std::nextafter(65534.5, 65535.0);
+    for (const auto testCase : {
+             Case{-1.0, 0U},
+             Case{0.0, 0U},
+             Case{belowRoundingHalf, 0U},
+             Case{belowHalf, 1U},
+             Case{0.5, 1U},
+             Case{aboveHalf, 1U},
+             Case{1.499999999999, 1U},
+             Case{1.5, 2U},
+             Case{belowUpperHalf, 65534U},
+             Case{65534.5, 65535U},
+             Case{aboveUpperHalf, 65535U},
+             Case{65535.0, 65535U},
+             Case{65535.5, 65535U},
+             Case{1000000.0, 65535U}}) {
+        EXPECT_EQ(processing::detail::roundU16(testCase.value), testCase.expected)
+            << "value=" << testCase.value;
+    }
+}
 
 TEST(DetailStageBatching, HorizontalGaussianPreservesScalarTapOrderAtBordersBlocksAndTails) {
     struct Case final { std::size_t kernelSize; double sigma; };
     for (const auto testCase : {
-             Case{3U, 0.0}, Case{5U, 5.0}, Case{7U, 1.25}}) {
+             Case{3U, 0.0}, Case{5U, 5.0}, Case{7U, 1.25}, Case{31U, 5.0}}) {
         const auto kernel = coefficients(testCase.kernelSize, testCase.sigma);
         for (const auto width : boundaryWidths(testCase.kernelSize)) {
             constexpr std::size_t height = 3U;
@@ -324,6 +377,40 @@ TEST(DetailStageBatching, GaussianDenoiseMatchesScalarReferenceAcrossEightLaneBo
     }
 }
 
+TEST(DetailStageBatching, SharpenTallRingReuseMatchesIndependentOracleForABA) {
+    constexpr std::size_t width = 17U;
+    constexpr std::size_t height = 37U;
+    constexpr SharpenParameters parameters{1.5, 2.0, 12.5};
+    const auto kernel = coefficients(13U, parameters.radius);
+    const auto inputA = makeInput(width, height, Pattern::Noise);
+    const auto inputB = makeInput(width, height, Pattern::Alternating);
+    const auto expectedA = sharpenReference(
+        inputA, width, height, kernel, parameters.amount, parameters.threshold);
+    const auto expectedB = sharpenReference(
+        inputB, width, height, kernel, parameters.amount, parameters.threshold);
+    BufferedImage buffersA(width, height, inputA, 3U, 5U, 1U, 3U);
+    BufferedImage buffersB(width, height, inputB, 7U, 9U, 3U, 1U);
+    const auto sourceBeforeA = buffersA.source;
+    const auto sourceBeforeB = buffersB.source;
+    auto created = SharpenStage::create(parameters,
+        layout(width, height, buffersA.sourceStride));
+    ASSERT_TRUE(created.hasValue());
+    auto stage = std::move(created).value();
+
+    const auto expectCall = [&](BufferedImage& buffers,
+                                const std::vector<std::uint16_t>& expected) {
+        ASSERT_TRUE(stage->process(buffers.sourceView(), buffers.destinationView(),
+            canonicalFormat()).hasValue());
+        EXPECT_EQ(buffers.activeDestination(), expected);
+        EXPECT_TRUE(buffers.destinationCanariesIntact());
+    };
+    expectCall(buffersA, expectedA);
+    expectCall(buffersB, expectedB);
+    expectCall(buffersA, expectedA);
+    EXPECT_EQ(buffersA.source, sourceBeforeA);
+    EXPECT_EQ(buffersB.source, sourceBeforeB);
+}
+
 TEST(DetailStageBatching, SharpenMatchesScalarReferenceAcrossEightLaneBoundaries) {
     const auto transition = 2.0 / 3.0;
     for (const auto parameters : {
@@ -336,7 +423,11 @@ TEST(DetailStageBatching, SharpenMatchesScalarReferenceAcrossEightLaneBoundaries
             2.0 * std::ceil(3.0 * parameters.radius) + 1.0);
         const auto kernel = coefficients(kernelSize, parameters.radius);
         for (const auto width : boundaryWidths(kernelSize)) {
-            for (const auto height : {1U, 4U}) {
+            for (const auto height : {1U, 2U,
+                     static_cast<unsigned>(kernelSize - 1U),
+                     static_cast<unsigned>(kernelSize),
+                     static_cast<unsigned>(kernelSize + 1U),
+                     static_cast<unsigned>(2U * kernelSize + 3U)}) {
                 const auto imageLayout = layout(static_cast<std::uint32_t>(width),
                     static_cast<std::uint32_t>(height), width * 2U + 3U);
                 auto created = SharpenStage::create(parameters, imageLayout);

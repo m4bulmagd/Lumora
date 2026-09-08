@@ -1,4 +1,5 @@
 #include <lumora/processing/SharpenStage.hpp>
+#include <lumora/core/CheckedMath.hpp>
 #include "StageStorage.hpp"
 
 #include "DetailStageSupport.hpp"
@@ -62,6 +63,32 @@ using FactoryResult = core::Result<std::unique_ptr<SharpenStage>>;
         "sharpen", category, std::move(code), std::move(message), recoverable));
 }
 
+[[nodiscard]] core::Result<std::size_t> sharpenScratchBytes(
+    const core::ImageLayout& layout,
+    std::size_t kernelSize) {
+    const auto fail = [] {
+        return core::Result<std::size_t>::failure(detail::stageError("sharpen",
+            core::ErrorCategory::ResourceExhaustion,
+            "sharpen_scratch_size_overflow",
+            "Computing the fixed Gaussian scratch storage overflowed size_t.",
+            true));
+    };
+    const auto ringRows = std::min(
+        static_cast<std::size_t>(layout.height()), kernelSize);
+    const auto sampleCount = core::checkedMultiply(
+        static_cast<std::size_t>(layout.width()), ringRows);
+    if (!sampleCount.hasValue()) return fail();
+    const auto intermediateBytes = core::checkedMultiply(
+        sampleCount.value(), sizeof(double));
+    if (!intermediateBytes.hasValue()) return fail();
+    const auto coefficientBytes = core::checkedMultiply(kernelSize, sizeof(double));
+    if (!coefficientBytes.hasValue()) return fail();
+    const auto total = core::checkedAdd(
+        intermediateBytes.value(), coefficientBytes.value());
+    if (!total.hasValue()) return fail();
+    return core::Result<std::size_t>::success(total.value());
+}
+
 }  // namespace
 
 struct SharpenStage::Impl final {
@@ -104,8 +131,8 @@ core::Result<std::size_t> SharpenStage::requiredScratchBytes(
     if (!validation.hasValue()) {
         return core::Result<std::size_t>::failure(validation.error());
     }
-    return detail::gaussianScratchBytes(
-        "sharpen", layout, detail::gaussianKernelSize(parameters.radius));
+    return sharpenScratchBytes(
+        layout, detail::gaussianKernelSize(parameters.radius));
 }
 
 core::Result<std::unique_ptr<SharpenStage>> SharpenStage::create(
@@ -121,9 +148,10 @@ core::Result<std::unique_ptr<SharpenStage>> SharpenStage::create(
     }
 
     try {
-        const auto sampleCount = static_cast<std::size_t>(layout.width())
-            * static_cast<std::size_t>(layout.height());
         const auto kernelSize = detail::gaussianKernelSize(parameters.radius);
+        const auto ringRows = std::min(
+            static_cast<std::size_t>(layout.height()), kernelSize);
+        const auto sampleCount = static_cast<std::size_t>(layout.width()) * ringRows;
         auto intermediate = std::make_unique<double[]>(sampleCount);
         std::fill_n(intermediate.get(), sampleCount, 0.0);
         auto coefficients = std::make_unique<double[]>(kernelSize);
@@ -181,12 +209,27 @@ core::Result<void> SharpenStage::process(
 
     const auto width = static_cast<std::size_t>(impl_->width);
     const auto height = static_cast<std::size_t>(impl_->height);
-    detail::horizontalGaussian(source, impl_->intermediate.get(), width, height,
-        impl_->coefficients.get(), impl_->kernelSize);
+    const auto radius = impl_->kernelSize / 2U;
+    const auto ringRows = std::min(height, impl_->kernelSize);
+    std::size_t nextSourceRow = 0U;
     detail::ReflectedGaussianRows rows{};
     for (std::size_t y = 0U; y < height; ++y) {
-        detail::prepareVerticalGaussianRows(impl_->intermediate.get(), width,
-            height, y, impl_->kernelSize, rows);
+        const auto finalSourceRow = std::min(height - 1U, y + radius);
+        while (nextSourceRow <= finalSourceRow) {
+            detail::horizontalGaussianRow(
+                source.row(static_cast<std::uint32_t>(nextSourceRow)),
+                impl_->intermediate.get() + (nextSourceRow % ringRows) * width,
+                width, impl_->coefficients.get(), impl_->kernelSize);
+            ++nextSourceRow;
+        }
+        const auto signedRadius = static_cast<std::int64_t>(radius);
+        for (std::size_t tap = 0U; tap < impl_->kernelSize; ++tap) {
+            const auto offset = static_cast<std::int64_t>(tap) - signedRadius;
+            const auto reflectedY = detail::reflect101(
+                static_cast<std::int64_t>(y) + offset, height);
+            rows[tap] = impl_->intermediate.get()
+                + (reflectedY % ringRows) * width;
+        }
         const auto sourceRow = source.row(static_cast<std::uint32_t>(y));
         const auto destinationRow = destination.row(static_cast<std::uint32_t>(y));
         detail::writeSharpenRow(rows, impl_->coefficients.get(), impl_->kernelSize,

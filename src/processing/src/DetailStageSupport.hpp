@@ -76,6 +76,13 @@ void horizontalGaussian(
     const double* coefficients,
     std::size_t kernelSize) noexcept;
 
+void horizontalGaussianRow(
+    std::span<const std::byte> sourceRow,
+    double* destinationRow,
+    std::size_t width,
+    const double* coefficients,
+    std::size_t kernelSize) noexcept;
+
 using ReflectedGaussianRows = std::array<const double*, 31U>;
 
 void prepareVerticalGaussianRows(
