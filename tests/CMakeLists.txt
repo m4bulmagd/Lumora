@@ -26,6 +26,7 @@ add_test(NAME Application.StartupPreferences
 set_tests_properties(Application.StartupPreferences PROPERTIES TIMEOUT 60)
 
 add_executable(lumora_processing_tests
+  unit/processing/ProcessingDefaultsTests.cpp
   unit/processing/Mono8PassThroughProcessorTests.cpp
   unit/processing/PipelineCompilerTests.cpp
   unit/processing/ImageViewTests.cpp
@@ -377,3 +378,15 @@ target_include_directories(lumora_core_tests PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/support" "${PROJECT_SOURCE_DIR}/src/core/src")
 add_test(NAME Core.FrameObjectPool COMMAND lumora_core_tests --gtest_filter=FrameObjectPool.*)
 add_test(NAME Core.ProcessingTimings COMMAND lumora_core_tests --gtest_filter=ProcessingTimings.*)
+
+add_test(NAME Processing.Defaults COMMAND lumora_processing_tests --gtest_filter=ProcessingDefaults.*)
+
+add_executable(lumora_evidence_tests unit/processing/EvidenceArtifactTests.cpp reference/processing/PipelineReferenceTests.cpp)
+target_link_libraries(lumora_evidence_tests PRIVATE lumora_processing_evidence_support Qt6::Core GTest::gtest_main)
+lumora_enable_warnings(lumora_evidence_tests)
+add_test(NAME Processing.EvidenceArtifacts COMMAND lumora_evidence_tests)
+set_tests_properties(Processing.EvidenceArtifacts PROPERTIES TIMEOUT 120)
+
+target_compile_definitions(lumora_evidence_tests PRIVATE LUMORA_EXACT_ORACLE_ROOT="${PROJECT_SOURCE_DIR}/tests/reference/processing/fixtures")
+
+target_compile_definitions(lumora_evidence_tests PRIVATE LUMORA_WORKSTATION_TEMPLATE="${PROJECT_SOURCE_DIR}/benchmarks/processing/reference-workstation.json")

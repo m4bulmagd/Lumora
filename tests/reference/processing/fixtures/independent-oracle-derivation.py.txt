@@ -1,0 +1,152 @@
+"""Independent rational/identity/inverse-coordinate exact M8 oracle candidates.
+
+No Lumora or OpenCV executable is invoked. This is fixture preparation, not a
+passing product test or designated-workstation acceptance. Hashes cover complete
+P5 files with max65535 and big-endian U16; Gray8 results are zero-extended.
+"""
+from pathlib import Path
+from hashlib import sha256
+from struct import pack
+import json
+
+ROOT = Path(__file__).resolve().parent
+
+
+def nearest_positive_ratio(numerator, denominator):
+    quotient, remainder = divmod(numerator, denominator)
+    return quotient + int(2 * remainder >= denominator)
+
+
+def ramp(width, maximum):
+    return [i * maximum // (width - 1) for i in range(width)]
+
+
+def gradient(width, height):
+    return [(x * 65535 // (width - 1)) // 2
+            + (y * 65535 // (height - 1)) // 2
+            for y in range(height) for x in range(width)]
+
+
+def asymmetric():
+    return [((x + 1) + 257 * (y + 1)
+             + 4096 * ((3 * x + y) % 13)) & 0xffff
+            for y in range(5) for x in range(7)]
+
+
+def anti_diagonal_inverse(source, width, height):
+    # Destination dimensions are height x width. Both selected profiles are
+    # the same antidiagonal reflection: Hflip+CW90 and Vflip+CW270.
+    return [source[(height - 1 - ox) * width + (width - 1 - oy)]
+            for oy in range(width) for ox in range(height)]
+
+
+def pgm(path, width, height, pixels):
+    assert len(pixels) == width * height
+    assert all(0 <= value <= 65535 for value in pixels)
+    data = f'P5\n{width} {height}\n65535\n'.encode('ascii')
+    data += b''.join(pack('>H', value) for value in pixels)
+    path.write_bytes(data)
+    return {'file': path.name, 'width': width, 'height': height,
+            'fileBytes': len(data), 'sha256': sha256(data).hexdigest()}
+
+
+def case_context(name):
+    canonical = {'domain': 'CanonicalU16', 'storage': 'UInt16',
+                 'validBits': 16, 'maximum': 65535}
+    source = dict(canonical)
+    output = dict(canonical)
+    scope = 'standalone_stage'
+    operations = []
+    if name == 'normalize_mono12_ramp':
+        source = {'domain': 'Source', 'format': 'Mono12', 'storage': 'UInt16',
+                  'packing': 'Unpacked', 'bitAlignment': 'LeastSignificant',
+                  'validBits': 12, 'maximum': 4095}
+        operations = [{'id': 'normalize', 'enabled': True, 'parameters': {}}]
+    elif name == 'window_level_gradient':
+        operations = [{'id': 'window_level', 'enabled': True,
+                       'parameters': {'window': 65535, 'level': 32767.5}}]
+    elif name == 'brightness_contrast_gradient':
+        operations = [{'id': 'brightness_contrast', 'enabled': True,
+                       'parameters': {'brightness': 0, 'contrast': 1}}]
+    elif name == 'gamma_gradient':
+        operations = [{'id': 'gamma', 'enabled': True, 'parameters': {'gamma': 1}}]
+    elif name == 'invert_ramp':
+        operations = [{'id': 'invert', 'enabled': True, 'parameters': {},
+                       'enabledInStandard': False}]
+    elif name == 'orientation_asymmetric_gray8':
+        scope = 'presentation_operations'
+        output = {'domain': 'Display', 'displayStorage': 'Gray8',
+                  'storage': 'UInt8', 'validBits': 8, 'maximum': 255}
+        operations = [
+            {'id': 'terminal_gray8_mapping', 'enabled': True,
+             'parameters': {'rounding': 'nearest_positive', 'divisor': 257}},
+            {'id': 'installation_orientation', 'enabled': True,
+             'parameters': {'flipHorizontal': True, 'flipVertical': False,
+                            'clockwiseRotationDegrees': 90}}]
+    elif name == 'orientation_asymmetric_gray16':
+        scope = 'presentation_operations'
+        source = {'domain': 'Display', 'displayStorage': 'Gray16',
+                  'storage': 'UInt16', 'validBits': 16, 'maximum': 65535}
+        output = dict(source)
+        operations = [{'id': 'installation_orientation', 'enabled': True,
+                       'parameters': {'flipHorizontal': False, 'flipVertical': True,
+                                      'clockwiseRotationDegrees': 270}}]
+    else:
+        raise ValueError(f'Unknown oracle case: {name}')
+    return {'scope': scope, 'fullStandardExecuted': False,
+            'operations': operations, 'sourceSamples': source,
+            'expectedSamples': output}
+
+
+entries = []
+for kind, rw, gw, gh in [('candidate', 257, 67, 53), ('smoke', 17, 16, 12)]:
+    destination = ROOT / kind
+    destination.mkdir(exist_ok=True)
+    cases = []
+    mono12 = ramp(rw, 4095)
+    normalized = [nearest_positive_ratio(value * 65535, 4095) for value in mono12]
+    cases.append(('normalize_mono12_ramp', rw, 1, mono12, rw, 1, normalized,
+                  'u16', 'nearest rational value*65535/4095; quotient/remainder comparison'))
+    values = gradient(gw, gh)
+    for name in ('window_level_gradient', 'brightness_contrast_gradient', 'gamma_gradient'):
+        # Standard WL has endpoints0/65535 and slope1; BC0/1 and gamma1
+        # are exact identities on the discrete U16 domain.
+        cases.append((name, gw, gh, values, gw, gh, list(values),
+                      'u16', 'independently derived Standard identity'))
+    values = ramp(rw, 65535)
+    cases.append(('invert_ramp', rw, 1, values, rw, 1,
+                  [65535 - value for value in values], 'u16', 'U16 complement'))
+    values = asymmetric()
+    gray8 = [nearest_positive_ratio(value, 257) for value in values]
+    cases.append(('orientation_asymmetric_gray8', 7, 5, values, 5, 7,
+                  anti_diagonal_inverse(gray8, 7, 5), 'gray8_zero_extended_to_u16',
+                  'nearest rational v/257, then inverse Hflip+CW90 coordinates'))
+    cases.append(('orientation_asymmetric_gray16', 7, 5, values, 5, 7,
+                  anti_diagonal_inverse(values, 7, 5), 'u16',
+                  'inverse Vflip+CW270 coordinates'))
+    for name, w, h, source, ow, oh, expected, encoding, method in cases:
+        source_file = pgm(destination / f'{name}-source.pgm', w, h, source)
+        expected_file = pgm(destination / f'{name}-expected.pgm', ow, oh, expected)
+        source_file['payloadEncoding'] = 'u16_big_endian'
+        expected_file['payloadEncoding'] = (
+            'gray8_zero_extended_to_u16_big_endian'
+            if encoding == 'gray8_zero_extended_to_u16' else 'u16_big_endian')
+        entries.append({'kind': kind, 'caseId': name,
+                        'sizeProfile': 'ordinary' if kind == 'candidate' else 'smoke',
+                        'source': source_file, 'expected': expected_file,
+                        'context': case_context(name), 'derivation': method,
+                        'expectedFirstValues': expected[:12]})
+
+# Independent literal guards for the arithmetic, image headers and inverse map.
+assert nearest_positive_ratio(129, 257) == 1
+assert nearest_positive_ratio(128, 257) == 0
+assert nearest_positive_ratio(4095 * 65535, 4095) == 65535
+assert anti_diagonal_inverse([1, 2, 3, 4, 5, 6], 3, 2) == [6, 3, 5, 2, 4, 1]
+assert pack('>5H', 0, 1, 255, 256, 65535).hex() == '0000000100ff0100ffff'
+manifest = {'status': 'independent_oracle_preparation', 'productVerification': False,
+            'designatedWorkstationAcceptance': False,
+            'generatorSha256': sha256(Path(__file__).read_bytes()).hexdigest(),
+            'cases': entries}
+(ROOT / 'exact-oracles.json').write_text(json.dumps(manifest, indent=2) + '\n')
+for entry in entries:
+    print(entry['kind'], entry['caseId'], entry['expected']['sha256'])

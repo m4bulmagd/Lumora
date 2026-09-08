@@ -1,0 +1,2242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.schema.json",
+  "$defs": {
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "orientation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flipHorizontal",
+        "flipVertical",
+        "rotation"
+      ],
+      "properties": {
+        "flipHorizontal": {
+          "type": "boolean"
+        },
+        "flipVertical": {
+          "type": "boolean"
+        },
+        "rotation": {
+          "enum": [
+            "degrees0",
+            "degrees90",
+            "degrees180",
+            "degrees270"
+          ]
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonicalName",
+        "canonicalEncoding",
+        "validBits",
+        "sampleMaximum",
+        "packing",
+        "alignment",
+        "applicationStorage",
+        "nativeDimensions",
+        "strideBytes",
+        "payloadBytes"
+      ],
+      "properties": {
+        "canonicalName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonicalEncoding": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "validBits": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "sampleMaximum": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "packing": {
+          "enum": [
+            "unpacked"
+          ]
+        },
+        "alignment": {
+          "enum": [
+            "least_significant"
+          ]
+        },
+        "applicationStorage": {
+          "enum": [
+            "uint16",
+            "uint8"
+          ]
+        },
+        "nativeDimensions": {
+          "$ref": "common.schema.json#/$defs/dimensions"
+        },
+        "strideBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "payloadBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "orderVersion",
+        "configurationRevision",
+        "stages"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "orderVersion": {
+          "const": 1
+        },
+        "configurationRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "stages": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "prefixItems": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "enabled",
+                "parameters"
+              ],
+              "properties": {
+                "id": {
+                  "const": "normalize"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "parameters": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [],
+                  "properties": {}
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "enabled",
+                "parameters"
+              ],
+              "properties": {
+                "id": {
+                  "const": "window_level"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "parameters": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "window",
+                    "level"
+                  ],
+                  "properties": {
+                    "window": {
+                      "type": "number"
+                    },
+                    "level": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "enabled",
+                "parameters"
+              ],
+              "properties": {
+                "id": {
+                  "const": "brightness_contrast"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "parameters": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "brightness",
+                    "contrast"
+                  ],
+                  "properties": {
+                    "brightness": {
+                      "type": "number"
+                    },
+                    "contrast": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "enabled",
+                "parameters"
+              ],
+              "properties": {
+                "id": {
+                  "const": "gamma"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "parameters": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "gamma"
+                  ],
+                  "properties": {
+                    "gamma": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "enabled",
+                "parameters"
+              ],
+              "properties": {
+                "id": {
+                  "const": "clahe"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "parameters": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "clipLimit",
+                    "tileGridSize"
+                  ],
+                  "properties": {
+                    "clipLimit": {
+                      "type": "number"
+                    },
+                    "tileGridSize": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9223372036854775807
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "enabled",
+                "parameters"
+              ],
+              "properties": {
+                "id": {
+                  "const": "denoise"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "parameters": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "mode",
+                    "kernelSize",
+                    "sigma"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "enum": [
+                        "gaussian",
+                        "median"
+                      ]
+                    },
+                    "kernelSize": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9223372036854775807
+                    },
+                    "sigma": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "enabled",
+                "parameters"
+              ],
+              "properties": {
+                "id": {
+                  "const": "sharpen"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "parameters": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "amount",
+                    "radius",
+                    "threshold"
+                  ],
+                  "properties": {
+                    "amount": {
+                      "type": "number"
+                    },
+                    "radius": {
+                      "type": "number"
+                    },
+                    "threshold": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "enabled",
+                "parameters"
+              ],
+              "properties": {
+                "id": {
+                  "const": "invert"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "parameters": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [],
+                  "properties": {}
+                }
+              }
+            }
+          ],
+          "items": false
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "build",
+        "host",
+        "dependencies"
+      ],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "revision",
+            "dirty",
+            "dirtyScope",
+            "statusSha256",
+            "capturedUtc"
+          ],
+          "properties": {
+            "revision": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "dirty": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "dirtyScope": {
+              "const": "git-status-porcelain-v1-untracked-normal"
+            },
+            "statusSha256": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "capturedUtc": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "Z$"
+            }
+          }
+        },
+        "build": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "configuration",
+            "compilerId",
+            "compilerVersion",
+            "cxxStandard",
+            "compileOptions"
+          ],
+          "properties": {
+            "configuration": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "compilerId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "compilerVersion": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cxxStandard": {
+              "const": 20
+            },
+            "compileOptions": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "scope",
+                "global",
+                "configuration",
+                "processing",
+                "evidence",
+                "sourceOptions"
+              ],
+              "properties": {
+                "scope": {
+                  "const": "declared_cmake_configuration_and_target_options"
+                },
+                "global": {
+                  "type": "string"
+                },
+                "configuration": {
+                  "type": "string"
+                },
+                "processing": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "string"
+                },
+                "sourceOptions": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "host": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "osName",
+            "osVersion",
+            "architecture",
+            "cpuModel",
+            "logicalCores"
+          ],
+          "properties": {
+            "osName": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "osVersion": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "architecture": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cpuModel": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "logicalCores": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "opencvVersion",
+            "opencvVcpkgPortVersion",
+            "vcpkgBaseline",
+            "qtVersion"
+          ],
+          "properties": {
+            "opencvVersion": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "opencvVcpkgPortVersion": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "vcpkgBaseline": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "qtVersion": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "threadModel",
+        "opencvThreads",
+        "roundingMode",
+        "algorithmImplementation",
+        "algorithmProvenance"
+      ],
+      "properties": {
+        "backend": {
+          "const": "cpu"
+        },
+        "threadModel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "opencvThreads": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "roundingMode": {
+          "const": "FE_TONEAREST"
+        },
+        "algorithmImplementation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "algorithmProvenance": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "resource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "limitScope",
+            "limitBytes",
+            "requiredBytes",
+            "fixedBytes",
+            "threeOwnerReserveBytes",
+            "gammaCacheReserveBytes",
+            "candidateRequiredBytes",
+            "boundedStatistics",
+            "exclusions"
+          ],
+          "properties": {
+            "scope": {
+              "const": "standalone_stage"
+            },
+            "limitScope": {
+              "const": "standalone_scratch_only"
+            },
+            "limitBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "requiredBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "fixedBytes": {
+              "type": "null"
+            },
+            "threeOwnerReserveBytes": {
+              "type": "null"
+            },
+            "gammaCacheReserveBytes": {
+              "type": "null"
+            },
+            "candidateRequiredBytes": {
+              "type": "null"
+            },
+            "boundedStatistics": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "scratchBytes",
+                "stageOwnerBytes",
+                "separateHarnessImageBytes"
+              ],
+              "properties": {
+                "scratchBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "stageOwnerBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "separateHarnessImageBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                }
+              }
+            },
+            "exclusions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "limitScope",
+            "limitBytes",
+            "requiredBytes",
+            "fixedBytes",
+            "threeOwnerReserveBytes",
+            "gammaCacheReserveBytes",
+            "candidateRequiredBytes",
+            "boundedStatistics",
+            "exclusions"
+          ],
+          "properties": {
+            "scope": {
+              "const": "prepared_session"
+            },
+            "limitScope": {
+              "const": "session_accounted_storage"
+            },
+            "limitBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "requiredBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "fixedBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "threeOwnerReserveBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "gammaCacheReserveBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "candidateRequiredBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "boundedStatistics": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "externalSessionBytes",
+                "processingPoolBytes",
+                "displayPoolBytes",
+                "frameObjectBytes",
+                "orientationBytes",
+                "engineStateBytes",
+                "activationEnvelopeBytes",
+                "actualRetainedStageBytes"
+              ],
+              "properties": {
+                "externalSessionBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "processingPoolBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "displayPoolBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "frameObjectBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "orientationBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "engineStateBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "activationEnvelopeBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                },
+                "actualRetainedStageBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                }
+              }
+            },
+            "exclusions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "sessionResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "limitScope",
+        "limitBytes",
+        "requiredBytes",
+        "fixedBytes",
+        "threeOwnerReserveBytes",
+        "gammaCacheReserveBytes",
+        "candidateRequiredBytes",
+        "boundedStatistics",
+        "exclusions"
+      ],
+      "properties": {
+        "scope": {
+          "const": "prepared_session"
+        },
+        "limitScope": {
+          "const": "session_accounted_storage"
+        },
+        "limitBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "requiredBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "fixedBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "threeOwnerReserveBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "gammaCacheReserveBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "candidateRequiredBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "boundedStatistics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "externalSessionBytes",
+            "processingPoolBytes",
+            "displayPoolBytes",
+            "frameObjectBytes",
+            "orientationBytes",
+            "engineStateBytes",
+            "activationEnvelopeBytes",
+            "actualRetainedStageBytes"
+          ],
+          "properties": {
+            "externalSessionBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "processingPoolBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "displayPoolBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "frameObjectBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "orientationBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "engineStateBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "activationEnvelopeBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "actualRetainedStageBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            }
+          }
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "allocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "calls",
+        "bytes",
+        "deallocations",
+        "armedRegion",
+        "coveredRoutes",
+        "unsupportedRoutes"
+      ],
+      "properties": {
+        "scope": {
+          "const": "cxx_replacement_new"
+        },
+        "calls": {
+          "const": 0
+        },
+        "bytes": {
+          "const": 0
+        },
+        "deallocations": {
+          "const": 0
+        },
+        "armedRegion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coveredRoutes": {
+          "const": [
+            "ordinary",
+            "array",
+            "aligned",
+            "aligned_array",
+            "nothrow",
+            "nothrow_array",
+            "aligned_nothrow",
+            "aligned_nothrow_array"
+          ]
+        },
+        "unsupportedRoutes": {
+          "const": [
+            "c_malloc_free",
+            "external_dll_private_heaps"
+          ]
+        }
+      }
+    },
+    "measuredRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "calls",
+        "bytes",
+        "deallocations",
+        "armedRegion",
+        "coveredRoutes",
+        "unsupportedRoutes",
+        "cycles"
+      ],
+      "properties": {
+        "scope": {
+          "const": "cxx_replacement_new"
+        },
+        "calls": {
+          "const": 0
+        },
+        "bytes": {
+          "const": 0
+        },
+        "deallocations": {
+          "const": 0
+        },
+        "armedRegion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coveredRoutes": {
+          "const": [
+            "ordinary",
+            "array",
+            "aligned",
+            "aligned_array",
+            "nothrow",
+            "nothrow_array",
+            "aligned_nothrow",
+            "aligned_nothrow_array"
+          ]
+        },
+        "unsupportedRoutes": {
+          "const": [
+            "c_malloc_free",
+            "external_dll_private_heaps"
+          ]
+        },
+        "cycles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "positiveControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "calls",
+        "bytes",
+        "deallocations",
+        "armedRegion",
+        "coveredRoutes",
+        "unsupportedRoutes",
+        "cycles"
+      ],
+      "properties": {
+        "scope": {
+          "const": "cxx_replacement_new"
+        },
+        "calls": {
+          "const": 8
+        },
+        "bytes": {
+          "const": 150
+        },
+        "deallocations": {
+          "const": 8
+        },
+        "armedRegion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coveredRoutes": {
+          "const": [
+            "ordinary",
+            "array",
+            "aligned",
+            "aligned_array",
+            "nothrow",
+            "nothrow_array",
+            "aligned_nothrow",
+            "aligned_nothrow_array"
+          ]
+        },
+        "unsupportedRoutes": {
+          "const": [
+            "c_malloc_free",
+            "external_dll_private_heaps"
+          ]
+        },
+        "cycles": {
+          "const": 1
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patternId",
+        "version",
+        "seed",
+        "sha256"
+      ],
+      "properties": {
+        "patternId": {
+          "const": "xorshift32_u16_v1"
+        },
+        "version": {
+          "const": 1
+        },
+        "seed": {
+          "const": 1831565813
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit",
+        "sampleCount",
+        "median",
+        "p95NearestRank",
+        "wallElapsed",
+        "fps"
+      ],
+      "properties": {
+        "unit": {
+          "const": "nanoseconds"
+        },
+        "sampleCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "median": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "multipleOf": 0.5
+        },
+        "p95NearestRank": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "wallElapsed": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "fps": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "workingSet": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "metric",
+            "source",
+            "beforeBytes",
+            "afterBytes"
+          ],
+          "properties": {
+            "metric": {
+              "const": "unavailable"
+            },
+            "source": {
+              "const": "unavailable"
+            },
+            "beforeBytes": {
+              "type": "null"
+            },
+            "afterBytes": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "metric",
+            "source",
+            "beforeBytes",
+            "afterBytes"
+          ],
+          "properties": {
+            "metric": {
+              "const": "linux_resident_bytes"
+            },
+            "source": {
+              "const": "proc_self_statm"
+            },
+            "beforeBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "afterBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "metric",
+            "source",
+            "beforeBytes",
+            "afterBytes"
+          ],
+          "properties": {
+            "metric": {
+              "const": "windows_working_set_bytes"
+            },
+            "source": {
+              "const": "GetProcessMemoryInfo"
+            },
+            "beforeBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "afterBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            }
+          }
+        }
+      ]
+    },
+    "checksum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "value",
+        "provenance",
+        "verificationCycles",
+        "measuredFingerprint",
+        "fingerprintMethod"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "sha256"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "provenance": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verificationCycles": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "measuredFingerprint": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{1,16}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fingerprintMethod": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "completedRows"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "completedRows": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "traceEvents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "events",
+        "successfulAllocationResults",
+        "nullAllocationResults",
+        "releases",
+        "reallocOldTransitions",
+        "reallocNewResults",
+        "reallocFailures",
+        "traceReportedSuccessfulBytes"
+      ],
+      "properties": {
+        "events": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "successfulAllocationResults": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "nullAllocationResults": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "releases": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "reallocOldTransitions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "reallocNewResults": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "reallocFailures": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "traceReportedSuccessfulBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "heapTrace": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "proof",
+            "cycles",
+            "tracePath",
+            "traceSha256",
+            "capability",
+            "events",
+            "scope",
+            "exclusions"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "complete",
+                "failed"
+              ]
+            },
+            "proof": {
+              "type": "boolean"
+            },
+            "cycles": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "tracePath": {
+              "type": "string",
+              "minLength": 1
+            },
+            "traceSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "capability": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "markerProvider",
+                "endMarkerProvider",
+                "mallocProvider",
+                "glibcVersion",
+                "architecture",
+                "controlStatus",
+                "emptyControlStatus",
+                "controlTraceSha256",
+                "controlTracePath",
+                "controlEvents",
+                "emptyTraceSha256",
+                "emptyTracePath"
+              ],
+              "properties": {
+                "status": {
+                  "const": "verified"
+                },
+                "markerProvider": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "sha256"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  }
+                },
+                "endMarkerProvider": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "sha256"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  }
+                },
+                "mallocProvider": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "sha256"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  }
+                },
+                "glibcVersion": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "architecture": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "controlStatus": {
+                  "const": "passed"
+                },
+                "emptyControlStatus": {
+                  "const": "passed"
+                },
+                "controlTraceSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "controlTracePath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "controlEvents": {
+                  "$ref": "common.schema.json#/$defs/traceEvents"
+                },
+                "emptyTraceSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "emptyTracePath": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "events": {
+              "$ref": "common.schema.json#/$defs/traceEvents"
+            },
+            "scope": {
+              "type": "string",
+              "minLength": 1
+            },
+            "exclusions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxAbsoluteU16Error",
+        "changedPixelFraction",
+        "meanAbsoluteError"
+      ],
+      "properties": {
+        "maxAbsoluteU16Error": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "changedPixelFraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "meanAbsoluteError": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 65535
+        }
+      }
+    },
+    "comparison": {
+      "oneOf": [
+        {
+          "$ref": "common.schema.json#/$defs/metrics"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maxAbsoluteU16Error",
+            "changedPixelFraction",
+            "meanAbsoluteError"
+          ],
+          "properties": {
+            "maxAbsoluteU16Error": {
+              "type": "null"
+            },
+            "changedPixelFraction": {
+              "type": "null"
+            },
+            "meanAbsoluteError": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "format",
+        "width",
+        "height",
+        "maxValue",
+        "byteOrder",
+        "payloadEncoding",
+        "sha256"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "pattern": "^[^/\\\\]+\\.pgm$"
+        },
+        "format": {
+          "const": "pgm_p5_u16"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "maxValue": {
+          "const": 65535
+        },
+        "byteOrder": {
+          "const": "big_endian"
+        },
+        "payloadEncoding": {
+          "enum": [
+            "u16_big_endian",
+            "gray8_zero_extended_to_u16_big_endian"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "caseStage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "variant",
+        "enabled",
+        "scope",
+        "fullStandardExecuted",
+        "sourceDomain",
+        "outputStorage",
+        "parameters",
+        "implementation",
+        "provenance"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "normalize",
+            "window_level",
+            "brightness_contrast",
+            "gamma",
+            "clahe",
+            "denoise",
+            "sharpen",
+            "invert",
+            "orientation",
+            "full_standard_identity",
+            "full_standard_nonidentity"
+          ]
+        },
+        "variant": {
+          "enum": [
+            "standard",
+            "gaussian",
+            "median",
+            "gray8",
+            "gray16",
+            "identity",
+            "nonidentity"
+          ]
+        },
+        "enabled": {
+          "const": true
+        },
+        "scope": {
+          "enum": [
+            "standalone_stage",
+            "presentation_operations",
+            "full_frame"
+          ]
+        },
+        "fullStandardExecuted": {
+          "type": "boolean"
+        },
+        "sourceDomain": {
+          "enum": [
+            "sensor_native",
+            "canonical_u16",
+            "display"
+          ]
+        },
+        "outputStorage": {
+          "enum": [
+            "uint16",
+            "gray8"
+          ]
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [],
+              "properties": {}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "window",
+                "level"
+              ],
+              "properties": {
+                "window": {
+                  "type": "number"
+                },
+                "level": {
+                  "type": "number"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "brightness",
+                "contrast"
+              ],
+              "properties": {
+                "brightness": {
+                  "type": "number"
+                },
+                "contrast": {
+                  "type": "number"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "gamma"
+              ],
+              "properties": {
+                "gamma": {
+                  "type": "number"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "clipLimit",
+                "tileGridSize"
+              ],
+              "properties": {
+                "clipLimit": {
+                  "type": "number"
+                },
+                "tileGridSize": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "mode",
+                "kernelSize",
+                "sigma"
+              ],
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "gaussian",
+                    "median"
+                  ]
+                },
+                "kernelSize": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "sigma": {
+                  "type": "number"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "amount",
+                "radius",
+                "threshold"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "number"
+                },
+                "radius": {
+                  "type": "number"
+                },
+                "threshold": {
+                  "type": "number"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [],
+              "properties": {}
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "terminalMapping",
+                "orientation"
+              ],
+              "properties": {
+                "terminalMapping": {
+                  "enum": [
+                    "nearest_positive_v_div_257",
+                    "identity_u16"
+                  ]
+                },
+                "orientation": {
+                  "$ref": "common.schema.json#/$defs/orientation"
+                }
+              }
+            },
+            {
+              "$ref": "common.schema.json#/$defs/pipeline"
+            }
+          ]
+        },
+        "implementation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provenance": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "pattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "width",
+        "height",
+        "maximum",
+        "seed"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "ramp_u16_v1",
+            "gradient_xy_u16_v1",
+            "step_edges_u16_v1",
+            "xorshift32_u16_v1",
+            "orientation_asymmetric_u16_v1"
+          ]
+        },
+        "version": {
+          "const": 1
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "maximum": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "const": 1831565813
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "candidateCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "caseId",
+        "classification",
+        "pattern",
+        "stage",
+        "sourceDescriptor",
+        "orientation",
+        "orientedDimensions",
+        "source",
+        "candidate",
+        "comparison",
+        "acceptance"
+      ],
+      "properties": {
+        "caseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "enum": [
+            "exact_independent",
+            "provisional_backend"
+          ]
+        },
+        "pattern": {
+          "$ref": "common.schema.json#/$defs/pattern"
+        },
+        "stage": {
+          "$ref": "common.schema.json#/$defs/caseStage"
+        },
+        "sourceDescriptor": {
+          "$ref": "common.schema.json#/$defs/source"
+        },
+        "orientation": {
+          "$ref": "common.schema.json#/$defs/orientation"
+        },
+        "orientedDimensions": {
+          "$ref": "common.schema.json#/$defs/dimensions"
+        },
+        "source": {
+          "$ref": "common.schema.json#/$defs/payload"
+        },
+        "candidate": {
+          "$ref": "common.schema.json#/$defs/payload"
+        },
+        "comparison": {
+          "$ref": "common.schema.json#/$defs/comparison"
+        },
+        "acceptance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "thresholds",
+            "review"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "candidate",
+                "pending_review"
+              ]
+            },
+            "thresholds": {
+              "type": "null"
+            },
+            "review": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    },
+    "committedCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "caseId",
+        "classification",
+        "pattern",
+        "stage",
+        "sourceDescriptor",
+        "orientation",
+        "orientedDimensions",
+        "source",
+        "expected",
+        "acceptance"
+      ],
+      "properties": {
+        "caseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "enum": [
+            "exact_independent",
+            "provisional_backend"
+          ]
+        },
+        "pattern": {
+          "$ref": "common.schema.json#/$defs/pattern"
+        },
+        "stage": {
+          "$ref": "common.schema.json#/$defs/caseStage"
+        },
+        "sourceDescriptor": {
+          "$ref": "common.schema.json#/$defs/source"
+        },
+        "orientation": {
+          "$ref": "common.schema.json#/$defs/orientation"
+        },
+        "orientedDimensions": {
+          "$ref": "common.schema.json#/$defs/dimensions"
+        },
+        "source": {
+          "$ref": "common.schema.json#/$defs/payload"
+        },
+        "expected": {
+          "$ref": "common.schema.json#/$defs/payload"
+        },
+        "acceptance": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "thresholds",
+                "review"
+              ],
+              "properties": {
+                "status": {
+                  "const": "exact"
+                },
+                "thresholds": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "maxAbsoluteU16Error",
+                    "changedPixelFraction",
+                    "meanAbsoluteError"
+                  ],
+                  "properties": {
+                    "maxAbsoluteU16Error": {
+                      "const": 0
+                    },
+                    "changedPixelFraction": {
+                      "const": 0
+                    },
+                    "meanAbsoluteError": {
+                      "const": 0
+                    }
+                  }
+                },
+                "review": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "thresholds",
+                "review"
+              ],
+              "properties": {
+                "status": {
+                  "const": "pending_review"
+                },
+                "thresholds": {
+                  "type": "null"
+                },
+                "review": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "thresholds",
+                "review"
+              ],
+              "properties": {
+                "status": {
+                  "const": "reviewed"
+                },
+                "thresholds": {
+                  "$ref": "common.schema.json#/$defs/metrics"
+                },
+                "review": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "reviewedBy",
+                    "reviewedUtc",
+                    "sourceArtifactSha256"
+                  ],
+                  "properties": {
+                    "reviewedBy": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "reviewedUtc": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "Z$"
+                    },
+                    "sourceArtifactSha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -78,6 +78,7 @@ add_library(
   processing/src/InvertStage.cpp
   processing/src/DisplayMapper.cpp
   processing/src/OrientationTransform.cpp
+  processing/src/ProcessingDefaults.cpp
   processing/src/PipelineCompiler.cpp
   processing/src/Mono8PassThroughProcessor.cpp
 )

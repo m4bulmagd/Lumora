@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "artifactType": "lumora.processing.reference-workstation",
+  "status": "pending",
+  "designation": {
+    "machineId": null,
+    "selectedBy": null,
+    "selectedUtc": null
+  },
+  "machine": null,
+  "cpu": null,
+  "gpu": null,
+  "ram": null,
+  "os": null,
+  "compiler": null,
+  "dependencies": null,
+  "drivers": null,
+  "power": null,
+  "threading": null,
+  "build": null,
+  "requirements": {
+    "standard2048P95MaxMilliseconds": 33.3,
+    "sustainedFpsMinimum": 30.0,
+    "requiredEvidence": [
+      "full_standard_benchmark",
+      "allocation_proof",
+      "reviewed_reference_manifest",
+      "freshness_60fps"
+    ]
+  },
+  "acceptance": {
+    "benchmarkArtifactSha256": null,
+    "allocationArtifactSha256": null,
+    "referenceManifestSha256": null,
+    "freshnessArtifactSha256": null,
+    "approvedThresholds": null,
+    "approvedReferenceHashes": null,
+    "reviewedBy": null,
+    "reviewedUtc": null
+  }
+}

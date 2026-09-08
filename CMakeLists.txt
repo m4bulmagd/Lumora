@@ -28,6 +28,10 @@ lumora_configure_pylon()
 
 add_subdirectory(src)
 
+if(LUMORA_BUILD_TESTS OR LUMORA_BUILD_BENCHMARKS)
+  add_subdirectory(benchmarks)
+endif()
+
 if(LUMORA_BUILD_TESTS)
   add_subdirectory(tests)
 endif()

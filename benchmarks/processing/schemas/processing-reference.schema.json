@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "processing-reference.schema.json",
+  "$comment": "Structural owned-artifact schema. EvidenceValidation.cpp additionally enforces canonical definitions/ordered row products, all cross-field arithmetic, duplicate decoded JSON keys, and on-disk payload and reviewed attachment integrity. Validation is not authority to designate or accept a workstation.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "artifactType",
+        "status",
+        "workloadKind",
+        "complete",
+        "generatedUtc",
+        "provenance",
+        "pipelineDefinition",
+        "cases",
+        "failure"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "artifactType": {
+          "const": "lumora.processing.reference-candidate"
+        },
+        "status": {
+          "const": "candidate"
+        },
+        "workloadKind": {
+          "enum": [
+            "candidate",
+            "smoke"
+          ]
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "generatedUtc": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "provenance": {
+          "$ref": "common.schema.json#/$defs/provenance"
+        },
+        "pipelineDefinition": {
+          "$ref": "common.schema.json#/$defs/pipeline"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/candidateCase"
+          },
+          "maxItems": 13
+        },
+        "failure": {
+          "$ref": "common.schema.json#/$defs/failure"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "artifactType",
+        "status",
+        "sizeProfile",
+        "complete",
+        "updatedUtc",
+        "pipelineDefinition",
+        "cases"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "artifactType": {
+          "const": "lumora.processing.reference-manifest"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "reviewed"
+          ]
+        },
+        "sizeProfile": {
+          "enum": [
+            "ordinary",
+            "smoke"
+          ]
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "updatedUtc": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "pipelineDefinition": {
+          "$ref": "common.schema.json#/$defs/pipeline"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/committedCase"
+          },
+          "maxItems": 13
+        }
+      }
+    }
+  ]
+}

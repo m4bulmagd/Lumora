@@ -60,7 +60,7 @@ jobs:
           doNotCache: false
 
       - name: Configure Debug simulator without pylon
-        run: cmake --preset linux-gcc-debug-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_TEST_LINUX_DESKTOP=ON
+        run: cmake --preset linux-gcc-debug-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_TEST_LINUX_DESKTOP=ON -DLUMORA_BUILD_BENCHMARKS=ON
 
       - name: Build Debug targets
         run: cmake --build --preset linux-gcc-debug-sim --parallel
@@ -72,7 +72,7 @@ jobs:
         run: xvfb-run -a ctest --preset linux-gcc-debug-sim --output-on-failure -L desktop --no-tests=error
 
       - name: Configure Release simulator without pylon
-        run: cmake --preset linux-gcc-release-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_TEST_LINUX_DESKTOP=ON
+        run: cmake --preset linux-gcc-release-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_TEST_LINUX_DESKTOP=ON -DLUMORA_BUILD_BENCHMARKS=ON
 
       - name: Build Release targets
         run: cmake --build --preset linux-gcc-release-sim --parallel
@@ -82,6 +82,15 @@ jobs:
 
       - name: Test Release desktop window on X11
         run: xvfb-run -a ctest --preset linux-gcc-release-sim --output-on-failure -L desktop --no-tests=error
+
+      - name: Upload processing evidence (smoke, candidate only)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: processing-evidence-linux-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/build/*/processing-evidence/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Save completed vcpkg binary archives
         if: ${{ !cancelled() && steps.vcpkg-cache.outcome == 'success' }}
