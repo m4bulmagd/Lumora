@@ -31,7 +31,9 @@ PipelineDefinition defaultPipeline() {
 std::vector<StageTraits> stageRegistry() {
     std::vector<StageTraits> registry;
     for (int i = 0; i < 8; ++i) registry.push_back({static_cast<StageId>(i),
-        i == 0 ? ImageDomain::SensorNative : ImageDomain::CanonicalU16, ImageDomain::CanonicalU16});
+        i == 0 ? ImageDomain::SensorNative : ImageDomain::CanonicalU16,
+        ImageDomain::CanonicalU16, false,
+        i == static_cast<int>(StageId::Clahe) ? 2U : 0U});
     return registry;
 }
 namespace {

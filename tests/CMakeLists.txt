@@ -31,11 +31,14 @@ add_executable(lumora_processing_tests
   unit/processing/ImageViewTests.cpp
   unit/processing/NormalizeStageTests.cpp
   unit/processing/WindowLevelStageTests.cpp
+  unit/processing/ClaheStageTests.cpp
   unit/processing/ToneStageTests.cpp
   unit/processing/DisplayMapperTests.cpp
   unit/processing/FrameProcessingEngineTests.cpp)
 target_link_libraries(lumora_processing_tests PRIVATE
   lumora::processing GTest::gtest_main)
+target_compile_definitions(lumora_processing_tests PRIVATE
+  LUMORA_CLAHE_REFERENCE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/reference/processing/clahe-reference.json")
 lumora_enable_warnings(lumora_processing_tests)
 add_test(NAME Processing.Mono8PassThrough
   COMMAND lumora_processing_tests --gtest_filter=Mono8PassThroughProcessor.*)
@@ -314,6 +317,9 @@ set_tests_properties(Processing.NormalizeStage PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.WindowLevelStage
   COMMAND lumora_processing_tests --gtest_filter=WindowLevelStage.*)
 set_tests_properties(Processing.WindowLevelStage PROPERTIES TIMEOUT 60)
+add_test(NAME Processing.ClaheStage
+  COMMAND lumora_processing_tests --gtest_filter=ClaheStage.*)
+set_tests_properties(Processing.ClaheStage PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.ToneStages
   COMMAND lumora_processing_tests --gtest_filter=ToneStages.*)
 set_tests_properties(Processing.ToneStages PROPERTIES TIMEOUT 60)
