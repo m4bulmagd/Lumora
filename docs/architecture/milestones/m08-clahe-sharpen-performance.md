@@ -1,6 +1,6 @@
 # M8 CLAHE and sharpening performance experiments
 
-**Date:** 2026-09-08
+**Date:** 2026-09-08. **Status:** Historical local measurement complete; integrated through PR #14.
 
 The owner authorized CLAHE histogram optimization, reduced sharpening cost and complete-pipeline remeasurement after the [Window/Level optimization](m08-window-level-performance.md). Work starts from `0df7a98` on `perf/m08-clahe-sharpen-cost` in the preserved M8 worktree. Designated Windows reference/workstation/freshness acceptance and the previously deferred gates remain open.
 
@@ -84,4 +84,8 @@ Final independent evidence/documentation review is approved with no findings. It
 
 ## Publication status
 
-This optimization branch has not been published. Automatic approval review rejected the initial push before execution because the earlier publication permission named the M7 branch, not this new branch and its source history. Explicit owner authorization is required before publishing `perf/m08-clahe-sharpen-cost`, running hosted Linux/Windows CI and merging after both platforms pass. Local verification does not substitute for those pending platform checks.
+The 2026-09-08 automatic approval rejection remains historical evidence: the proposed initial push did not run because the permission then available named an M7 branch rather than this new source history. The owner later explicitly authorized publication of the combined performance branch, superseding that blocker.
+
+Clean `603f49c` remains the measured checkpoint and entered `main` as an ancestor of [PR #14](https://github.com/m4bulmagd/Lumora/pull/14), merged as `5de569f1341f9b2d63c4a4656e4a90fbec5bf9ac`. At verified PR head `3393a9d`, [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34286991145) passed 54/54 checks and native X11 1/1 in Debug and Release; [Windows/MSVC PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34286990978) passed 54/54 in Debug (87.37 s) and 54/54 in Release (39.56 s). The final head adds only a GCC 13 test const-reference correction; production source is unchanged from the later measured Mono12 checkpoint `717acc8`. These integration results do not relabel the `603f49c` measurements or their protocol.
+
+Hosted Windows CI verifies MSVC build/test compatibility. Designated Windows reference/workstation/freshness and performance acceptance, native Windows 11 visual/DPI and packaging checks, the 33.3 ms/30 FPS target, deferred M4/M5 acceptance, and the M6 camera/NIC profile remain open. Subsequent merged-main verification is tracked by the [Linux main workflow](https://github.com/m4bulmagd/Lumora/actions/workflows/linux-simulator.yml?query=branch%3Amain) and [Windows main workflow](https://github.com/m4bulmagd/Lumora/actions/workflows/windows-simulator.yml?query=branch%3Amain); no main-workflow result is claimed here.

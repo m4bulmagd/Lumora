@@ -1,10 +1,10 @@
 # M8 exact Mono12 normalization performance
 
-**Date:** 2026-09-08. **Status:** Local implementation, measurements and independent review complete. Unpublished.
+**Date:** 2026-09-08. **Status:** Historical local measurement and review complete; integrated through PR #14.
 
 Mono12 normalization is about **4.70× faster** in three alternating before/after kernel repeats, with unchanged pixels. The full 2048×2048 Standard Mono12 pipeline measures **13.92 FPS** for identity and **9.56 FPS** for horizontal flip/clockwise 90° rotation, versus **8.71 / 6.54 FPS** in the matched normal baseline. Both remain below 30 FPS.
 
-The owner approved the [design](../../superpowers/specs/2026-09-08-m08-mono12-normalization-design.md) and [implementation plan](../../superpowers/plans/2026-09-08-m08-mono12-normalization.md). The local branch `perf/m08-mono12-normalization` starts at `c7cee62314c95eeba3191e07e8fec35ec12e37f3` and includes the preceding unpublished [CPU optimizations](m08-cpu-pipeline-performance.md). The preserved worktree is `.worktrees/m08-tone-stages`; main remains at `0df7a98`. No publication, hosted CI or merge is part of this checkpoint.
+The owner approved the [design](../../superpowers/specs/2026-09-08-m08-mono12-normalization-design.md) and [implementation plan](../../superpowers/plans/2026-09-08-m08-mono12-normalization.md). The historical measurement branch `perf/m08-mono12-normalization` started at `c7cee62314c95eeba3191e07e8fec35ec12e37f3` and included the preceding then-unpublished [CPU optimizations](m08-cpu-pipeline-performance.md). The preserved worktree is `.worktrees/m08-tone-stages`; main was at `0df7a98` when this checkpoint began. Publication and hosted CI are recorded in the integration addendum below and do not change this measurement scope.
 
 ## Exact implementation and arithmetic decision
 
@@ -30,6 +30,8 @@ This computes `floor((m-1)/4095)`, not `floor(m/4095)`. To see why, write `m = 4
 Tests pin `136→2176`, `137→2193`, `2048→32776` and `4095→65535`, exercise the complete domain across odd, unaligned, padded rows, and cover multiple first-invalid positions. Neighboring maxima 4094/4096 and validBits16/max4095 protect dispatch. Deliberate four-bit-shift and omitted-range-check mutations fail, then the restored implementation passes. Generated Release code has no division in the fixed valid-pixel loop; the generic loop retains runtime division. No LUT, SIMD path, dependency, allocator state, worker, interface or resource-plan change was added.
 
 ## Real Mono12 evidence and compatibility
+
+The normal SIM-LIVE composition requests 640×480 at 30 FPS and produces Mono12 samples with 12 valid bits (0–4095), unpacked and least-significant in a UInt16 application buffer. Lumora normalizes them across the 0–65535 `CanonicalU16` working range, retains high-depth raw and processed data, and maps Original and Enhanced presentation frames to Gray8. Scaling the working range does not add captured sensor information. Physical-camera format and transport packing remain unknown pending the M6 hardware profile, and the 2048 evidence below does not describe the configured simulator rate.
 
 Evidence-only `--source-format mono12` changes the actual Session acquisition descriptor and input, and emits strict v3 artifacts for full Standard rows only. Input derives the upper twelve bits from the existing uint32 xorshift sequence: `uint16(state >> 16) >> 4`. It is serialized with the existing big-endian U16 PGM encoding and maximum 65535. Source format and derivation are required metadata; unsupported standalone Mono12 measurement calls reject with code 2.
 
@@ -119,4 +121,8 @@ python3 out/qa/m08-mono12-normalization/verify-evidence.py \
 
 Next profile **display mapping and orientation**, then CLAHE tile/interpolation phases, against this faster Mono12 baseline. The preceding diagnosis identified roughly 15 ms for two display mappings, roughly 39 ms for two rotated displays and roughly 33 ms for CLAHE at 2048. Those are historical stage diagnostics, not fresh per-stage measurements from this run; they guide the next profiling experiment. Further work should retain complete pixel equality and measure the full pipeline before deciding whether a larger backend change is justified.
 
-This branch and its preceding CPU optimizations remain local and unpublished. Windows/MSVC CI, designated Windows reference/workstation/freshness acceptance, the owner's deferred Windows 11 M4/M5 checks and the M6 camera/NIC profile remain open. No acceptance gate is closed by the Linux results. M9 processing controls and synchronized views remain later development after the agreed performance work.
+## Integration status
+
+Clean `1148036` and `717acc8` remain the matched before/after measurement sources. [PR #14](https://github.com/m4bulmagd/Lumora/pull/14) merged the combined performance series as `5de569f1341f9b2d63c4a4656e4a90fbec5bf9ac`. At verified PR head `3393a9d`, [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34286991145) passed 54/54 checks in Debug (60.53 s) and Release (22.50 s), plus native X11 1/1 in Debug (0.35 s) and Release (0.03 s). [Windows/MSVC PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34286990978) passed 54/54 in Debug (87.37 s) and 54/54 in Release (39.56 s). The final head adds only the GCC 13 test const-reference correction `3393a9d`; production source is unchanged from measured clean `717acc8`. The PR head and merge commit are integration revisions, not measurement revisions.
+
+Hosted Windows CI verifies MSVC build/test compatibility. Designated Windows reference/workstation/freshness and performance acceptance, native Windows 11 visual/DPI and packaging checks, the owner's deferred M4/M5 acceptance, the M6 camera/NIC profile, and the 33.3 ms/30 FPS gate remain open. No acceptance gate is closed by the hosted workflows. M9 processing controls and synchronized views remain later development after the agreed performance work. Subsequent merged-main verification is tracked by the [Linux main workflow](https://github.com/m4bulmagd/Lumora/actions/workflows/linux-simulator.yml?query=branch%3Amain) and [Windows main workflow](https://github.com/m4bulmagd/Lumora/actions/workflows/windows-simulator.yml?query=branch%3Amain); no main-workflow result is claimed here.

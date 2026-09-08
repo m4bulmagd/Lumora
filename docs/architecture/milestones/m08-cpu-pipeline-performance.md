@@ -1,8 +1,8 @@
 # M8 exact CPU pipeline optimization
 
-**Date:** 2026-09-08. **Status:** Local implementation, measurement and independent review complete; unpublished.
+**Date:** 2026-09-08. **Status:** Historical local measurement complete; integrated through PR #14.
 
-The owner approved the [exact CPU design](../../superpowers/specs/2026-09-08-m08-cpu-pipeline-design.md) and its [six-task implementation plan](../../superpowers/plans/2026-09-08-m08-cpu-pipeline.md). Work is local on `perf/m08-cpu-pipeline` in the preserved `.worktrees/m08-tone-stages` checkout. It includes the preceding unpublished [CLAHE/sharpening optimization](m08-clahe-sharpen-performance.md). The integrated main checkout remains at `0df7a98`; this record does not establish Windows or hardware acceptance.
+The owner approved the [exact CPU design](../../superpowers/specs/2026-09-08-m08-cpu-pipeline-design.md) and its [six-task implementation plan](../../superpowers/plans/2026-09-08-m08-cpu-pipeline.md). The historical measurement work ran on `perf/m08-cpu-pipeline` in the preserved `.worktrees/m08-tone-stages` checkout and included the preceding then-unpublished [CLAHE/sharpening optimization](m08-clahe-sharpen-performance.md). Main was at `0df7a98` for this checkpoint; this record does not establish designated Windows or hardware acceptance.
 
 ## Retained implementation
 
@@ -121,6 +121,8 @@ The next bounded CPU experiment should address **Mono12 normalization**: its cur
 
 ## Publication and remaining gates
 
-The branch is local and unpublished. Publication, hosted Linux/Windows CI and merge require explicit authorization for this new branch. The prior automatic approval rejection concerned publishing a different M8 optimization branch under permission that named the M7 branch; no M8 optimization payload was pushed by that rejected action.
+The prior automatic approval rejection remains dated historical evidence: it concerned a proposed M8 optimization push under permission that named an M7 branch, and no M8 payload was pushed by that rejected action. The owner later explicitly authorized publication of the combined performance branch, superseding that blocker.
 
-Windows/MSVC verification of this branch, designated Windows reference/workstation/freshness acceptance, the owner's deferred M4/M5 Windows 11 validation and M6 camera/NIC profile remain open. Linux results do not close those gates. M8 remains open for further measured latency work and the designated-platform acceptance gates above.
+Clean `7ae53f8` remains the measured Mono16 v2 checkpoint and entered `main` as an ancestor of [PR #14](https://github.com/m4bulmagd/Lumora/pull/14), merged as `5de569f1341f9b2d63c4a4656e4a90fbec5bf9ac`. At verified PR head `3393a9d`, [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34286991145) passed 54/54 checks and native X11 1/1 in Debug and Release; [Windows/MSVC PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34286990978) passed 54/54 in Debug (87.37 s) and 54/54 in Release (39.56 s). The final head adds only a GCC 13 test const-reference correction; production source is unchanged from the later measured Mono12 checkpoint `717acc8`. These integration results do not relabel the `7ae53f8` measurements or their eleven-row-per-size Mono16 v2 protocol.
+
+Hosted Windows CI verifies MSVC build/test compatibility. Designated Windows reference/workstation/freshness and performance acceptance, native Windows 11 visual/DPI and packaging checks, the 33.3 ms/30 FPS target, deferred M4/M5 acceptance, and the M6 camera/NIC profile remain open. M8 remains open for further measured latency work. Subsequent merged-main verification is tracked by the [Linux main workflow](https://github.com/m4bulmagd/Lumora/actions/workflows/linux-simulator.yml?query=branch%3Amain) and [Windows main workflow](https://github.com/m4bulmagd/Lumora/actions/workflows/windows-simulator.yml?query=branch%3Amain); no main-workflow result is claimed here.
