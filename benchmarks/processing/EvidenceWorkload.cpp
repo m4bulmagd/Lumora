@@ -65,11 +65,11 @@ processing::ProcessingPreparationAssessment Session::assess(std::uint32_t w,std:
     processing::ProcessingPreparationOptions options;options.orientation=orientation;options.externalSessionStorageBytes=raw.value().requiredStorageBytes;
     return processing::FrameProcessingEngine::plan({9,layout.payloadBytes()},{16,static_cast<std::size_t>(w)*h},layout,processing::standardPipeline(),options);
 }
-Session::Session(const Image& im,core::Orientation orientation) {
+Session::Session(const Image& im,core::Orientation orientation,SourceFormat sourceFormat) {
     const auto layout=layoutFor(im.width,im.height);auto plan=assess(im.width,im.height,orientation);if(!plan.plan) throw Error(4,"Standard session resource admission rejected");
     rawPool_=require(core::BufferPool::create(1,layout.payloadBytes()));processingPool_=require(core::BufferPool::create(9,layout.payloadBytes()));displayPool_=require(core::BufferPool::create(16,im.pixels.size()));
     auto lease=rawPool_->tryAcquire();if(!lease) throw Error(4,"Raw lease unavailable");std::memcpy(lease->bytes().data(),im.pixels.data(),layout.payloadBytes());
-    auto settings=require(core::AcquisitionSettingsSnapshot::create({"Lumora","Evidence","1","synthetic",{}},monoFormat(),{0,0,im.width,im.height},30,30,{},{}));
+    auto settings=require(core::AcquisitionSettingsSnapshot::create({"Lumora","Evidence","1","synthetic",{}},monoFormat(sourceFormat==SourceFormat::Mono12),{0,0,im.width,im.height},30,30,{},{}));
     raw_=require(core::RawFrame::create(1,layout,std::move(*lease).seal(),{{},{},{},{},std::move(settings)}));
     engine_=require(processing::FrameProcessingEngine::create(*processingPool_,*displayPool_,*plan.plan));sentinel_=verificationOutput();
 }

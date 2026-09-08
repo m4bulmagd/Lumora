@@ -9,11 +9,13 @@
 namespace lumora::evidence {
 struct Error : std::runtime_error { int exitCode; Error(int code,const std::string& message):std::runtime_error(message),exitCode(code){} };
 enum class Tool { Benchmark, Generator, Allocation };
-struct Options { bool help=false,smoke=false; std::filesystem::path output,heapTrace; std::string workload="standard"; std::vector<std::uint32_t> sizes{512,1024,2048}; std::uint32_t warmUp=100,measured=500; };
+enum class SourceFormat { Mono16, Mono12 };
+struct Options { bool help=false,smoke=false; std::filesystem::path output,heapTrace; std::string workload="standard"; std::vector<std::uint32_t> sizes{512,1024,2048}; std::uint32_t warmUp=100,measured=500; SourceFormat sourceFormat=SourceFormat::Mono16; };
 Options parseOptions(Tool,std::span<const std::string>);
 struct Image { std::uint32_t width,height; std::vector<std::uint16_t> pixels; bool operator==(const Image&) const=default; };
 struct Pattern { std::string id; std::uint32_t width,height,maximum=65535; std::uint32_t seed=0x6D2B79F5U; };
 Image makePattern(const Pattern&);
+Image makeMeasurementInput(std::uint32_t,std::uint32_t,SourceFormat);
 std::string encodePgm(const Image&);
 Image decodePgm(const std::string&);
 std::string readFile(const std::filesystem::path&);

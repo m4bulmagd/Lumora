@@ -53,9 +53,10 @@ QJsonObject helperControlJson(HelperAllocationControlResult control,test::Alloca
 }
 QJsonObject measureBenchmarkRow(const std::string& id,std::uint32_t size,const Options& o) {
     const bool full=id.starts_with("full_standard_");const core::Orientation orientation{id=="full_standard_nonidentity",false,id=="full_standard_nonidentity"?core::Rotation::Degrees90:core::Rotation::Degrees0};
-    auto source=makePattern({"xorshift32_u16_v1",size,size});const auto sourceHash=sha256(encodePgm(source));
+    if(o.sourceFormat==SourceFormat::Mono12 && !full) throw Error(2,"Mono12 benchmark supports full Standard rows only");
+    auto source=makeMeasurementInput(size,size,o.sourceFormat);
     std::unique_ptr<Standalone> stage;std::unique_ptr<Session> session;
-    if(full) session=std::make_unique<Session>(source,orientation);else stage=std::make_unique<Standalone>(id,source);
+    if(full) session=std::make_unique<Session>(source,orientation,o.sourceFormat);else stage=std::make_unique<Standalone>(id,source);
     auto definition=full?processing::standardPipeline():stage->definition;auto resources=full?session->resources():stage->resources();
     std::vector<std::uint64_t> samples(o.measured);std::uint64_t fingerprint=1469598103934665603ULL;
     for(std::size_t i=0;i<o.warmUp;++i) if(!(full?session->cycle(i,fingerprint):stage->cycle())) throw Error(4,"Warm-up processing failed");
@@ -67,7 +68,7 @@ QJsonObject measureBenchmarkRow(const std::string& id,std::uint32_t size,const O
     if(!successful) throw Error(4,"Measured processing failed");
     if(counts.allocations || counts.allocatedBytes || counts.deallocations) throw Error(5,"Prepared successful region performed C++ allocation/release");
     const auto stats=statistics(samples,wall);const auto checksum=full?fullChecksum(*session->verificationOutput()):sha256(encodePgm(stage->output()));
-    return {{"rowId",qs(id)},{"scope",full?"full_frame":"standalone_stage"},{"size",integer(size)},{"smoke",o.smoke},{"pipelineDefinition",pipelineJson(definition)},{"input",QJsonObject{{"patternId","xorshift32_u16_v1"},{"version",1},{"seed",integer(0x6D2B79F5U)},{"sha256",qs(sourceHash)}}},{"sourceDescriptor",descriptorJson(monoFormat(),layoutFor(size,size))},{"orientation",orientationJson(orientation)},{"orientedDimensions",dimensions(size,size)},{"provenance",provenance()},{"execution",execution()},{"resourcePlan",resources},{"warmUpFrames",integer(o.warmUp)},{"measuredFrames",integer(o.measured)},
+    return {{"rowId",qs(id)},{"scope",full?"full_frame":"standalone_stage"},{"size",integer(size)},{"smoke",o.smoke},{"pipelineDefinition",pipelineJson(definition)},{"input",inputJson(source,o.sourceFormat)},{"sourceDescriptor",descriptorJson(monoFormat(o.sourceFormat==SourceFormat::Mono12),layoutFor(size,size))},{"orientation",orientationJson(orientation)},{"orientedDimensions",dimensions(size,size)},{"provenance",provenance()},{"execution",execution()},{"resourcePlan",resources},{"warmUpFrames",integer(o.warmUp)},{"measuredFrames",integer(o.measured)},
         {"timing",QJsonObject{{"unit","nanoseconds"},{"sampleCount",integer(o.measured)},{"median",stats.median},{"p95NearestRank",integer(stats.p95)},{"wallElapsed",integer(stats.wall)},{"fps",stats.fps}}},
         {"allocation",allocationJson(counts,full?"preexisting RawFrame; full Standard paired displays, orientation, pooled publication/consume, five-owner retention, cycle eviction and final ring/sentinel release":"named prepared stage only; preexisting input/output remain alive through post-region hashing")},{"workingSet",workingSet(before,after)},
         {"checksum",QJsonObject{{"algorithm","sha256"},{"value",qs(checksum)},{"provenance",full?"one extra unmeasured verification cycle; concatenated canonical P5 EnhancedU16, OriginalGray8 and EnhancedGray8":"complete P5 U16 output after measurement; standalone output buffer retained"},{"verificationCycles",full?1:0},{"measuredFingerprint",full?QJsonValue(QString::number(fingerprint,16)):QJsonValue()},{"fingerprintMethod",full?"FNV1a uint64;16 evenly spaced bytes per each of3 payloads each measured cycle; included in timing":"not_applicable"}}},{"processingErrors",0},{"drops",0},{"complete",true}};

@@ -113,9 +113,30 @@ allocationV2['properties']['schemaVersion']=const(2)
 allocationV2['properties']['rows']['items']['properties']['resourcePlan']=ref('sessionResourceV2')
 allocationV2['properties']['rows']['items']['properties']['helperControl']=ref('helperControl')
 allocationV2['properties']['rows']['items']['required'].append('helperControl')
+inputV3=obj(patternId=const('xorshift32_u16_v1'),version=const(1),seed=const(1831565813),sha256=H,derivation=const('uint16(state >> 16) >> 4'))
+sourceMono12=obj(canonicalName=const('Mono12'),canonicalEncoding=const(17825797),validBits=const(12),sampleMaximum=const(4095),packing=const('unpacked'),alignment=const('least_significant'),applicationStorage=const('uint16'),nativeDimensions=ref('dimensions'),strideBytes=P,payloadBytes=P)
+benchmarkRowV3=deepcopy(benchmarkV2['properties']['rows']['items'])
+benchmarkRowV3['properties']['rowId']=enum('full_standard_identity','full_standard_nonidentity')
+benchmarkRowV3['properties']['scope']=const('full_frame')
+benchmarkRowV3['properties']['input']=inputV3
+benchmarkRowV3['properties']['sourceDescriptor']=sourceMono12
+benchmarkRowV3['properties']['resourcePlan']=ref('sessionResourceV2')
+benchmarkV3=deepcopy(benchmarkV2)
+benchmarkV3['properties']['schemaVersion']=const(3)
+benchmarkV3['properties']['sourceFormat']=const('mono12')
+benchmarkV3['required'].append('sourceFormat')
+benchmarkV3['properties']['rows']['items']=benchmarkRowV3
+allocationRowV3=deepcopy(allocationV2['properties']['rows']['items'])
+allocationRowV3['properties']['input']=inputV3
+allocationRowV3['properties']['sourceDescriptor']=sourceMono12
+allocationV3=deepcopy(allocationV2)
+allocationV3['properties']['schemaVersion']=const(3)
+allocationV3['properties']['sourceFormat']=const('mono12')
+allocationV3['required'].append('sourceFormat')
+allocationV3['properties']['rows']['items']=allocationRowV3
 comment='Structural owned-artifact schema. EvidenceValidation.cpp additionally enforces canonical definitions/ordered row products, all cross-field arithmetic, duplicate decoded JSON keys, and on-disk payload and reviewed attachment integrity. Validation is not authority to designate or accept a workstation.'
 common={'$schema':'https://json-schema.org/draft/2020-12/schema','$id':'common.schema.json','$defs':D}
 (ROOT/'common.schema.json').write_text(json.dumps(common,indent=2)+'\n')
-for name,schema in [('processing-benchmark',benchmark),('processing-allocation',allocation),('processing-benchmark-v2',benchmarkV2),('processing-allocation-v2',allocationV2),('processing-reference',reference),('reference-workstation',workstation)]:
+for name,schema in [('processing-benchmark',benchmark),('processing-allocation',allocation),('processing-benchmark-v2',benchmarkV2),('processing-allocation-v2',allocationV2),('processing-benchmark-v3',benchmarkV3),('processing-allocation-v3',allocationV3),('processing-reference',reference),('reference-workstation',workstation)]:
     document={'$schema':'https://json-schema.org/draft/2020-12/schema','$id':name+'.schema.json','$comment':comment,**schema}
     (ROOT/(name+'.schema.json')).write_text(json.dumps(document,indent=2)+'\n')

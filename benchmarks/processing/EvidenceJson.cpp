@@ -63,6 +63,15 @@ QJsonObject descriptorJson(const core::SourcePixelFormat& f,const core::ImageLay
     return {{"canonicalName",qs(f.canonicalName)},{"canonicalEncoding",integer(f.canonicalEncoding)},{"validBits",integer(f.validBits)},{"sampleMaximum",integer(f.sampleMaximum)},{"packing",f.packing==core::SourcePacking::Unpacked?"unpacked":"packed"},{"alignment",f.alignment==core::BitAlignment::LeastSignificant?"least_significant":"most_significant"},{"applicationStorage",f.applicationStorage==core::StorageType::UInt16?"uint16":"uint8"},{"nativeDimensions",dimensions(l.width(),l.height())},{"strideBytes",integer(l.strideBytes())},{"payloadBytes",integer(l.payloadBytes())}};
 }
 const std::vector<std::string>& rowIds() {static const std::vector<std::string> ids={"normalize","window_level","brightness_contrast","gamma","clahe","denoise_gaussian","denoise_median","sharpen","invert","full_standard_identity","full_standard_nonidentity"};return ids;}
+const std::vector<std::string>& measurementRowIds(SourceFormat sourceFormat) {
+    static const std::vector<std::string> mono12={"full_standard_identity","full_standard_nonidentity"};
+    return sourceFormat==SourceFormat::Mono12?mono12:rowIds();
+}
+QJsonObject inputJson(const Image& image,SourceFormat sourceFormat) {
+    QJsonObject input{{"patternId","xorshift32_u16_v1"},{"version",1},{"seed",integer(0x6D2B79F5U)},{"sha256",qs(sha256(encodePgm(image)))}};
+    if(sourceFormat==SourceFormat::Mono12) input["derivation"]="uint16(state >> 16) >> 4";
+    return input;
+}
 QJsonObject payloadJson(const std::filesystem::path& dir,const std::string& file,const Image& im,bool gray8) {
     const auto bytes=readFile(dir/file);if(decodePgm(bytes)!=im) throw Error(3,"Written PGM differs from result");
     return {{"file",qs(file)},{"format","pgm_p5_u16"},{"width",integer(im.width)},{"height",integer(im.height)},{"maxValue",65535},{"byteOrder","big_endian"},{"payloadEncoding",gray8?"gray8_zero_extended_to_u16_big_endian":"u16_big_endian"},{"sha256",qs(sha256(bytes))}};

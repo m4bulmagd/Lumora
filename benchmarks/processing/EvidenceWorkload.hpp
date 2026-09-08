@@ -49,7 +49,7 @@ class Session {
     std::array<std::shared_ptr<const core::FrameBundle>,5> retained_{};
     std::uint64_t revision_=0;
 public:
-    Session(const Image&,core::Orientation);
+    Session(const Image&,core::Orientation,SourceFormat sourceFormat=SourceFormat::Mono16);
     static processing::ProcessingPreparationAssessment assess(std::uint32_t,std::uint32_t,core::Orientation);
     bool cycle(std::size_t,std::uint64_t& fingerprint);
     void releaseMeasured();
