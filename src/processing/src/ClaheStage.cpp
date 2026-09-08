@@ -427,11 +427,24 @@ core::Result<void> ClaheStage::process(const ImageView& source,
             int cumulative = 0;
             const auto lutOffset = static_cast<std::size_t>(
                 tileY * impl_->grid + tileX) * histogramBins;
-            for (std::size_t bin = 0U; bin < histogramBins; ++bin) {
-                cumulative += impl_->histogram[bin] + batch;
+            for (std::size_t bin = 0U; bin < histogramBins; bin += 4U) {
+                const int c0 = cumulative + (impl_->histogram[bin] + batch);
+                const int c1 = c0 + (impl_->histogram[bin + 1U] + batch);
+                const int c2 = c1 + (impl_->histogram[bin + 2U] + batch);
+                const int c3 = c2 + (impl_->histogram[bin + 3U] + batch);
+                cumulative = c3;
                 impl_->histogram[bin] = 0;
+                impl_->histogram[bin + 1U] = 0;
+                impl_->histogram[bin + 2U] = 0;
+                impl_->histogram[bin + 3U] = 0;
                 impl_->lut[lutOffset + bin] = cv::saturate_cast<std::uint16_t>(
-                    static_cast<float>(cumulative) * impl_->lutScale);
+                    static_cast<float>(c0) * impl_->lutScale);
+                impl_->lut[lutOffset + bin + 1U] = cv::saturate_cast<std::uint16_t>(
+                    static_cast<float>(c1) * impl_->lutScale);
+                impl_->lut[lutOffset + bin + 2U] = cv::saturate_cast<std::uint16_t>(
+                    static_cast<float>(c2) * impl_->lutScale);
+                impl_->lut[lutOffset + bin + 3U] = cv::saturate_cast<std::uint16_t>(
+                    static_cast<float>(c3) * impl_->lutScale);
             }
         }
     }
