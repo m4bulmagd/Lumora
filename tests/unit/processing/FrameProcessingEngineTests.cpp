@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <barrier>
 #include <cmath>
 #include <cstring>
@@ -282,6 +283,72 @@ TEST(FrameProcessingEngine, ConcurrentActivationKeepsEveryBundleOnOneConfigurati
     auto final = fixture.engine->process(raw);
     ASSERT_TRUE(final.hasValue());
     EXPECT_EQ(final.value()->enhanced->pipelineVersion.configurationRevision, 64U);
+}
+TEST(FrameProcessingEngine, ProductionEnvelopeRetainsEightBundlesAndDetachedChildrenAfterEngineDestruction) {
+    Fixture fixture;
+    auto raw = rawFrame(12, {0,100,2048,4095});
+    std::array<std::shared_ptr<const core::FrameBundle>, 8> retained{};
+    for (auto& output : retained) {
+        auto result = fixture.engine->process(raw);
+        ASSERT_TRUE(result.hasValue());
+        output = std::move(result).value();
+    }
+    EXPECT_EQ(fixture.u16->stats().inUse, 9U);
+    EXPECT_EQ(fixture.gray->stats().inUse, 16U);
+    EXPECT_FALSE(fixture.engine->process(raw).hasValue());
+    auto child = retained[0]->enhanced;
+    const auto expected = copyBytes(child->pixels);
+    retained[1].reset();
+    ASSERT_TRUE(fixture.engine->process(raw).hasValue());
+    fixture.engine.reset();
+    for (const auto& output : retained) {
+        if (!output) continue;
+        EXPECT_EQ(output->raw, raw);
+        EXPECT_EQ(copyBytes(output->enhanced->pixels), expected);
+        const auto& timings = output->enhanced->timings.stages;
+        ASSERT_EQ(timings.size(), 4U);
+        EXPECT_EQ(timings[0].stageId, "normalize");
+        EXPECT_EQ(timings[1].stageId, "shared_window_level");
+        EXPECT_EQ(timings[2].stageId, "original_display_map");
+        EXPECT_EQ(timings[3].stageId, "enhanced_display_map");
+    }
+    std::jthread release([owners = std::move(retained)]() mutable { for (auto& owner : owners) owner.reset(); });
+    release.join();
+    EXPECT_EQ(fixture.u16->stats().inUse, 1U);
+    EXPECT_EQ(fixture.gray->stats().inUse, 0U);
+    EXPECT_EQ(copyBytes(child->pixels), expected);
+    child.reset();
+    EXPECT_EQ(fixture.u16->stats().inUse, 0U);
+}
+TEST(FrameProcessingEngine, ExpiredWeakOwnersExhaustFinalBundleControlAndRecoveryPreservesPublishedOutput) {
+    Fixture fixture;
+    auto raw = rawFrame(12, {0,100,2048,4095});
+    auto published = fixture.engine->process(raw).value();
+    const auto expected = copyBytes(published->enhanced->pixels);
+    std::array<std::weak_ptr<const core::FrameBundle>, 27> weak{};
+    for (auto& retained : weak) {
+        auto result = fixture.engine->process(raw);
+        ASSERT_TRUE(result.hasValue());
+        retained = result.value();
+    }
+    // 27 expired controls + 4 published controls leave exactly 3: all children
+    // construct, then final bundle control acquisition fails in the 34-slot pool.
+    for (int retry = 0; retry < 10; ++retry) {
+        auto failed = fixture.engine->process(raw);
+        ASSERT_FALSE(failed.hasValue());
+        EXPECT_EQ(failed.error().code, "frame_control_pool_exhausted");
+        EXPECT_EQ(copyBytes(published->enhanced->pixels), expected);
+        EXPECT_EQ(published->raw, raw);
+        EXPECT_EQ(fixture.u16->stats().inUse, 2U);
+        EXPECT_EQ(fixture.gray->stats().inUse, 2U);
+    }
+    weak[0].reset();
+    ASSERT_TRUE(fixture.engine->process(raw).hasValue());
+    published.reset();
+    fixture.engine.reset();
+    EXPECT_EQ(fixture.u16->stats().inUse, 0U);
+    EXPECT_EQ(fixture.gray->stats().inUse, 0U);
+    for (auto& retained : weak) { EXPECT_TRUE(retained.expired()); retained.reset(); }
 }
 }  // namespace
 }  // namespace lumora::processing

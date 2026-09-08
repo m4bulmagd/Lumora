@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lumora/processing/IFrameProcessor.hpp>
+#include <lumora/core/FrameObjectPool.hpp>
 #include <lumora/processing/ProcessingPipeline.hpp>
 #include <lumora/processing/ProcessingWorkspace.hpp>
 
@@ -24,6 +25,7 @@ public:
 
 private:
     FrameProcessingEngine(core::BufferPool& processingPool, core::BufferPool& displayPool);
+    std::shared_ptr<core::FrameObjectPool> objects_;
     ProcessingPipeline pipeline_;
     ProcessingWorkspace workspace_;
 };

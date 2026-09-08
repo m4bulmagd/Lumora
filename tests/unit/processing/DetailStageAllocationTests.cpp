@@ -44,7 +44,6 @@ using namespace lumora;
         29U, std::align_val_t{64U}, std::nothrow);
     auto* alignedArrayNoThrow = ::operator new[](
         31U, std::align_val_t{64U}, std::nothrow);
-    const auto observed = test::endAllocationTracking();
     ::operator delete(ordinary);
     ::operator delete[](array);
     ::operator delete(noThrow, std::nothrow);
@@ -53,7 +52,8 @@ using namespace lumora;
     ::operator delete[](alignedArray, std::align_val_t{64U});
     ::operator delete(alignedNoThrow, std::align_val_t{64U}, std::nothrow);
     ::operator delete[](alignedArrayNoThrow, std::align_val_t{64U}, std::nothrow);
-    return observed == 8U;
+    const auto observed = test::endAllocationMeasurement();
+    return observed.allocations == 8U && observed.allocatedBytes == 150U && observed.deallocations == 8U;
 }
 
 template<typename Stage>

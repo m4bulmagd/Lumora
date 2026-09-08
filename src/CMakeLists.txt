@@ -15,6 +15,8 @@ add_library(
   core/include/lumora/core/Clock.hpp
   core/include/lumora/core/Error.hpp
   core/include/lumora/core/Frame.hpp
+  core/include/lumora/core/FrameObjectPool.hpp
+  core/include/lumora/core/ProcessingTimings.hpp
   core/include/lumora/core/FrameMetadata.hpp
   core/include/lumora/core/ImageLayout.hpp
   core/include/lumora/core/LatestValueSlot.hpp
@@ -24,6 +26,10 @@ add_library(
   core/src/BufferPool.cpp
   core/src/Clock.cpp
   core/src/CheckedMath.cpp
+  core/src/FrameObjectPool.cpp
+  core/src/FrameObjectPoolState.hpp
+  core/src/FrameObjectPoolState.cpp
+  core/src/ProcessingTimings.cpp
   core/src/Frame.cpp
   core/src/FrameMetadata.cpp
   core/src/ImageLayout.cpp

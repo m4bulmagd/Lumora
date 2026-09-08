@@ -35,7 +35,6 @@ using lumora::core::Rotation;
 using lumora::core::SharedBuffer;
 using lumora::core::SourcePacking;
 using lumora::core::SourcePixelFormat;
-using lumora::core::StageTiming;
 using lumora::core::StorageType;
 
 [[nodiscard]] SourcePixelFormat mono8() {
@@ -113,15 +112,15 @@ using lumora::core::StorageType;
     std::uint32_t width = 4U,
     std::uint32_t height = 3U) {
     const auto imageLayout = layout(width, height, StorageType::UInt16);
+    ProcessingTimings timings;
+    EXPECT_TRUE(timings.stages.append("normalize", std::chrono::microseconds{50}).hasValue());
+    timings.total = std::chrono::microseconds{75};
     return ProcessedFrame::create(
                frameId,
                imageLayout,
                bufferOfSize(imageLayout.payloadBytes(), std::byte{0x33}),
                PipelineVersion{1U, 1U, 9U},
-               ProcessingTimings{
-                   {StageTiming{"normalize", std::chrono::microseconds{50}}},
-                   std::chrono::microseconds{75},
-               })
+               std::move(timings))
         .value();
 }
 
@@ -186,10 +185,7 @@ TEST(ProcessedFrame, RequiresUnsignedSixteenBitNativePixelsAndValidTimings) {
         layout(4U, 3U, StorageType::UInt16),
         bufferOfSize(24U),
         PipelineVersion{1U, 1U, 1U},
-        ProcessingTimings{
-            {StageTiming{"normalize", std::chrono::nanoseconds{-1}}},
-            std::chrono::nanoseconds{1},
-        });
+        ProcessingTimings{{}, std::chrono::nanoseconds{-1}});
 
     ASSERT_FALSE(wrongStorage.hasValue());
     EXPECT_EQ(wrongStorage.error().code, "processed_storage_not_u16");

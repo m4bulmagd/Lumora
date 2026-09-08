@@ -2,14 +2,13 @@
 
 #include <lumora/core/FrameMetadata.hpp>
 #include <lumora/core/ImageLayout.hpp>
+#include <lumora/core/ProcessingTimings.hpp>
 #include <lumora/core/Result.hpp>
 #include <lumora/core/SharedBuffer.hpp>
 
 #include <chrono>
 #include <cstdint>
 #include <memory>
-#include <string>
-#include <vector>
 
 namespace lumora::core {
 
@@ -45,15 +44,7 @@ struct PipelineVersion final {
     [[nodiscard]] bool operator==(const PipelineVersion&) const noexcept = default;
 };
 
-struct StageTiming final {
-    std::string stageId;
-    std::chrono::nanoseconds elapsed;
-};
-
-struct ProcessingTimings final {
-    std::vector<StageTiming> stages;
-    std::chrono::nanoseconds total;
-};
+class FrameObjectPool;
 
 struct RawFrame final {
     const std::uint64_t frameId;
@@ -89,6 +80,14 @@ struct ProcessedFrame final {
         PipelineVersion pipelineVersion,
         ProcessingTimings timings);
 
+    [[nodiscard]] static Result<std::shared_ptr<const ProcessedFrame>> create(
+        std::uint64_t frameId,
+        ImageLayout layout,
+        SharedBuffer pixels,
+        PipelineVersion pipelineVersion,
+        ProcessingTimings timings,
+        FrameObjectPool& objects);
+
 private:
     ProcessedFrame(
         std::uint64_t frameId,
@@ -114,6 +113,15 @@ struct DisplayFrame final {
         DisplayMapping mapping,
         Orientation presentationOrientation);
 
+    [[nodiscard]] static Result<std::shared_ptr<const DisplayFrame>> create(
+        std::uint64_t frameId,
+        ImageLayout layout,
+        SharedBuffer pixels,
+        DisplayStorage storage,
+        DisplayMapping mapping,
+        Orientation presentationOrientation,
+        FrameObjectPool& objects);
+
 private:
     DisplayFrame(
         std::uint64_t frameId,
@@ -135,6 +143,13 @@ struct FrameBundle final {
         std::shared_ptr<const DisplayFrame> originalDisplay,
         std::shared_ptr<const ProcessedFrame> enhanced,
         std::shared_ptr<const DisplayFrame> enhancedDisplay);
+
+    [[nodiscard]] static Result<std::shared_ptr<const FrameBundle>> create(
+        std::shared_ptr<const RawFrame> raw,
+        std::shared_ptr<const DisplayFrame> originalDisplay,
+        std::shared_ptr<const ProcessedFrame> enhanced,
+        std::shared_ptr<const DisplayFrame> enhancedDisplay,
+        FrameObjectPool& objects);
 
     [[nodiscard]] std::uint64_t sourceFrameId() const noexcept;
 

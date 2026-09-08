@@ -6,6 +6,8 @@
 
 #include <chrono>
 #include <cmath>
+#include <limits>
+#include <string_view>
 #include <utility>
 
 namespace lumora::processing {
@@ -30,19 +32,39 @@ core::Result<std::unique_ptr<FrameProcessingEngine>> FrameProcessingEngine::crea
     core::BufferPool& processingPool, core::BufferPool& displayPool,
     const core::ImageLayout& sourceLayout, const PipelineDefinition& definition) {
     using Result = core::Result<std::unique_ptr<FrameProcessingEngine>>;
-    auto engine = std::unique_ptr<FrameProcessingEngine>(new FrameProcessingEngine(processingPool, displayPool));
-    auto active = engine->activate(definition);
-    if (!active.hasValue()) {
-        std::string detail;
-        for (const auto& violation : active.error().violations) {
-            if (!detail.empty()) detail += " ";
-            detail += violation.detail;
+    try {
+        auto engine = std::unique_ptr<FrameProcessingEngine>(new FrameProcessingEngine(processingPool, displayPool));
+        auto active = engine->activate(definition);
+        if (!active.hasValue()) {
+            std::string detail;
+            for (const auto& violation : active.error().violations) {
+                if (!detail.empty()) detail += " ";
+                detail += violation.detail;
+            }
+            return Result::failure(processingError(active.error().code, std::move(detail)));
         }
-        return Result::failure(processingError(active.error().code, std::move(detail)));
+        auto prepared = engine->workspace_.prepare(sourceLayout);
+        if (!prepared.hasValue()) return Result::failure(prepared.error());
+        const auto processedCount = processingPool.stats().capacity;
+        const auto displayCount = displayPool.stats().capacity;
+        if (processedCount > (std::numeric_limits<std::size_t>::max() - displayCount) / 2U) {
+            return Result::failure(processingError("frame_object_pool_capacity_overflow", "Output ownership capacity is not representable."));
+        }
+        const auto controls = processedCount * 2U + displayCount;
+        if (controls < 4U) {
+            return Result::failure(processingError("invalid_frame_object_pool_capacity", "Enhanced publication requires four control slots."));
+        }
+        auto plan = core::FrameObjectPool::plan({processedCount, displayCount, processedCount, controls});
+        if (!plan.hasValue()) return Result::failure(plan.error());
+        auto objects = core::FrameObjectPool::create(plan.value());
+        if (!objects.hasValue()) return Result::failure(objects.error());
+        engine->objects_ = std::move(objects).value();
+        return Result::success(std::move(engine));
+    } catch (const std::exception&) {
+        return Result::failure({core::ErrorCategory::ResourceExhaustion,
+            "processing_preparation_allocation_failed", "Processing preparation failed.",
+            "Prepared processing resources could not be allocated.", true});
     }
-    auto prepared = engine->workspace_.prepare(sourceLayout);
-    if (!prepared.hasValue()) return Result::failure(prepared.error());
-    return Result::success(std::move(engine));
 }
 
 core::Result<void, PipelineValidationError> FrameProcessingEngine::activate(const PipelineDefinition& definition) {
@@ -70,7 +92,6 @@ BundleResult FrameProcessingEngine::process(std::shared_ptr<const core::RawFrame
     const auto& canonicalLayout = *workspace_.canonicalLayout_;
     const auto& displayLayout = *workspace_.displayLayout_;
     core::ProcessingTimings timings;
-    timings.stages.reserve(4);
     core::DisplayMapping originalMapping{};
     core::DisplayMapping enhancedMapping{};
     std::size_t enhancedIndex = 0;
@@ -81,10 +102,13 @@ BundleResult FrameProcessingEngine::process(std::shared_ptr<const core::RawFrame
             ImageDomain::CanonicalU16).value();
         auto windowed = MutableImageView::create(canonicalLayout, workspace_.canonical_[1]->bytes(),
             ImageDomain::CanonicalU16).value();
-        auto timed = [&](std::string id, auto&& operation) {
+        auto timed = [&](std::string_view id, auto&& operation) {
             const auto before = Clock::now();
             auto result = operation();
-            timings.stages.push_back({std::move(id), std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - before)});
+            auto appended = timings.stages.append(id,
+                std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - before));
+            if (!appended.hasValue()) return decltype(result)::failure(processingError(
+                "processing_timing_append_failed", "Executed stage timing could not fit the prepared timing record."));
             return result;
         };
         auto result = timed("normalize", [&] { return NormalizeStage{}.process(source.value(), normalized, acquisition.sourceFormat); });
@@ -125,17 +149,17 @@ BundleResult FrameProcessingEngine::process(std::shared_ptr<const core::RawFrame
 
     timings.total = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - started);
     auto enhanced = core::ProcessedFrame::create(raw->frameId, canonicalLayout,
-        seal(workspace_.canonical_[enhancedIndex]), pipeline->definition().version, std::move(timings));
+        seal(workspace_.canonical_[enhancedIndex]), pipeline->definition().version, std::move(timings), *objects_);
     if (!enhanced.hasValue()) return BundleResult::failure(enhanced.error());
     const core::Orientation orientation{false, false, core::Rotation::Degrees0};
     auto original = core::DisplayFrame::create(raw->frameId, displayLayout, seal(workspace_.display_[0]),
-        core::DisplayStorage::Gray8, originalMapping, orientation);
+        core::DisplayStorage::Gray8, originalMapping, orientation, *objects_);
     if (!original.hasValue()) return BundleResult::failure(original.error());
     auto enhancedDisplay = core::DisplayFrame::create(raw->frameId, displayLayout, seal(workspace_.display_[1]),
-        core::DisplayStorage::Gray8, enhancedMapping, orientation);
+        core::DisplayStorage::Gray8, enhancedMapping, orientation, *objects_);
     if (!enhancedDisplay.hasValue()) return BundleResult::failure(enhancedDisplay.error());
     return core::FrameBundle::create(std::move(raw), std::move(original).value(),
-        std::move(enhanced).value(), std::move(enhancedDisplay).value());
+        std::move(enhanced).value(), std::move(enhancedDisplay).value(), *objects_);
 }
 
 }  // namespace lumora::processing

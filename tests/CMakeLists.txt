@@ -181,6 +181,8 @@ add_executable(
   unit/core/FrameMetadataTests.cpp
   unit/core/BufferPoolTests.cpp
   unit/core/FrameTests.cpp
+  unit/core/FrameObjectPoolTests.cpp
+  unit/core/ProcessingTimingsTests.cpp
   unit/core/LatestValueSlotTests.cpp
   unit/core/BoundedQueueTests.cpp
   unit/core/ClockTests.cpp
@@ -350,3 +352,21 @@ set_tests_properties(Processing.OrientationTransform PROPERTIES TIMEOUT 60)
 add_test(NAME Processing.FrameProcessingEngine
   COMMAND lumora_processing_tests --gtest_filter=FrameProcessingEngine.*)
 set_tests_properties(Processing.FrameProcessingEngine PROPERTIES TIMEOUT 60)
+
+add_executable(lumora_frame_engine_allocation_tests
+  support/AllocationTracker.cpp
+  unit/processing/FrameEngineAllocationTests.cpp)
+target_include_directories(lumora_frame_engine_allocation_tests PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/support" "${PROJECT_SOURCE_DIR}/src/core/src")
+target_link_libraries(lumora_frame_engine_allocation_tests PRIVATE lumora::processing)
+lumora_enable_warnings(lumora_frame_engine_allocation_tests)
+add_test(NAME Processing.FrameEngineAllocation COMMAND lumora_frame_engine_allocation_tests)
+set_tests_properties(Processing.FrameEngineAllocation PROPERTIES TIMEOUT 60)
+
+target_compile_definitions(lumora_core PRIVATE LUMORA_FRAME_POOL_TESTS=1)
+target_include_directories(lumora_core PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+
+target_include_directories(lumora_core_tests PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/support" "${PROJECT_SOURCE_DIR}/src/core/src")
+add_test(NAME Core.FrameObjectPool COMMAND lumora_core_tests --gtest_filter=FrameObjectPool.*)
+add_test(NAME Core.ProcessingTimings COMMAND lumora_core_tests --gtest_filter=ProcessingTimings.*)
