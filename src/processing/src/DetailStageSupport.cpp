@@ -4,6 +4,10 @@
 
 #include <opencv2/imgproc.hpp>
 
+#if defined(__x86_64__) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -71,6 +75,71 @@ void writeVerticalRow(
         writePixel(x, verticalGaussianAt(rows, x, coefficients, kernelSize));
     }
 }
+
+#if defined(__x86_64__) || defined(_M_X64)
+struct PackedGaussianBlock final {
+    __m128d pairs[4U];
+};
+
+[[nodiscard]] PackedGaussianBlock accumulatePackedBlock(
+    const ReflectedGaussianRows& rows, const double* coefficients,
+    std::size_t kernelSize, std::size_t firstX) noexcept {
+    PackedGaussianBlock block{{_mm_setzero_pd(), _mm_setzero_pd(),
+        _mm_setzero_pd(), _mm_setzero_pd()}};
+    for (std::size_t tap = 0U; tap < kernelSize; ++tap) {
+        const auto coefficient = _mm_set1_pd(coefficients[tap]);
+        for (std::size_t pair = 0U; pair < 4U; ++pair) {
+            const auto input = _mm_loadu_pd(rows[tap] + firstX + pair * 2U);
+            block.pairs[pair] = _mm_add_pd(block.pairs[pair],
+                _mm_mul_pd(coefficient, input));
+        }
+    }
+    return block;
+}
+
+[[nodiscard]] __m128d selectPair(__m128d mask, __m128d yes, __m128d no) noexcept {
+    return _mm_or_pd(_mm_and_pd(mask, yes), _mm_andnot_pd(mask, no));
+}
+
+[[nodiscard]] __m128i roundPairU16(__m128d value) noexcept {
+    const auto zero = _mm_setzero_pd();
+    const auto maximum = _mm_set1_pd(65535.0);
+    // Ordered comparisons preserve std::clamp's operand selection, including -0.
+    const auto lowClamped = selectPair(_mm_cmplt_pd(value, zero), zero, value);
+    const auto clamped = selectPair(_mm_cmplt_pd(maximum, lowClamped), maximum, lowClamped);
+    return _mm_cvttpd_epi32(_mm_add_pd(clamped, _mm_set1_pd(0.5)));
+}
+
+[[nodiscard]] __m128i finishSharpenPair(
+    __m128d blurred, __m128d original, __m128d amount, __m128d threshold) noexcept {
+    const auto detail = _mm_sub_pd(original, _mm_cvtepi32_pd(roundPairU16(blurred)));
+    const auto magnitude = _mm_andnot_pd(_mm_set1_pd(-0.0), detail);
+    const auto unchanged = _mm_cmple_pd(magnitude, threshold);
+    const auto candidate = _mm_add_pd(original, _mm_mul_pd(amount, detail));
+    return roundPairU16(selectPair(unchanged, original, candidate));
+}
+
+void storeSharpenBlock(const PackedGaussianBlock& blurred,
+    std::span<const std::byte> sourceRow, std::span<std::byte> destinationRow,
+    std::size_t x, __m128d amount, __m128d threshold) noexcept {
+    __m128i input;
+    std::memcpy(&input, sourceRow.data() + x * sizeof(std::uint16_t), sizeof(input));
+    const auto low = _mm_unpacklo_epi16(input, _mm_setzero_si128());
+    const auto high = _mm_unpackhi_epi16(input, _mm_setzero_si128());
+    const auto pair0 = finishSharpenPair(blurred.pairs[0], _mm_cvtepi32_pd(low), amount, threshold);
+    const auto pair1 = finishSharpenPair(blurred.pairs[1],
+        _mm_cvtepi32_pd(_mm_srli_si128(low, 8)), amount, threshold);
+    const auto pair2 = finishSharpenPair(blurred.pairs[2], _mm_cvtepi32_pd(high), amount, threshold);
+    const auto pair3 = finishSharpenPair(blurred.pairs[3],
+        _mm_cvtepi32_pd(_mm_srli_si128(high, 8)), amount, threshold);
+    // Bias proven [0,65535] integers into signed i16 range for SSE2 packing.
+    const auto bias = _mm_set1_epi32(32768);
+    const auto output = _mm_xor_si128(_mm_packs_epi32(
+        _mm_sub_epi32(_mm_unpacklo_epi64(pair0, pair1), bias),
+        _mm_sub_epi32(_mm_unpacklo_epi64(pair2, pair3), bias)), _mm_set1_epi16(-32768));
+    std::memcpy(destinationRow.data() + x * sizeof(std::uint16_t), &output, sizeof(output));
+}
+#endif
 
 }  // namespace
 
@@ -317,7 +386,7 @@ void writeGaussianRow(
         });
 }
 
-void writeSharpenRow(
+static void writeSharpenScalarRow(
     const ReflectedGaussianRows& rows,
     const double* coefficients,
     std::size_t kernelSize,
@@ -340,6 +409,68 @@ void writeSharpenRow(
                 + amount * static_cast<double>(signedDetail);
             storeU16(destinationRow, x, roundU16(candidate));
         });
+}
+
+void accumulateVerticalBlock8(
+    const ReflectedGaussianRows& rows, const double* coefficients,
+    std::size_t kernelSize, std::size_t firstX, GaussianBlock8& output,
+    DetailRowBackend backend) noexcept {
+#if defined(__x86_64__) || defined(_M_X64)
+    if (backend == DetailRowBackend::BaselineSse2) {
+        const auto block = accumulatePackedBlock(rows, coefficients, kernelSize, firstX);
+        for (std::size_t pair = 0U; pair < 4U; ++pair) {
+            _mm_storeu_pd(output.data() + pair * 2U, block.pairs[pair]);
+        }
+        return;
+    }
+#else
+    (void)backend;
+#endif
+    for (std::size_t lane = 0U; lane < laneCount; ++lane) {
+        output[lane] = verticalGaussianAt(rows, firstX + lane, coefficients, kernelSize);
+    }
+}
+
+std::size_t writeSharpenRow(
+    const ReflectedGaussianRows& rows, const double* coefficients,
+    std::size_t kernelSize, std::size_t width,
+    std::span<const std::byte> sourceRow, std::span<std::byte> destinationRow,
+    double amount, double threshold, DetailRowBackend backend) noexcept {
+#if defined(__x86_64__) || defined(_M_X64)
+    if (backend == DetailRowBackend::BaselineSse2) {
+        const auto packedAmount = _mm_set1_pd(amount);
+        const auto packedThreshold = _mm_set1_pd(threshold);
+        std::size_t x = 0U;
+        for (; width - x >= laneCount; x += laneCount) {
+            const auto block = accumulatePackedBlock(rows, coefficients, kernelSize, x);
+            storeSharpenBlock(block, sourceRow, destinationRow, x, packedAmount, packedThreshold);
+        }
+        const auto blocks = x / laneCount;
+        for (; x < width; ++x) {
+            const auto blurred = roundU16(verticalGaussianAt(rows, x, coefficients, kernelSize));
+            const auto original = loadU16(sourceRow, x);
+            const auto detail = static_cast<std::int32_t>(original) - static_cast<std::int32_t>(blurred);
+            const auto result = std::abs(static_cast<double>(detail)) <= threshold ? original
+                : roundU16(static_cast<double>(original) + amount * static_cast<double>(detail));
+            storeU16(destinationRow, x, result);
+        }
+        return blocks;
+    }
+#else
+    (void)backend;
+#endif
+    writeSharpenScalarRow(rows, coefficients, kernelSize, width,
+        sourceRow, destinationRow, amount, threshold);
+    return 0U;
+}
+
+void writeSharpenRow(
+    const ReflectedGaussianRows& rows, const double* coefficients,
+    std::size_t kernelSize, std::size_t width,
+    std::span<const std::byte> sourceRow, std::span<std::byte> destinationRow,
+    double amount, double threshold) noexcept {
+    writeSharpenRow(rows, coefficients, kernelSize, width,
+        sourceRow, destinationRow, amount, threshold, DetailRowBackend::BaselineSse2);
 }
 
 std::uint16_t roundU16(double value) noexcept {

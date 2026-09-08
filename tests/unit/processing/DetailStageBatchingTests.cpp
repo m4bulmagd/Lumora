@@ -3,6 +3,9 @@
 #include "StageStorage.hpp"
 #include <atomic>
 #include <cfenv>
+#if defined(__x86_64__) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
 
 #include <lumora/processing/DenoiseStage.hpp>
 #include <lumora/processing/SharpenStage.hpp>
@@ -297,6 +300,181 @@ void expectProcessMatches(
 constexpr std::array patterns{Pattern::Ramp, Pattern::Step,
     Pattern::BoundaryImpulse, Pattern::TopBottomImpulse, Pattern::Alternating,
     Pattern::Constant, Pattern::Noise};
+
+// Frozen with independent exact-rational product/add rounding, not stage helpers.
+TEST(DetailStageBatching, VerticalBlockPreservesFrozenBinary64TapOrder) {
+    using namespace processing::detail;
+    constexpr std::array<std::array<double, 8U>, 3U> samples{{
+        {0x1.0000000000001p+16, 0x1.0000000000001p+17, 0x1.8000000000002p+17, 0x1.0000000000001p+18, 0x1.4000000000001p+18, 0x1.8000000000002p+18, 0x1.c000000000002p+18, 0x1.0000000000001p+19},
+        {0x1.0000000000001p-2, 0x1.0000000000001p-1, 0x1.8000000000002p-1, 0x1.0000000000001p+0, 0x1.4000000000001p+0, 0x1.8000000000002p+0, 0x1.c000000000002p+0, 0x1.0000000000001p+1},
+        {-0x1p+16, -0x1p+17, -0x1.8p+17, -0x1p+18, -0x1.4p+18, -0x1.8p+18, -0x1.cp+18, -0x1p+19}}};
+    constexpr std::array weights{0x1.0000000000001p-3,
+        0x1.fffffffffffffp-2, 0x1.0000000000001p-3};
+    constexpr std::array<std::array<std::uint64_t, 8U>, 3U> expected{{
+        {0x3fc0000000010000ULL, 0x3fd0000000010000ULL, 0x3fd8000000020000ULL, 0x3fe0000000010000ULL, 0x3fe4000000010000ULL, 0x3fe8000000020000ULL, 0x3fec000000020000ULL, 0x3ff0000000010000ULL},
+        {0x40c0002000000004ULL, 0x40d0002000000004ULL, 0x40d8003000000008ULL, 0x40e0002000000004ULL, 0x40e4002800000004ULL, 0x40e8003000000008ULL, 0x40ec003800000008ULL, 0x40f0002000000004ULL},
+        {0x40c000a00000000cULL, 0x40d000a00000000cULL, 0x40d800f000000018ULL, 0x40e000a00000000cULL, 0x40e400c80000000cULL, 0x40e800f000000018ULL, 0x40ec011800000018ULL, 0x40f000a00000000cULL}}};
+    alignas(16) std::array<std::array<double, 10U>, 31U> storage{};
+    ReflectedGaussianRows rows{};
+    std::array<double, 31U> kernel{};
+    for (std::size_t tap = 0U; tap < rows.size(); ++tap) {
+        std::copy(samples[tap % 3U].begin(), samples[tap % 3U].end(),
+            storage[tap].begin() + 1);
+        rows[tap] = storage[tap].data();
+        kernel[tap] = weights[tap % 3U];
+    }
+    constexpr std::array<std::size_t, 3U> sizes{3U, 7U, 31U};
+    for (std::size_t fixture = 0U; fixture < sizes.size(); ++fixture) {
+        for (const auto backend : {DetailRowBackend::Scalar, DetailRowBackend::BaselineSse2}) {
+            GaussianBlock8 actual{};
+            accumulateVerticalBlock8(rows, kernel.data(), sizes[fixture], 1U, actual, backend);
+            for (std::size_t lane = 0U; lane < 8U; ++lane) {
+                EXPECT_EQ(std::bit_cast<std::uint64_t>(actual[lane]), expected[fixture][lane])
+                    << "kernel=" << sizes[fixture] << " lane=" << lane;
+            }
+        }
+    }
+}
+
+TEST(DetailStageBatching, SharpenRowsPreserveFrozenRoundingThresholdAndSaturation) {
+    using namespace processing::detail;
+    // First eight lanes expose blur rounding; the next eight expose signed
+    // threshold ties, adjacent details and low/high candidate saturation.
+    constexpr std::array<double, 17U> blurred{
+        -0x1p+0, 0x1.ffffffffffffep-2, 0x1.fffffffffffffp-2, 0x1p-1,
+        0x1.0000000000001p-1, 0x1.fffcfffffffffp+15, 0x1.fffdp+15, 0x1p+16,
+        97.0, 103.0, 96.0, 104.0, 0.0, 65535.0, 99.0, 101.0,
+        0x1.fffd000000001p+15};
+    constexpr std::array<std::uint16_t, 17U> originals{
+        100, 100, 100, 100, 100, 65500, 65500, 65500,
+        100, 100, 100, 100, 65500, 10, 100, 100, 65500};
+    constexpr std::array<std::uint16_t, 17U> expected{
+        250, 250, 249, 249, 249, 65449, 65448, 65448,
+        100, 100, 106, 94, 65535, 0, 100, 100, 65448};
+    constexpr double coefficient = 1.0;
+    for (const auto width : {1U, 7U, 8U, 9U, 15U, 16U, 17U}) {
+        for (const auto offset : {0U, 8U}) {
+            std::vector<std::uint16_t> input(width * 3U), want(width * 3U);
+            std::vector<double> intermediate(width);
+            for (std::size_t x = 0U; x < width; ++x) {
+                const auto lane = (x + offset) % originals.size();
+                intermediate[x] = blurred[lane];
+                for (std::size_t y = 0U; y < 3U; ++y) {
+                    input[y * width + x] = originals[lane];
+                    want[y * width + x] = expected[lane];
+                }
+            }
+            ReflectedGaussianRows rows{};
+            rows[0] = intermediate.data();
+            for (const auto backend : {DetailRowBackend::Scalar, DetailRowBackend::BaselineSse2}) {
+                BufferedImage buffers(width, 3U, input);
+                const auto sourceBefore = buffers.source;
+                for (std::uint32_t y = 0U; y < 3U; ++y) {
+                    const auto blocks = writeSharpenRow(rows, &coefficient, 1U, width,
+                        buffers.sourceView().row(y), buffers.destinationView().row(y), 1.5, 3.0, backend);
+#if defined(__x86_64__) || defined(_M_X64)
+                    EXPECT_EQ(blocks, backend == DetailRowBackend::BaselineSse2 ? width / 8U : 0U);
+#else
+                    EXPECT_EQ(blocks, 0U);
+#endif
+                }
+                EXPECT_EQ(buffers.activeDestination(), want) << "width=" << width;
+                EXPECT_EQ(buffers.source, sourceBefore);
+                EXPECT_TRUE(buffers.destinationCanariesIntact());
+            }
+        }
+    }
+}
+
+TEST(DetailStageBatching, SharpenAmountHalfNeighborsHaveFrozenLaneAndTailResults) {
+    using namespace processing::detail;
+    struct Case final { double amount; std::uint16_t expected; };
+    // 3 + amount * 3 lies just below, at, and above 7.5 after two
+    // independently rounded operations. These literals are adjacent binary64s.
+    for (const auto fixture : {Case{0x1.7ffffffffffffp+0, 7U},
+             Case{0x1.8p+0, 8U}, Case{0x1.8000000000001p+0, 8U}}) {
+        for (const auto backend : {DetailRowBackend::Scalar, DetailRowBackend::BaselineSse2}) {
+            for (const auto width : {7U, 8U, 9U, 17U}) {
+                const std::vector<std::uint16_t> input(width, 3U);
+                const std::vector<std::uint16_t> expected(width, fixture.expected);
+                const std::vector<double> blurred(width, 0.0);
+                constexpr double coefficient = 1.0;
+                ReflectedGaussianRows rows{};
+                rows[0] = blurred.data();
+                BufferedImage buffers(width, 1U, input);
+                writeSharpenRow(rows, &coefficient, 1U, width,
+                    buffers.sourceView().row(0), buffers.destinationView().row(0),
+                    fixture.amount, 0.0, backend);
+                EXPECT_EQ(buffers.activeDestination(), expected);
+                EXPECT_TRUE(buffers.destinationCanariesIntact());
+            }
+        }
+    }
+}
+
+TEST(DetailStageBatching, SharpenBackendsPreserveCallerControlsAndExactModeResults) {
+    using namespace processing::detail;
+    struct EnvironmentGuard final {
+        std::fenv_t saved{};
+#if defined(__x86_64__) || defined(_M_X64)
+        unsigned control = _mm_getcsr();
+#endif
+        EnvironmentGuard() { std::fegetenv(&saved); }
+        ~EnvironmentGuard() {
+            std::fesetenv(&saved);
+#if defined(__x86_64__) || defined(_M_X64)
+            _mm_setcsr(control);
+#endif
+        }
+    } guard;
+    constexpr std::size_t width = 17U;
+    const auto input = makeInput(width, 1U, Pattern::Noise);
+    alignas(16) std::array<std::array<double, width + 1U>, 31U> storage{};
+    ReflectedGaussianRows rows{};
+    std::array<double, 31U> kernel{};
+    for (std::size_t tap = 0U; tap < rows.size(); ++tap) {
+        rows[tap] = storage[tap].data() + 1U;
+        kernel[tap] = 0x1.0842108421084p-5;
+        for (std::size_t x = 0U; x < width; ++x) {
+            storage[tap][x + 1U] = x == 0U ? 0x0.0000000000001p-1022
+                : static_cast<double>((x * 997U + tap * 431U) % 65536U) + 0x1.1p-2;
+        }
+    }
+    for (const auto mode : {FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO, FE_TONEAREST}) {
+        ASSERT_EQ(std::fesetround(mode), 0);
+        for (const auto flush : {false, true}) {
+#if defined(__x86_64__) || defined(_M_X64)
+            constexpr unsigned flushMask = 1U << 15U;
+            const auto controls = (_mm_getcsr() & ~flushMask) | (flush ? flushMask : 0U);
+            _mm_setcsr(controls);
+#else
+            (void)flush;
+#endif
+            GaussianBlock8 scalar{}, packed{};
+            accumulateVerticalBlock8(rows, kernel.data(), 31U, 0U, scalar, DetailRowBackend::Scalar);
+            accumulateVerticalBlock8(rows, kernel.data(), 31U, 0U, packed, DetailRowBackend::BaselineSse2);
+            for (std::size_t lane = 0U; lane < scalar.size(); ++lane) {
+                EXPECT_EQ(std::bit_cast<std::uint64_t>(scalar[lane]),
+                    std::bit_cast<std::uint64_t>(packed[lane]));
+            }
+            BufferedImage first(width, 1U, input), second(width, 1U, input);
+            writeSharpenRow(rows, kernel.data(), 31U, width,
+                first.sourceView().row(0), first.destinationView().row(0),
+                0x1.8000000000001p+0, 13.0, DetailRowBackend::Scalar);
+            writeSharpenRow(rows, kernel.data(), 31U, width,
+                second.sourceView().row(0), second.destinationView().row(0),
+                0x1.8000000000001p+0, 13.0, DetailRowBackend::BaselineSse2);
+            EXPECT_EQ(first.activeDestination(), second.activeDestination());
+            EXPECT_TRUE(first.destinationCanariesIntact());
+            EXPECT_TRUE(second.destinationCanariesIntact());
+            EXPECT_EQ(std::fegetround(), mode);
+#if defined(__x86_64__) || defined(_M_X64)
+            // Exception status is intentionally outside the executor contract.
+            EXPECT_EQ(_mm_getcsr() & ~0x3FU, controls & ~0x3FU);
+#endif
+        }
+    }
+}
 
 TEST(DetailStageBatching, RoundU16ClampsAndRoundsHalfNeighbors) {
     struct Case final {
