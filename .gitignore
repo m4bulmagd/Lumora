@@ -9,6 +9,9 @@ CMakeUserPresets.json
 # Runtime data must never be committed
 logs/
 config/
+!/config/
+/config/*
+!/config/default-presets.json
 captures/
 hardware-profiles/
 

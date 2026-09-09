@@ -30,6 +30,8 @@
 
 ### Task 1: Preset model, built-ins, and typed persistence
 
+The owner-authorized [2026-09-09 preset contract](../../architecture/milestones/m09-presets.md) and [bounded implementation plan](2026-09-09-m09-presets.md) refine this task: typed active state, explicit Custom editing identity, resource loading, schema migration and per-entry recovery. Tasks 2–5 remain separate development.
+
 **Files:**
 - Create: `src/application/include/lumora/application/Preset.hpp`
 - Create: `src/application/include/lumora/application/PresetRepository.hpp`
@@ -40,40 +42,41 @@
 - Modify: `src/configuration/src/ConfigurationCodec.cpp`
 
 **Interfaces:**
-- Consumes: `PipelineDefinition`, `makeStandardPipelineDefinition()`, configuration schema, and built-in JSON resource.
-- Produces: `PresetId`, `Preset { id, name, description, builtIn, pipeline }`, `PresetRepository::list/find/apply/saveCustom/deleteCustom`, and typed preset persistence.
+- Consumes: `PipelineDefinition`, `processing::standardPipeline()`, configuration schema, and built-in JSON resource.
+- Produces: `PresetId`, versioned `Preset`, typed `PresetState`, and `PresetRepository::list/find/apply/edit/classify/saveCustom/deleteCustom/restore/snapshot`. JSON resource loading and persistence belong to configuration; the application model is Qt-free.
 
-- [ ] **Step 1: Write failing built-in and Custom-transition tests**
+- [x] **Step 1: Write failing built-in and Custom-transition tests**
 
 ```cpp
 TEST(PresetRepository, BuiltInsAreImmutableAndEditsBecomeCustom) {
-    auto repository = loadDefaultPresets();
+    auto repository = makeRepository(); // Test-local shipped recipe fixture.
     auto standard = repository.find(PresetId{"standard"}).value();
     EXPECT_TRUE(standard.builtIn);
     EXPECT_FALSE(repository.deleteCustom(standard.id).hasValue());
     auto edited = standard.pipeline;
     setGamma(edited, 1.4);
-    EXPECT_EQ(repository.classify(edited), PresetId{"custom"});
+    ASSERT_TRUE(repository.edit(edited).hasValue());
+    EXPECT_EQ(repository.snapshot().selectedId, PresetId{"custom"});
 }
 ```
 
-- [ ] **Step 2: Verify missing repository fails**
+- [x] **Step 2: Verify missing repository fails**
 
 Build `lumora_application_tests`; expect failure.
 
-- [ ] **Step 3: Define complete built-in presets**
+- [x] **Step 3: Define complete built-in presets**
 
-Create Original, Standard, High Contrast, Soft Detail, and Custom. Original disables all optional enhancement stages while retaining Normalize and WindowLevel. Standard must normalize equal to `makeStandardPipelineDefinition()`. Every file entry includes schema version, order version, stable ID, neutral description, fixed canonical stage order, enabled flags, and all parameter values. Reordered definitions are invalid.
+Create Original, Standard, High Contrast, Soft Detail, and Custom. Original disables all optional enhancement stages while retaining Normalize and WindowLevel. Standard must normalize equal to `processing::standardPipeline()`. Every file entry includes schema version, order version, stable ID, neutral description, fixed canonical stage order, enabled flags, and all parameter values. Reordered definitions are invalid.
 
-- [ ] **Step 4: Implement parsing and classification**
+- [x] **Step 4: Implement parsing and classification**
 
 Validate built-ins through `PipelineCompiler`. Compare normalized pipeline values, not display labels, when classifying a definition. User presets use distinct IDs and may duplicate parameters but not IDs.
 
-- [ ] **Step 5: Test round-trip and invalid preset isolation**
+- [x] **Step 5: Test round-trip and invalid preset isolation**
 
 Cover missing stage, out-of-range value, unknown future stage, duplicate ID, built-in deletion/overwrite, custom save/delete, and schema migration. Invalid custom entries are reported and skipped without losing valid entries.
 
-- [ ] **Step 6: Commit presets**
+- [x] **Step 6: Commit presets**
 
 ```powershell
 git add src/application src/configuration config/default-presets.json tests/unit/application/PresetRepositoryTests.cpp

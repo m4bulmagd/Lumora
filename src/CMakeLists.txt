@@ -132,6 +132,9 @@ add_library(
   application/include/lumora/application/LivePipeline.hpp
   application/src/LivePipeline.cpp
   application/src/LiveResourcePreparation.cpp
+  application/include/lumora/application/Preset.hpp
+  application/include/lumora/application/PresetRepository.hpp
+  application/src/PresetRepository.cpp
 )
 add_library(lumora::application ALIAS lumora_application)
 target_include_directories(lumora_application PUBLIC
@@ -205,11 +208,19 @@ add_library(
   configuration/include/lumora/configuration/ApplicationConfiguration.hpp
   configuration/include/lumora/configuration/ConfigurationCodec.hpp
   configuration/include/lumora/configuration/ConfigurationStore.hpp
+  configuration/include/lumora/configuration/PresetCodec.hpp
+  configuration/include/lumora/configuration/PresetIssue.hpp
   configuration/include/lumora/configuration/StartupPreferencesService.hpp
   configuration/src/ConfigurationCodec.cpp
   configuration/src/ConfigurationStore.cpp
+  configuration/src/PresetCodec.cpp
+  configuration/src/PipelineDefinitionCodec.hpp
+  configuration/src/PipelineDefinitionCodec.cpp
   configuration/src/StartupPreferencesService.cpp
+  configuration/resources/default-presets.qrc
 )
+
+set_target_properties(lumora_configuration PROPERTIES AUTORCC ON)
 
 add_library(lumora::configuration ALIAS lumora_configuration)
 

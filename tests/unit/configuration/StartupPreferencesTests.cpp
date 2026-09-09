@@ -2,6 +2,7 @@
 #include <lumora/configuration/ConfigurationCodec.hpp>
 #include <lumora/configuration/ConfigurationStore.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
+#include <lumora/processing/ProcessingDefaults.hpp>
 
 #include <QFile>
 #include <QJsonArray>
@@ -93,7 +94,9 @@ protected:
         configuration.application.insert("theme", "dark");
         configuration.cameraProfiles.insert("profile", "legacy");
         configuration.processing.insert("pipeline", "standard");
-        configuration.presets.insert("selected", "Standard");
+        configuration.presets.selectedId = {"standard"};
+        configuration.presets.activePipeline = processing::standardPipeline();
+        configuration.legacyPresets.insert("selected", "Standard");
         configuration.capture.insert("directory", "captures");
         configuration.ui.insert("sidebar", true);
         configuration.startup = preferences();
@@ -113,7 +116,9 @@ TEST_F(StartupPreferencesTest, Schema1DoesNotInferConfirmation) {
     const auto loaded = loadSchema1();
     ASSERT_TRUE(loaded.hasValue());
     EXPECT_FALSE(loaded.value().usedDefaults);
-    EXPECT_EQ(loaded.value().schemaVersion, 2);
+    EXPECT_EQ(loaded.value().schemaVersion, 3);
+    EXPECT_EQ(loaded.value().presets.selectedId.value, "original");
+    EXPECT_EQ(loaded.value().legacyPresets.value("selected"), "Standard");
     EXPECT_FALSE(loaded.value().startup.has_value());
     EXPECT_EQ(loaded.value().application.value("theme"), "dark");
     EXPECT_EQ(loaded.value().cameraProfiles.value("legacy"), true);
@@ -135,7 +140,10 @@ TEST_F(StartupPreferencesTest, ConfirmedRecordRoundTrips) {
     EXPECT_EQ(loaded.value().application.value("theme"), "dark");
     EXPECT_EQ(loaded.value().cameraProfiles.value("profile"), "legacy");
     EXPECT_EQ(loaded.value().processing.value("pipeline"), "standard");
-    EXPECT_EQ(loaded.value().presets.value("selected"), "Standard");
+    EXPECT_EQ(loaded.value().presets.selectedId.value, "standard");
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        loaded.value().presets.activePipeline, processing::standardPipeline()));
+    EXPECT_EQ(loaded.value().legacyPresets.value("selected"), "Standard");
     EXPECT_EQ(loaded.value().capture.value("directory"), "captures");
     EXPECT_EQ(loaded.value().ui.value("sidebar"), true);
 }
@@ -205,6 +213,7 @@ struct IoState final {
     std::thread::id loadThread;
     bool blockFirstSave{false};
     bool failSave{false};
+    bool recoveredPresets{false};
     bool savesReleased{false};
     std::vector<std::string> savedSerials;
     std::vector<std::thread::id> saveThreads;
@@ -236,6 +245,16 @@ public:
         ApplicationConfiguration configuration;
         configuration.startup = preferences();
         configuration.application.insert("theme", "retained-theme");
+        if (state_->recoveredPresets) {
+            application::Preset recipe{{"saved-user"}, "Retained user recipe", "", false, 1, 23, processing::standardPipeline()};
+            configuration.presets.customPresets.push_back(recipe);
+            configuration.presets.selectedId = recipe.id;
+            configuration.presets.activePipeline = recipe.pipeline;
+            configuration.legacyPresets.insert("old-selection", "keep");
+            configuration.loadWarning = core::Error{core::ErrorCategory::Configuration,
+                "preset_entries_recovered", "A malformed entry was skipped.", {}, true};
+            configuration.presetIssues.push_back({2U, application::PresetId{"invalid-entry"}, *configuration.loadWarning});
+        }
         if (state_->unpreservedLoad) {
             configuration.usedDefaults = true;
             configuration.loadWarning = core::Error{core::ErrorCategory::Configuration,
@@ -420,6 +439,35 @@ TEST(StartupPreferencesService, LoadsOnBackgroundWorkerAndPublishesInitialStatus
     EXPECT_FALSE(status->latestSavedRevision.has_value());
     service.requestStop();
     service.join();
+}
+
+TEST(StartupPreferencesService, RecoveryWarningStillAllowsSaveAndPreservesCompleteTypedPresetState) {
+    auto state = std::make_shared<IoState>();
+    state->recoveredPresets = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(service.postSave(1U, preferences()).hasValue());
+    service.requestStop();
+    service.join();
+
+    ASSERT_TRUE(state->savedDocument.has_value());
+    const auto& saved = *state->savedDocument;
+    EXPECT_FALSE(saved.usedDefaults);
+    EXPECT_EQ(saved.presets.selectedId.value, "saved-user");
+    ASSERT_EQ(saved.presets.customPresets.size(), 1U);
+    EXPECT_EQ(saved.presets.customPresets[0].revision, 23U);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(saved.presets.activePipeline, processing::standardPipeline()));
+    EXPECT_EQ(saved.legacyPresets.value("old-selection"), "keep");
+    ASSERT_EQ(saved.presetIssues.size(), 1U);
+    EXPECT_EQ(service.latestStatus()->latestSavedRevision, 1U);
+    ASSERT_TRUE(service.latestStatus()->warning.has_value());
+    EXPECT_EQ(service.latestStatus()->warning->code, "preset_entries_recovered");
+    const auto encoded = ConfigurationCodec::encode(saved);
+    ASSERT_TRUE(encoded.hasValue());
+    const auto root = QJsonDocument::fromJson(encoded.value()).object();
+    EXPECT_EQ(root.value("presets").toObject().value("selectedId"), "saved-user");
+    EXPECT_FALSE(root.contains("presetIssues"));
+    EXPECT_FALSE(root.value("presets").toObject().contains("issues"));
 }
 
 TEST(StartupPreferencesService, CoalescesPendingSaveAndDrainsNewestOnShutdown) {
