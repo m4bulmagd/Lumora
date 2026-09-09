@@ -1,8 +1,8 @@
 # Lumora progress
 
-**Updated:** 2026-09-09
+**Updated:** 2026-09-10
 
-**Latest integrated implementation checkpoint:** `ed238d7c49d85ac861d09bd7be60aed3d42fbc6b` on `main`.
+**Latest integrated implementation checkpoint:** `f3e1bcc0d38137da5a87d8d085330f3823d0d549` on `main`.
 
 This is a status and evidence summary, not a replacement for the [PRD](../prd.md), [design and milestone authority](superpowers/README.md#document-authority), or separately recorded acceptance. Documentation-only commits may follow the implementation checkpoint above.
 
@@ -16,7 +16,7 @@ This is a status and evidence summary, not a replacement for the [PRD](../prd.md
 | M6 | Awaiting approved hardware profile; not implemented | Entry and acceptance gates remain in force |
 | M7 | Tasks 1–4 reviewed and merged through [PR #8](https://github.com/m4bulmagd/Lumora/pull/8); Linux/GCC and Windows/MSVC PR Debug/Release passed; stall-test correction merged through [PR #9](https://github.com/m4bulmagd/Lumora/pull/9) with passing Linux/Windows Debug/Release CI | Preceding deferred gates and separate acceptance remain open |
 | M8 | Tasks 1–5 and the first Window/Level optimization are merged through [PR #10](https://github.com/m4bulmagd/Lumora/pull/10), [PR #11](https://github.com/m4bulmagd/Lumora/pull/11), [PR #12](https://github.com/m4bulmagd/Lumora/pull/12), and [PR #13](https://github.com/m4bulmagd/Lumora/pull/13). The combined CLAHE/sharpen, exact CPU-pipeline and exact Mono12-normalization series merged through [PR #14](https://github.com/m4bulmagd/Lumora/pull/14) as `5de569f`; the display-output optimization merged through [PR #15](https://github.com/m4bulmagd/Lumora/pull/15) as `c4f7fed`; and the CLAHE interpolation optimization merged through [PR #16](https://github.com/m4bulmagd/Lumora/pull/16) as `ed238d7`, each after Linux/Windows Debug/Release PR CI passed. | Designated Windows references/performance and deferred acceptance gates remain open. Linux 2048 Standard performance is below target |
-| M9 | [Task 1 presets and typed persistence](architecture/milestones/m09-presets.md) implemented locally on `feat/m09-presets`; Linux Debug/Release 56/56 plus X11 passed; independent spec/quality reviews approved. Later UI tasks remain planned | Unpublished; M9 hosted CI, M8 performance and all deferred acceptance gates remain open |
+| M9 | [Task 1 presets and typed persistence](architecture/milestones/m09-presets.md#pr-17-integration) merged through [PR #17](https://github.com/m4bulmagd/Lumora/pull/17), after Linux/Windows Debug/Release PR CI passed. Task 2 processing controls are in development | M8 performance, native Windows/hardware evidence and separate acceptance remain open |
 | M10–M14 | Planned, not implemented | Entry and acceptance gates remain in force |
 
 The normal Linux application now provides synthetic live video through the production pipeline: select `SIM-LIVE`, Connect, Apply and review, Confirm, then Start. Pause freezes presentation while acquisition continues. See the [launch guide](development/build-linux.md#launch-the-desktop-application). No physical camera is connected by this composition.
@@ -155,4 +155,13 @@ Performance evidence remains bound to clean baseline `c032510` and measured clea
 
 The [preset record](architecture/milestones/m09-presets.md#verification-and-completion) covers the scoped continuation, four immutable recipes plus Custom editing state, custom save/delete/restore, strict typed JSON, schema1→2→3 migration, indexed recovery warnings and preservation of existing startup/other settings. Source `609dfa1` and final test/docs checkpoint `e3e427a` are local commits. At clean `e3e427a`, Linux Debug passes 56/56 in 59.63 s and Release passes 56/56 in 25.66 s; native X11 passes 1/1 in 0.11/0.05 s. The tests-disabled Release app/resource linkage check also passes. Task 1 domain and independent whole-branch spec review are approved; independent quality review is approved with no actionable findings.
 
-This work adds the preset foundation; the preset selector and live control wiring remain M9 Task 2. The branch is unpublished, `main` remains unchanged, and no M9 Windows CI or milestone acceptance is claimed. The previous performance figures and deferred Windows/hardware gates remain applicable.
+This work adds the preset foundation; the preset selector and live control wiring remain M9 Task 2. At that local checkpoint the branch was unpublished; the subsequent integration is recorded below. No milestone acceptance is claimed. The previous performance figures and deferred Windows/hardware gates remain applicable.
+
+
+## M9 Task 1 integrated verification
+
+[PR #17](https://github.com/m4bulmagd/Lumora/pull/17) merged verified head `01735ba` as `f3e1bcc`; the merge tree equals the PR head. [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34409230973) passed Debug/Release builds, headless tests and native X11 checks. [Windows PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34409231003) passed MSVC Debug/Release builds and headless tests. Optional Windows stress was skipped. No CI source correction was needed.
+
+Fresh local publication-head Debug and Release suites passed 56/56 and X11 1/1 each. The first Release run failed Disconnect in the existing 100-cycle lifecycle case at cycle 15; ten complete LivePipeline repeats and a complete Release recheck then passed. A read-only audit found those lifecycle sources unchanged from main and no semantic preset path involved. These reruns characterize an intermittent failure; they do not fix or close the existing timeout investigation. Logs and CI snapshots remain in the preserved preset worktree under `out/qa/m09-presets/`.
+
+The owner authorized M9 Task 2 controls next. Hosted Windows CI does not close deferred Windows 11 visual/DPI validation, hardware gates, or the open 30 FPS performance target.

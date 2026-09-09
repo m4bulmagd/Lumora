@@ -1,6 +1,6 @@
 # M9 Task 1: presets and persistence
 
-Date: 2026-09-09. Status: implemented locally on `feat/m09-presets`; Linux verification and independent reviews complete.
+Date: 2026-09-09; integration updated 2026-09-10. Status: Task 1 merged through PR #17 after Linux/Windows Debug/Release CI passed.
 
 The owner approved M9 Task 1 after PR16 integration at main `145d727`. This scoped continuation adds preset domain operations, a shipped JSON resource, typed saved state, and configuration migration. It does not accept M8 performance, designated Windows evidence, deferred native M4/M5 checks, or M6 hardware work. M9 Tasks 2–5 (processing controls, Compare, camera dialogs, fullscreen) remain later work. Preset activation, startup selection policy and UI controls remain later work; Task 1 only extends the existing settings load/save path.
 
@@ -52,4 +52,13 @@ The preset domain spec/quality review is approved after a test-only injection re
 
 The local overrides reuse the pinned dynamic dependency installation through ignored `CMakeUserPresets.json`. Builds use the canonical `linux-gcc-debug-sim` and `linux-gcc-release-sim` build/test presets; headless checks exclude `hardware|desktop`, while native checks run `xvfb-run -a ctest --preset <preset> --output-on-failure -L desktop --no-tests=error`. The separate app override sets tests and benchmarks OFF. This configuration-only work adds no performance claim or benchmark rerun.
 
-The branch is committed locally and remains unpublished. `main` retains the PR16 integration checkpoint. Linux/Windows hosted CI for M9 and milestone acceptance remain pending; M8 performance, designated/native Windows validation and M6 hardware gates remain open. The next development slice is M9 Task 2: the preset selector and coalesced processing controls, using these typed domain and persistence APIs.
+At the local verification checkpoint the branch was unpublished. Subsequent hosted CI/integration is recorded below. Milestone acceptance remains pending; M8 performance, designated/native Windows validation and M6 hardware gates remain open. The next development slice is M9 Task 2: the preset selector and coalesced processing controls, using these typed domain and persistence APIs.
+
+
+## PR 17 integration
+
+[PR #17](https://github.com/m4bulmagd/Lumora/pull/17) merged head `01735bae2a66e050bc95f8801e7335115c227b83` as `f3e1bcc0d38137da5a87d8d085330f3823d0d549`. The trees match. [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34409230973) passed GCC Debug/Release build, headless test and X11 steps. [Windows PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34409231003) passed MSVC Debug/Release build and headless test steps; optional ten-minute stress was skipped. Root main was fast-forwarded cleanly. No CI fix was required, and post-merge workflows are not claimed as verified here.
+
+At publication head, fresh local Debug passed 56/56; Release initially failed Disconnect at cycle 15 in `OneHundredBoundedLifecycleCyclesReleasePoolsAndResetSessions`. Ten complete LivePipeline repeats and the following full Release check passed; both X11 checks passed. The lifecycle code/test source is unchanged from the prior main. The available evidence cannot identify which completion boundary lost progress, and no timeout fix is claimed. Original failure/recheck logs, the bounded audit and successful PR job snapshots are retained under `out/qa/m09-presets/`. This is separate from M9 preset validation and does not waive the unresolved M7 timeout follow-up.
+
+The owner approved development of Task 2 (selector, processing controls and required activation/persistence wiring). Native Windows 11, designated performance, M6 hardware and milestone acceptance gates remain open.

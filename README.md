@@ -46,7 +46,7 @@ SIM-LIVE produces Mono12 samples with 12 valid bits (0–4095), unpacked into a 
 
 The software is still an engineering/evaluation build. It is **not for clinical use**, must not be used for diagnosis, and must not acquire or store real patient data.
 
-M9 Task 1 is implemented locally on `feat/m09-presets`: validated presets, explicit Custom editing state, custom save/delete/restore and typed schema3 persistence with migration and recovery. [Local verification](docs/architecture/milestones/m09-presets.md#verification-and-completion) passes 56/56 checks and native X11 smoke in Debug and Release, plus a tests-disabled app/resource linkage check. Independent spec and code-quality reviews are approved; the branch is unpublished and M9 hosted CI remains pending. The preset selector and processing controls are next (M9 Task 2); Compare follows later.
+M9 Task 1 is merged through [PR #17](https://github.com/m4bulmagd/Lumora/pull/17): validated presets, Custom editing state, custom save/delete/restore and typed schema 3 persistence with migration and recovery. Linux/GCC and Windows/MSVC Debug/Release CI passed. [The milestone record](docs/architecture/milestones/m09-presets.md#pr-17-integration) includes local verification and the disclosed intermittent lifecycle timeout. The preset selector and processing controls are in development (M9 Task 2); Compare follows later.
 
 ## Build
 
