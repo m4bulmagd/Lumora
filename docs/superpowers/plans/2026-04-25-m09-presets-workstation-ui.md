@@ -30,6 +30,8 @@
 
 ### Task 1: Preset model, built-ins, and typed persistence
 
+The owner-authorized [2026-09-09 preset contract](../../architecture/milestones/m09-presets.md) and [bounded implementation plan](2026-09-09-m09-presets.md) refine this task: typed active state, explicit Custom editing identity, resource loading, schema migration and per-entry recovery. Tasks 2–5 remain separate development.
+
 **Files:**
 - Create: `src/application/include/lumora/application/Preset.hpp`
 - Create: `src/application/include/lumora/application/PresetRepository.hpp`
@@ -40,7 +42,7 @@
 - Modify: `src/configuration/src/ConfigurationCodec.cpp`
 
 **Interfaces:**
-- Consumes: `PipelineDefinition`, `makeStandardPipelineDefinition()`, configuration schema, and built-in JSON resource.
+- Consumes: `PipelineDefinition`, `processing::standardPipeline()`, configuration schema, and built-in JSON resource.
 - Produces: `PresetId`, `Preset { id, name, description, builtIn, pipeline }`, `PresetRepository::list/find/apply/saveCustom/deleteCustom`, and typed preset persistence.
 
 - [ ] **Step 1: Write failing built-in and Custom-transition tests**
@@ -63,7 +65,7 @@ Build `lumora_application_tests`; expect failure.
 
 - [ ] **Step 3: Define complete built-in presets**
 
-Create Original, Standard, High Contrast, Soft Detail, and Custom. Original disables all optional enhancement stages while retaining Normalize and WindowLevel. Standard must normalize equal to `makeStandardPipelineDefinition()`. Every file entry includes schema version, order version, stable ID, neutral description, fixed canonical stage order, enabled flags, and all parameter values. Reordered definitions are invalid.
+Create Original, Standard, High Contrast, Soft Detail, and Custom. Original disables all optional enhancement stages while retaining Normalize and WindowLevel. Standard must normalize equal to `processing::standardPipeline()`. Every file entry includes schema version, order version, stable ID, neutral description, fixed canonical stage order, enabled flags, and all parameter values. Reordered definitions are invalid.
 
 - [ ] **Step 4: Implement parsing and classification**
 
