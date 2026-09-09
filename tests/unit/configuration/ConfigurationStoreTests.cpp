@@ -1,8 +1,13 @@
 #include <lumora/configuration/ApplicationConfiguration.hpp>
 #include <lumora/configuration/ConfigurationStore.hpp>
+#include <lumora/configuration/PresetCodec.hpp>
+#include <lumora/processing/ProcessingDefaults.hpp>
 
 #include <QFile>
+#include <QDir>
 #include <QJsonObject>
+#include <QJsonDocument>
+#include <QResource>
 #include <QTemporaryDir>
 
 #include <gtest/gtest.h>
@@ -11,6 +16,12 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+// Resource failure uses Qt's real resource lifetime, not a production test hook.
+// Tests-OFF linkage is verified independently so this test's RCC reference does
+// not stand in for that static-library integration check.
+static void removeDefaultPresetsResource() { Q_CLEANUP_RESOURCE(default_presets); }
+static void restoreDefaultPresetsResource() { Q_INIT_RESOURCE(default_presets); }
 
 namespace {
 
@@ -123,7 +134,7 @@ INSTANTIATE_TEST_SUITE_P(
         std::pair{"truncated JSON", QByteArray{"{\"schemaVersion\":"}},
         std::pair{"wrong root type", QByteArray{"[]"}},
         std::pair{"missing schema", QByteArray{"{\"application\":{}}"}},
-        std::pair{"future schema", QByteArray{"{\"schemaVersion\":3}"}},
+        std::pair{"future schema", QByteArray{"{\"schemaVersion\":4}"}},
         InvalidConfigurationTest::ParamType{
             "non-object section",
             QByteArray{R"json({"schemaVersion":1,"application":[],"cameraProfiles":{},"processing":{},"presets":{},"capture":{},"ui":{}})json"}}),
@@ -175,6 +186,52 @@ TEST(ConfigurationStore, ValidationFailureLeavesPriorValidContentUntouched) {
     ASSERT_FALSE(saved.hasValue());
     EXPECT_EQ(saved.error().code, "configuration_future_schema");
     EXPECT_EQ(readAll(path), original);
+}
+
+TEST(ConfigurationStore, InvalidTypedPresetSaveLeavesExistingBytesUntouched) {
+    QTemporaryDir temp;
+    ASSERT_TRUE(temp.isValid());
+    const auto path = pathFromQString(temp.path()) / "config.json";
+    ApplicationConfiguration configuration;
+    lumora::application::Preset recipe{{"user-one"}, "Saved recipe", "", false, 1, 4,
+        lumora::processing::standardPipeline()};
+    configuration.presets.customPresets.push_back(recipe);
+    configuration.presets.selectedId = recipe.id;
+    configuration.presets.activePipeline = recipe.pipeline;
+    const auto presets = lumora::configuration::PresetCodec::encode(configuration.presets);
+    ASSERT_TRUE(presets.hasValue());
+    const QJsonObject root{{"schemaVersion", 3}, {"application", QJsonObject{}}, {"cameraProfiles", QJsonObject{}},
+        {"processing", QJsonObject{}}, {"presets", presets.value()}, {"capture", QJsonObject{}}, {"ui", QJsonObject{}}, {"startup", QJsonValue{}}};
+    const auto original = QJsonDocument(root).toJson();
+    writeAll(path, original);
+    configuration.presets.customPresets[0].revision = 0;
+
+    const auto saved = ConfigurationStore(path).save(configuration);
+
+    EXPECT_FALSE(saved.hasValue());
+    EXPECT_EQ(readAll(path), original);
+}
+
+TEST(ConfigurationStore, MissingInstalledResourceDoesNotQuarantineValidUserDataOrInventDefaults) {
+    const auto installed = lumora::configuration::PresetCodec::loadDefaultRepository();
+    ASSERT_TRUE(installed.hasValue());
+    QTemporaryDir temp;
+    ASSERT_TRUE(temp.isValid());
+    const auto path = pathFromQString(temp.path()) / "config.json";
+    const auto original = validConfigurationJson();
+    writeAll(path, original);
+    struct RestoreResource final { ~RestoreResource() { restoreDefaultPresetsResource(); } } restore;
+    removeDefaultPresetsResource();
+    ASSERT_FALSE(QFile::exists(QStringLiteral(":/lumora/configuration/default-presets.json")));
+
+    const auto validFile = ConfigurationStore(path).load();
+    const auto missingFile = ConfigurationStore(path.parent_path() / "missing.json").load();
+
+    ASSERT_FALSE(validFile.hasValue()); EXPECT_EQ(validFile.error().code, "preset_resource_invalid");
+    ASSERT_FALSE(missingFile.hasValue()); EXPECT_EQ(missingFile.error().code, "preset_resource_invalid");
+    EXPECT_EQ(readAll(path), original);
+    EXPECT_FALSE(std::filesystem::exists(path.parent_path() / "missing.json"));
+    EXPECT_EQ(QDir(temp.path()).entryList(QDir::Files).size(), 1);
 }
 
 }  // namespace

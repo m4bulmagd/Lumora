@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/lumora/configuration">
+    <file alias="default-presets.json">../../../config/default-presets.json</file>
+  </qresource>
+</RCC>

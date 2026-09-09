@@ -305,6 +305,7 @@ add_test(NAME Logging COMMAND lumora_diagnostics_tests)
 add_executable(
   lumora_configuration_tests
   unit/configuration/ConfigurationStoreTests.cpp
+  unit/configuration/PresetCodecTests.cpp
   unit/configuration/StartupPreferencesTests.cpp
 )
 
@@ -319,6 +320,9 @@ add_test(NAME ConfigurationStore
   COMMAND lumora_configuration_tests --gtest_filter=ConfigurationStore.*:*/InvalidConfigurationTest.*)
 add_test(NAME Configuration.StartupPreferences
   COMMAND lumora_configuration_tests --gtest_filter=StartupPreferencesTest.*:StartupPreferencesService.*)
+add_test(NAME Configuration.PresetCodec
+  COMMAND lumora_configuration_tests --gtest_filter=PresetCodec.*)
+set_tests_properties(Configuration.PresetCodec PROPERTIES TIMEOUT 60)
 set_tests_properties(Configuration.StartupPreferences PROPERTIES TIMEOUT 60)
 
 add_test(NAME Processing.PipelineCompiler

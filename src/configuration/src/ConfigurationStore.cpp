@@ -1,6 +1,7 @@
 #include <lumora/configuration/ConfigurationStore.hpp>
 
 #include <lumora/configuration/ConfigurationCodec.hpp>
+#include <lumora/configuration/PresetCodec.hpp>
 #include <lumora/core/Error.hpp>
 
 #include <QDateTime>
@@ -73,8 +74,9 @@ namespace {
     }
 }
 
-[[nodiscard]] ApplicationConfiguration defaults() {
+[[nodiscard]] ApplicationConfiguration defaults(const application::PresetState& presets) {
     ApplicationConfiguration configuration;
+    configuration.presets = presets;
     configuration.usedDefaults = true;
     return configuration;
 }
@@ -88,10 +90,15 @@ ConfigurationStore::ConfigurationStore(std::filesystem::path configurationPath)
     : configurationPath_(std::move(configurationPath)) {}
 
 core::Result<ApplicationConfiguration> ConfigurationStore::load() const {
+    // Installation failures must never be mistaken for corrupt user data,
+    // including when no user configuration exists yet.
+    const auto installed = PresetCodec::loadDefaultRepository();
+    if (!installed.hasValue()) return core::Result<ApplicationConfiguration>::failure(installed.error());
+    const auto presetDefaults = installed.value().snapshot();
     const auto qPath = toQString(configurationPath_);
     const QFileInfo fileInfo(qPath);
     if (!fileInfo.exists()) {
-        return core::Result<ApplicationConfiguration>::success(defaults());
+        return core::Result<ApplicationConfiguration>::success(defaults(presetDefaults));
     }
 
     QFile file(qPath);
@@ -109,8 +116,11 @@ core::Result<ApplicationConfiguration> ConfigurationStore::load() const {
     if (decoded.hasValue()) {
         return decoded;
     }
+    if (decoded.error().code.starts_with("preset_resource_")) {
+        return decoded;
+    }
 
-    auto fallback = defaults();
+    auto fallback = defaults(presetDefaults);
     const auto preservedPath = invalidFilePath(configurationPath_);
     if (QFile::rename(qPath, toQString(preservedPath))) {
         fallback.preservedInvalidFile = preservedPath;

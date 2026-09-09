@@ -1,0 +1,370 @@
+{
+  "schemaVersion": 1,
+  "presets": [
+    {
+      "schemaVersion": 1,
+      "revision": "1",
+      "id": "original",
+      "name": "Original",
+      "description": "Sensor normalization and full-range window and level.",
+      "builtIn": true,
+      "pipeline": {
+        "schemaVersion": 1,
+        "orderVersion": 1,
+        "stages": [
+          {
+            "id": "normalize",
+            "enabled": true,
+            "parameters": {}
+          },
+          {
+            "id": "window_level",
+            "enabled": true,
+            "parameters": {
+              "window": 65535,
+              "level": 32767.5
+            }
+          },
+          {
+            "id": "brightness_contrast",
+            "enabled": false,
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "id": "gamma",
+            "enabled": false,
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "id": "clahe",
+            "enabled": false,
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "id": "denoise",
+            "enabled": false,
+            "parameters": {
+              "mode": "gaussian",
+              "kernelSize": 3,
+              "sigma": 0
+            }
+          },
+          {
+            "id": "sharpen",
+            "enabled": false,
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "id": "invert",
+            "enabled": false,
+            "parameters": {}
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "revision": "1",
+      "id": "standard",
+      "name": "Standard",
+      "description": "Balanced local contrast and detail processing.",
+      "builtIn": true,
+      "pipeline": {
+        "schemaVersion": 1,
+        "orderVersion": 1,
+        "stages": [
+          {
+            "id": "normalize",
+            "enabled": true,
+            "parameters": {}
+          },
+          {
+            "id": "window_level",
+            "enabled": true,
+            "parameters": {
+              "window": 65535,
+              "level": 32767.5
+            }
+          },
+          {
+            "id": "brightness_contrast",
+            "enabled": true,
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "id": "gamma",
+            "enabled": true,
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "id": "clahe",
+            "enabled": true,
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "id": "denoise",
+            "enabled": true,
+            "parameters": {
+              "mode": "gaussian",
+              "kernelSize": 3,
+              "sigma": 0
+            }
+          },
+          {
+            "id": "sharpen",
+            "enabled": true,
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "id": "invert",
+            "enabled": false,
+            "parameters": {}
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "revision": "1",
+      "id": "high-contrast",
+      "name": "High Contrast",
+      "description": "Moderately increased contrast and local contrast.",
+      "builtIn": true,
+      "pipeline": {
+        "schemaVersion": 1,
+        "orderVersion": 1,
+        "stages": [
+          {
+            "id": "normalize",
+            "enabled": true,
+            "parameters": {}
+          },
+          {
+            "id": "window_level",
+            "enabled": true,
+            "parameters": {
+              "window": 65535,
+              "level": 32767.5
+            }
+          },
+          {
+            "id": "brightness_contrast",
+            "enabled": true,
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1.25
+            }
+          },
+          {
+            "id": "gamma",
+            "enabled": true,
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "id": "clahe",
+            "enabled": true,
+            "parameters": {
+              "clipLimit": 3,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "id": "denoise",
+            "enabled": true,
+            "parameters": {
+              "mode": "gaussian",
+              "kernelSize": 3,
+              "sigma": 0
+            }
+          },
+          {
+            "id": "sharpen",
+            "enabled": true,
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "id": "invert",
+            "enabled": false,
+            "parameters": {}
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "revision": "1",
+      "id": "soft-detail",
+      "name": "Soft Detail",
+      "description": "Gentler local contrast and sharpening.",
+      "builtIn": true,
+      "pipeline": {
+        "schemaVersion": 1,
+        "orderVersion": 1,
+        "stages": [
+          {
+            "id": "normalize",
+            "enabled": true,
+            "parameters": {}
+          },
+          {
+            "id": "window_level",
+            "enabled": true,
+            "parameters": {
+              "window": 65535,
+              "level": 32767.5
+            }
+          },
+          {
+            "id": "brightness_contrast",
+            "enabled": true,
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "id": "gamma",
+            "enabled": true,
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "id": "clahe",
+            "enabled": true,
+            "parameters": {
+              "clipLimit": 1.5,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "id": "denoise",
+            "enabled": true,
+            "parameters": {
+              "mode": "gaussian",
+              "kernelSize": 3,
+              "sigma": 0
+            }
+          },
+          {
+            "id": "sharpen",
+            "enabled": true,
+            "parameters": {
+              "amount": 0.5,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "id": "invert",
+            "enabled": false,
+            "parameters": {}
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "revision": "1",
+      "id": "custom",
+      "name": "Custom",
+      "description": "Current editable processing values.",
+      "builtIn": false,
+      "pipeline": {
+        "schemaVersion": 1,
+        "orderVersion": 1,
+        "stages": [
+          {
+            "id": "normalize",
+            "enabled": true,
+            "parameters": {}
+          },
+          {
+            "id": "window_level",
+            "enabled": true,
+            "parameters": {
+              "window": 65535,
+              "level": 32767.5
+            }
+          },
+          {
+            "id": "brightness_contrast",
+            "enabled": false,
+            "parameters": {
+              "brightness": 0,
+              "contrast": 1
+            }
+          },
+          {
+            "id": "gamma",
+            "enabled": false,
+            "parameters": {
+              "gamma": 1
+            }
+          },
+          {
+            "id": "clahe",
+            "enabled": false,
+            "parameters": {
+              "clipLimit": 2,
+              "tileGridSize": 8
+            }
+          },
+          {
+            "id": "denoise",
+            "enabled": false,
+            "parameters": {
+              "mode": "gaussian",
+              "kernelSize": 3,
+              "sigma": 0
+            }
+          },
+          {
+            "id": "sharpen",
+            "enabled": false,
+            "parameters": {
+              "amount": 1,
+              "radius": 1,
+              "threshold": 0
+            }
+          },
+          {
+            "id": "invert",
+            "enabled": false,
+            "parameters": {}
+          }
+        ]
+      }
+    }
+  ]
+}

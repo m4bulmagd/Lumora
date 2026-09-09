@@ -1,4 +1,5 @@
 #include <lumora/configuration/ConfigurationCodec.hpp>
+#include <lumora/configuration/PresetCodec.hpp>
 
 #include <lumora/application/StartupPreferences.hpp>
 #include <lumora/core/Error.hpp>
@@ -515,7 +516,23 @@ template<typename Enum>
     return core::Result<application::StartupPreferences>::success(std::move(startup));
 }
 
-[[nodiscard]] core::Result<ApplicationConfiguration> decodeObject(const QJsonObject& root) {
+[[nodiscard]] QJsonObject migrateOneToTwo(QJsonObject root) {
+    root.insert("schemaVersion", 2);
+    root.insert("startup", QJsonValue{});
+    return root;
+}
+
+[[nodiscard]] core::Result<QJsonObject> migrateTwoToThree(QJsonObject root) {
+    auto defaults = PresetCodec::loadDefaultRepository();
+    if (!defaults.hasValue()) return core::Result<QJsonObject>::failure(defaults.error());
+    const auto presets = PresetCodec::encode(defaults.value().snapshot(), root.value("presets").toObject());
+    if (!presets.hasValue()) return core::Result<QJsonObject>::failure(presets.error());
+    root.insert("schemaVersion", 3);
+    root.insert("presets", presets.value());
+    return core::Result<QJsonObject>::success(std::move(root));
+}
+
+[[nodiscard]] core::Result<ApplicationConfiguration> decodeObject(QJsonObject root) {
     const auto schemaValue = root.value("schemaVersion");
     if (!schemaValue.isDouble()) {
         return core::Result<ApplicationConfiguration>::failure(configurationError(
@@ -558,16 +575,36 @@ template<typename Enum>
         }
     }
 
+    const bool retainedLegacy = schemaVersion < 3 && !root.value("presets").toObject().isEmpty();
+    if (schemaVersion == 1) root = migrateOneToTwo(std::move(root));
+    if (root.value("schemaVersion").toInt() == 2) {
+        auto migrated = migrateTwoToThree(std::move(root));
+        if (!migrated.hasValue()) return core::Result<ApplicationConfiguration>::failure(migrated.error());
+        root = std::move(migrated).value();
+    }
+    auto presets = PresetCodec::decode(root.value("presets").toObject());
+    if (!presets.hasValue()) return core::Result<ApplicationConfiguration>::failure(presets.error());
+
     ApplicationConfiguration configuration;
     configuration.schemaVersion = ApplicationConfiguration::CurrentSchemaVersion;
     configuration.application = root.value("application").toObject();
     configuration.cameraProfiles = root.value("cameraProfiles").toObject();
     configuration.processing = root.value("processing").toObject();
-    configuration.presets = root.value("presets").toObject();
+    configuration.presets = std::move(presets.value().state);
+    configuration.legacyPresets = std::move(presets.value().legacy);
+    configuration.presetIssues = std::move(presets.value().issues);
     configuration.capture = root.value("capture").toObject();
     configuration.ui = root.value("ui").toObject();
-    if (schemaVersion == 1) {
-        return core::Result<ApplicationConfiguration>::success(std::move(configuration));
+    if (retainedLegacy) {
+        configuration.presetIssues.push_back({{}, {}, configurationError(
+            "configuration_presets_migrated", "Legacy preset metadata was retained.",
+            "Opaque schema1/2 preset metadata was preserved under legacy; Original remains selected.")});
+    }
+    if (!configuration.presetIssues.empty()) {
+        configuration.loadWarning = configurationError(
+            "configuration_presets_recovered", "Saved preset settings were recovered.",
+            std::to_string(configuration.presetIssues.size())
+                + " preset issue(s) were recorded; valid settings remain available for saving.");
     }
 
     const auto startupJson = root.value("startup");
@@ -624,10 +661,12 @@ core::Result<QByteArray> ConfigurationCodec::encode(
                 validated.error().diagnosticDetail));
         }
     }
+    const auto presets = PresetCodec::encode(configuration.presets, configuration.legacyPresets);
+    if (!presets.hasValue()) return core::Result<QByteArray>::failure(presets.error());
     QJsonObject root{{"schemaVersion", configuration.schemaVersion},
         {"application", configuration.application},
         {"cameraProfiles", configuration.cameraProfiles},
-        {"processing", configuration.processing}, {"presets", configuration.presets},
+        {"processing", configuration.processing}, {"presets", presets.value()},
         {"capture", configuration.capture}, {"ui", configuration.ui},
         {"startup", configuration.startup ? QJsonValue{encodeStartup(*configuration.startup)}
                                             : QJsonValue{}}};
