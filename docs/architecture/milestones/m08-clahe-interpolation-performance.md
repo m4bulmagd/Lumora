@@ -1,8 +1,8 @@
 # M8 CLAHE interpolation performance continuation
 
-**Date:** 2026-09-09. **Status:** Local implementation, measurements, and independent evidence audit complete; unpublished.
+**Date:** 2026-09-09. **Status:** Implementation and evidence approved; integrated through PR #16.
 
-This bounded continuation profiles the current CLAHE stage and removes repeated loads of array addresses inside the interpolation pixel loop without changing output values. The matched normal baseline is clean `c03251013c38de4e0d7a3f244200c65bbacbb9ba`; the local candidate is clean `afe5de8d9573ef9995409f8c82318418973fd4f3` on `perf/m08-clahe-interpolation`. Intervening changes from the original frozen `e801ece` source through `7bd8122` are documentation-only for the relevant production source. This branch remains unpublished.
+This bounded continuation profiles the current CLAHE stage and removes repeated loads of array addresses inside the interpolation pixel loop without changing output values. The matched normal baseline is clean `c03251013c38de4e0d7a3f244200c65bbacbb9ba`; the measured candidate is clean `afe5de8d9573ef9995409f8c82318418973fd4f3` on the historical `perf/m08-clahe-interpolation` branch. Intervening changes from the original frozen `e801ece` source through `7bd8122` are documentation-only for the relevant production source. Its later integration is recorded below.
 
 ## Coarse phase diagnosis
 
@@ -48,8 +48,14 @@ Across AB/BA/AB runs, the median of three run medians falls from **23.841 to 21.
 
 The implementation is retained for the narrow 2048 and paired-CLAHE effects because the source change is small and exact outputs and resource/allocation contracts are preserved. The disclosed 512 flip90 regression does not require another repeat for those bounded claims. No universal speedup or no-regression claim is made. The independent final evidence audit approves this disposition with no required correction or additional timing run; its ledger is `.superpowers/sdd/2026-09-09-m08-clahe-phases/final-evidence-audit.md`.
 
-## Evidence and open gates
+## Evidence, integration, and open gates
 
 Frozen normal, allocation, phase, paired-stage, reference, validation, and review evidence is retained under `out/qa/m08-clahe-phases/` in the preserved worktree. The source and helper reviews are in `.superpowers/sdd/2026-09-09-m08-clahe-phases/`.
 
-The branch remains local and unpublished, and hosted Windows/MSVC CI has not run for `afe5de8`. PR #15 and its main verification cover the preceding display-output source only. The 2048 33.3 ms/30 FPS target, designated Windows reference/workstation/freshness and performance acceptance, native Windows 11 visual/DPI and packaging validation, deferred M4/M5 acceptance, and the M6 camera/NIC profile remain open. M9 presets, controls, and synchronized views remain later work.
+[PR #16](https://github.com/m4bulmagd/Lumora/pull/16) merged as `ed238d7c49d85ac861d09bd7be60aed3d42fbc6b`, whose commit time is 2026-09-09T14:54:38Z. Its tree `39c66795139944cacf0715be47cdfd609d6f2c01` equals the verified PR-head `aff3e130aeb6a2e292c5a98ee70cd456497c69fe` tree. Fresh local verification at that head passed 54/54 in Debug (71.62 s) and Release (27.15 s), plus native X11 1/1 in Debug (0.12 s) and Release (0.07 s). An initial native run lacked display-socket access; the identical command passed with desktop access and no source change.
+
+[Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34365380855) passed 54/54 in Debug (73.48 s) and Release (23.94 s), plus native X11 1/1 in Debug (0.12 s) and Release (0.04 s). [Windows/MSVC PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34365380852) passed 54/54 in Debug (67.29 s) and Release (38.74 s). Matching [Linux](https://github.com/m4bulmagd/Lumora/actions/runs/34365346561) and [Windows](https://github.com/m4bulmagd/Lumora/actions/runs/34365346571) branch-push workflows also passed.
+
+Performance evidence remains bound to clean baseline `c03251013c38de4e0d7a3f244200c65bbacbb9ba` and measured clean candidate `afe5de8d9573ef9995409f8c82318418973fd4f3`; the PR head and merge commit are integration revisions. Post-merge main-workflow results have not yet been verified; the [Linux](https://github.com/m4bulmagd/Lumora/actions/workflows/linux-simulator.yml?query=branch%3Amain) and [Windows](https://github.com/m4bulmagd/Lumora/actions/workflows/windows-simulator.yml?query=branch%3Amain) workflow pages remain the status authority.
+
+Hosted Windows/MSVC CI establishes source build/test compatibility. It does not close the 2048 33.3 ms/30 FPS target, designated Windows reference/workstation/freshness and performance acceptance, native Windows 11 visual/DPI and packaging validation, deferred M4/M5 acceptance, or the M6 camera/NIC profile. M9 presets, controls, and synchronized views remain later work.
