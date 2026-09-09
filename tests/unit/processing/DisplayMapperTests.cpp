@@ -48,6 +48,92 @@ TEST(DisplayMapper, MapsEveryCanonicalValueWithExactIntegerFormula) {
     }
 }
 
+TEST(DisplayMapper, MapsUnalignedVectorBoundaryWidthsAcrossPaddedRows) {
+    constexpr std::array<std::uint32_t, 9> widths{
+        7U, 8U, 9U, 15U, 16U, 17U, 31U, 32U, 33U};
+    constexpr std::array<std::uint16_t, 6> boundarySamples{
+        0U, 128U, 129U, 32768U, 65406U, 65535U};
+    constexpr std::uint32_t height = 3U;
+    constexpr std::size_t sourcePrefix = 1U;
+    constexpr std::size_t sourceSuffix = 5U;
+    constexpr std::size_t destinationPrefix = 3U;
+    constexpr std::size_t destinationSuffix = 7U;
+
+    for (const auto width : widths) {
+        const auto sourceRowBytes = static_cast<std::size_t>(width) * 2U;
+        const auto sourceStride = sourceRowBytes + 5U;
+        const auto destinationRowBytes = static_cast<std::size_t>(width);
+        const auto destinationStride = destinationRowBytes
+            + (width % 2U == 0U ? 7U : 6U);
+        const auto sourcePayload = sourceStride * height;
+        const auto destinationPayload = destinationStride * height;
+        std::vector<std::byte> sourceBacking(
+            sourcePrefix + sourcePayload + sourceSuffix, std::byte{0xC7});
+        std::vector<std::byte> destinationBacking(
+            destinationPrefix + destinationPayload + destinationSuffix,
+            std::byte{0x5B});
+        std::vector<std::uint16_t> samples(
+            static_cast<std::size_t>(width) * height);
+        for (std::uint32_t y = 0U; y < height; ++y) {
+            for (std::uint32_t x = 0U; x < width; ++x) {
+                const auto sampleIndex = static_cast<std::size_t>(y) * width + x;
+                const auto boundaryIndex = (static_cast<std::size_t>(x) * 5U
+                    + static_cast<std::size_t>(y) * 3U + width)
+                    % boundarySamples.size();
+                samples[sampleIndex] = boundarySamples[boundaryIndex];
+                std::memcpy(sourceBacking.data() + sourcePrefix
+                        + static_cast<std::size_t>(y) * sourceStride
+                        + static_cast<std::size_t>(x) * 2U,
+                    &samples[sampleIndex], sizeof(samples[sampleIndex]));
+            }
+        }
+        const auto sourceBefore = sourceBacking;
+        const auto destinationBefore = destinationBacking;
+        const auto sourceLayout = ImageLayout::create(width, height,
+            sourceStride, StorageType::UInt16, sourcePayload).value();
+        const auto destinationLayout = ImageLayout::create(width, height,
+            destinationStride, StorageType::UInt8, destinationPayload).value();
+        const auto source = canonicalView(sourceLayout,
+            std::span(sourceBacking).subspan(sourcePrefix, sourcePayload));
+        auto destination = std::span(destinationBacking).subspan(
+            destinationPrefix, destinationPayload);
+        const auto revision = static_cast<std::uint64_t>(1000U + width);
+
+        const auto result = DisplayMapper{}.map(source, destinationLayout,
+            DisplayStorage::Gray8, destination, revision);
+
+        ASSERT_TRUE(result.hasValue()) << "width=" << width;
+        EXPECT_EQ(result.value(), (DisplayMapping{0U, 65535U, 255U, revision}));
+        EXPECT_EQ(sourceBacking, sourceBefore) << "width=" << width;
+        for (std::uint32_t y = 0U; y < height; ++y) {
+            for (std::uint32_t x = 0U; x < width; ++x) {
+                const auto sampleIndex = static_cast<std::size_t>(y) * width + x;
+                const auto actual = std::to_integer<std::uint8_t>(
+                    destination[static_cast<std::size_t>(y) * destinationStride + x]);
+                const auto expected = (static_cast<std::uint32_t>(samples[sampleIndex])
+                    + 128U) / 257U;
+                EXPECT_EQ(actual, expected)
+                    << "width=" << width << " x=" << x << " y=" << y;
+            }
+            for (std::size_t x = destinationRowBytes;
+                 x < destinationStride; ++x) {
+                EXPECT_EQ(destination[static_cast<std::size_t>(y) * destinationStride + x],
+                    std::byte{0x5B})
+                    << "width=" << width << " padding=" << x << " y=" << y;
+            }
+        }
+        for (std::size_t index = 0U; index < destinationPrefix; ++index) {
+            EXPECT_EQ(destinationBacking[index], destinationBefore[index])
+                << "width=" << width << " prefix=" << index;
+        }
+        for (std::size_t index = destinationPrefix + destinationPayload;
+             index < destinationBacking.size(); ++index) {
+            EXPECT_EQ(destinationBacking[index], destinationBefore[index])
+                << "width=" << width << " suffix=" << index;
+        }
+    }
+}
+
 TEST(DisplayMapper, PreservesPaddedDestinationAndCanonicalSource) {
     constexpr std::size_t sourceStride = 7U;
     constexpr std::size_t destinationStride = 4U;

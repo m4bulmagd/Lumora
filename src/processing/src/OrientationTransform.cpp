@@ -80,22 +80,29 @@ void copySameAxes(
     std::span<const std::byte> source,
     const core::ImageLayout& destinationLayout,
     std::span<std::byte> destination) noexcept {
+    [[maybe_unused]] const auto sourceWidth = sourceLayout.width();
+    const auto sourceHeight = sourceLayout.height();
+    const auto sourceStrideBytes = sourceLayout.strideBytes();
+    [[maybe_unused]] const auto sourceRowBytes = sourceLayout.rowBytes();
+    [[maybe_unused]] const auto destinationWidth = destinationLayout.width();
+    const auto destinationHeight = destinationLayout.height();
+    const auto destinationStrideBytes = destinationLayout.strideBytes();
     for (std::uint32_t destinationY = 0U;
-         destinationY < destinationLayout.height(); ++destinationY) {
+         destinationY < destinationHeight; ++destinationY) {
         const auto sourceY = ReverseY
-            ? sourceLayout.height() - 1U - destinationY
+            ? sourceHeight - 1U - destinationY
             : destinationY;
         const auto* sourceRow = source.data()
-            + static_cast<std::size_t>(sourceY) * sourceLayout.strideBytes();
+            + static_cast<std::size_t>(sourceY) * sourceStrideBytes;
         auto* destinationRow = destination.data()
             + static_cast<std::size_t>(destinationY)
-                * destinationLayout.strideBytes();
+                * destinationStrideBytes;
         if constexpr (!ReverseX) {
-            std::memcpy(destinationRow, sourceRow, sourceLayout.rowBytes());
+            std::memcpy(destinationRow, sourceRow, sourceRowBytes);
         } else {
             for (std::uint32_t destinationX = 0U;
-                 destinationX < destinationLayout.width(); ++destinationX) {
-                const auto sourceX = sourceLayout.width() - 1U - destinationX;
+                 destinationX < destinationWidth; ++destinationX) {
+                const auto sourceX = sourceWidth - 1U - destinationX;
                 copyPixel<PixelBytes>(
                     destinationRow
                         + static_cast<std::size_t>(destinationX) * PixelBytes,
@@ -114,33 +121,39 @@ void copySwappedAxes32(
     const core::ImageLayout& destinationLayout,
     std::span<std::byte> destination) noexcept {
     constexpr std::uint32_t tileSize = 32U;
-    for (std::uint32_t tileY = 0U; tileY < destinationLayout.height();) {
+    const auto sourceWidth = sourceLayout.width();
+    const auto sourceHeight = sourceLayout.height();
+    const auto sourceStrideBytes = sourceLayout.strideBytes();
+    const auto destinationWidth = destinationLayout.width();
+    const auto destinationHeight = destinationLayout.height();
+    const auto destinationStrideBytes = destinationLayout.strideBytes();
+    for (std::uint32_t tileY = 0U; tileY < destinationHeight;) {
         const auto tileHeight = std::min(
-            tileSize, destinationLayout.height() - tileY);
+            tileSize, destinationHeight - tileY);
         const auto tileEndY = tileY + tileHeight;
-        for (std::uint32_t tileX = 0U; tileX < destinationLayout.width();) {
+        for (std::uint32_t tileX = 0U; tileX < destinationWidth;) {
             const auto tileWidth = std::min(
-                tileSize, destinationLayout.width() - tileX);
+                tileSize, destinationWidth - tileX);
             const auto tileEndX = tileX + tileWidth;
             for (auto destinationY = tileY;
                  destinationY < tileEndY; ++destinationY) {
                 const auto sourceX = ReverseSourceXFromDestinationY
-                    ? sourceLayout.width() - 1U - destinationY
+                    ? sourceWidth - 1U - destinationY
                     : destinationY;
                 const auto sourceColumnOffset =
                     static_cast<std::size_t>(sourceX) * PixelBytes;
                 auto* destinationPixel = destination.data()
                     + static_cast<std::size_t>(destinationY)
-                        * destinationLayout.strideBytes()
+                        * destinationStrideBytes
                     + static_cast<std::size_t>(tileX) * PixelBytes;
                 for (auto destinationX = tileX;
                      destinationX < tileEndX; ++destinationX) {
                     const auto sourceY = ReverseSourceYFromDestinationX
-                        ? sourceLayout.height() - 1U - destinationX
+                        ? sourceHeight - 1U - destinationX
                         : destinationX;
                     const auto* sourcePixel = source.data()
                         + static_cast<std::size_t>(sourceY)
-                            * sourceLayout.strideBytes()
+                            * sourceStrideBytes
                         + sourceColumnOffset;
                     copyPixel<PixelBytes>(destinationPixel, sourcePixel);
                     destinationPixel += PixelBytes;
