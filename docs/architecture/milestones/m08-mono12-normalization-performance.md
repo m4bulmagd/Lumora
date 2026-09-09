@@ -119,7 +119,7 @@ python3 out/qa/m08-mono12-normalization/verify-evidence.py \
 
 ## Next development and open gates
 
-Next profile **display mapping and orientation**, then CLAHE tile/interpolation phases, against this faster Mono12 baseline. The preceding diagnosis identified roughly 15 ms for two display mappings, roughly 39 ms for two rotated displays and roughly 33 ms for CLAHE at 2048. Those are historical stage diagnostics, not fresh per-stage measurements from this run; they guide the next profiling experiment. Further work should retain complete pixel equality and measure the full pipeline before deciding whether a larger backend change is justified.
+The subsequent bounded [display-output continuation](m08-display-output-performance.md) profiles and hoists invariant layout getters from display mapping and orientation while preserving this Mono12 result as historical evidence. The diagnosis here identified roughly 15 ms for two display mappings, roughly 39 ms for two rotated displays and roughly 33 ms for CLAHE at 2048. Those are historical stage diagnostics, not measurements from the continuation; its fresh baseline, protocol and results are recorded separately. Further work should retain complete pixel equality and measure the full pipeline before deciding whether a larger backend change is justified.
 
 ## Integration status
 
