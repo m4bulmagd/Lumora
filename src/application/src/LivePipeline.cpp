@@ -3,6 +3,7 @@
 #include <lumora/application/StartupPreferences.hpp>
 #include <lumora/core/CheckedMath.hpp>
 #include <lumora/processing/FrameProcessingEngine.hpp>
+#include <lumora/processing/PipelineCompiler.hpp>
 #include <array>
 #include <condition_variable>
 #include <atomic>
@@ -18,6 +19,40 @@ core::Error failure(std::string code, std::string detail,
     return {category,std::move(code),"Live pipeline operation failed.",std::move(detail),false};
 }
 
+processing::PipelineValidationError processingConfigurationError(
+    std::string code, std::string detail) {
+    auto violationCode=code;
+    return {std::move(code),
+        {{std::nullopt,std::move(violationCode),std::move(detail)}}};
+}
+
+std::optional<processing::PipelineValidationError> validateProcessingConfiguration(
+    const processing::PipelineDefinition& definition) {
+    constexpr std::array expectedOrder{
+        processing::StageId::Normalize,
+        processing::StageId::WindowLevel,
+        processing::StageId::BrightnessContrast,
+        processing::StageId::Gamma,
+        processing::StageId::Clahe,
+        processing::StageId::Denoise,
+        processing::StageId::Sharpen,
+        processing::StageId::Invert,
+    };
+    if(definition.stages.size()!=expectedOrder.size()) {
+        return processingConfigurationError("preset_pipeline_incomplete",
+            "Preset pipelines must contain all eight canonical stages.");
+    }
+    for(std::size_t index=0;index<expectedOrder.size();++index) {
+        if(definition.stages[index].id!=expectedOrder[index]) {
+            return processingConfigurationError("preset_pipeline_order_invalid",
+                "Preset pipelines must use the complete canonical stage order.");
+        }
+    }
+    const processing::PipelineCompiler compiler(processing::stageRegistry());
+    auto compiled=compiler.compile(definition);
+    if(!compiled.hasValue()) return std::move(compiled).error();
+    return std::nullopt;
+}
 
 }
 struct LivePipeline::Impl {
@@ -28,6 +63,8 @@ struct LivePipeline::Impl {
     std::optional<detail::LiveResourcePreparation> resources;
     processing::ProcessingPreparationOptions preparationOptions;
     std::optional<std::uint64_t> retryIntent;
+    std::optional<ProcessingConfigurationCommand> processingConfigurationIntent;
+    std::uint64_t latestProcessingConfigurationRevision{0};
     mutable std::mutex mutex;
     std::condition_variable_any changed;
     LivePipelineSnapshot state;
@@ -51,7 +88,20 @@ struct LivePipeline::Impl {
     Impl(camera::ICameraProvider& p,core::IClock& c,camera::CameraConfiguration request,ProcessorFactory f,processing::ProcessingPreparationOptions options)
         :provider(p),clock(c),fixed(std::move(request)),factory(std::move(f)),preparationOptions(options) {}
     void stopWorkers() noexcept {
-        { std::lock_guard lock(mutex); state.processingAvailable=false; state.processingRetryPending=false; retryIntent.reset(); state.processing={}; }
+        { std::lock_guard lock(mutex);
+            state.processingAvailable=false;state.processingRetryPending=false;retryIntent.reset();state.processing={};
+            if(processingConfigurationIntent) {
+                try {
+                    state.processingConfigurationOutcome=ProcessingConfigurationOutcome{
+                        processingConfigurationIntent->sessionGeneration,
+                        processingConfigurationIntent->definition.version.configurationRevision,
+                        processingConfigurationError("processing_configuration_session_retired",
+                            "The processing session retired before activation executed.")};
+                } catch(...) { /* Teardown remains non-throwing under allocation failure. */ }
+            }
+            processingConfigurationIntent.reset();state.processingConfigurationPending=false;
+            latestProcessingConfigurationRevision=0;
+        }
         if(cameraWorker) { cameraWorker->requestStop(); cameraWorker->join(); cameraWorker.reset(); }
         if(processingWorker) { processingWorker->requestStop(); processingWorker->join(); processingWorker.reset(); }
         processor.reset(); cameraCommands.reset(); cameraStatus.reset();
@@ -101,6 +151,8 @@ struct LivePipeline::Impl {
             state.camera=std::move(initialSnapshot);
             state.processing={}; state.processing.processorStatus=initialProcessingStatus;
             state.processingAvailable=true; state.processingRetryPending=false; retryIntent.reset();
+            state.processingConfigurationOutcome.reset();state.processingConfigurationPending=false;
+            processingConfigurationIntent.reset();latestProcessingConfigurationRevision=0;
         }
         return Result::success();
     }
@@ -138,6 +190,40 @@ struct LivePipeline::Impl {
         { std::lock_guard lock(mutex);
             state.processingRetryPending=retryIntent.has_value() || (accepted && status.retryPending);
             state.processing.processorStatus=std::move(status);
+        }
+    }
+    void dispatchProcessingConfiguration() {
+        std::optional<ProcessingConfigurationCommand> command;
+        {
+            std::lock_guard lock(mutex);
+            if(!processingConfigurationIntent) return;
+            command=std::move(processingConfigurationIntent);
+            processingConfigurationIntent.reset();
+        }
+
+        ProcessingConfigurationOutcome outcome{
+            command->sessionGeneration,
+            command->definition.version.configurationRevision,
+            std::nullopt};
+        try {
+            outcome.error=validateProcessingConfiguration(command->definition);
+            if(!outcome.error) {
+                auto activated=processor->activate(command->definition);
+                if(!activated.hasValue()) outcome.error=std::move(activated).error();
+            }
+        } catch(const std::exception& exception) {
+            outcome.error=processingConfigurationError("processing_configuration_exception",
+                exception.what());
+        } catch(...) {
+            outcome.error=processingConfigurationError("processing_configuration_unknown_exception",
+                "An unknown exception occurred while validating or activating the processing configuration.");
+        }
+        auto processorStatus=processor->status();
+        {
+            std::lock_guard lock(mutex);
+            state.processing.processorStatus=std::move(processorStatus);
+            state.processingConfigurationOutcome=std::move(outcome);
+            state.processingConfigurationPending=false;
         }
     }
     void send(CameraCommand command,bool isPriority) {
@@ -216,7 +302,9 @@ struct LivePipeline::Impl {
                 bool retire=false;
                 { std::lock_guard lock(mutex);retire=state.camera && state.camera->sourceReplacementRequired; }
                 if(retire && cameraWorker && !active && !priority) stopWorkers();
+                bool dispatchedPriority=false;
                 if(auto priorityCommand=incoming.tryPopPriority()) {
+                    dispatchedPriority=true;
                     if(active) {
                         std::lock_guard lock(mutex);
                         state.ordinaryOutcome=CameraCommandOutcome{active->requestId,
@@ -233,6 +321,7 @@ struct LivePipeline::Impl {
                         } else send(std::move(*command),false);
                     }
                 }
+                if(!dispatchedPriority && !priority) dispatchProcessingConfiguration();
                 std::unique_lock lock(mutex);
                 changed.wait_for(lock,stop,std::chrono::milliseconds{2},[&]{return terminal;});
             }
@@ -295,6 +384,32 @@ Result LivePipeline::requestProcessingRetry(std::uint64_t generation) {
         return Result::failure(failure("processing_retry_unavailable","Processing retry is unavailable."));
     if(!impl_->state.processingRetryPending) impl_->retryIntent=generation;
     impl_->state.processingRetryPending=true;
+    impl_->changed.notify_all();
+    return Result::success();
+}
+Result LivePipeline::setProcessingConfiguration(ProcessingConfigurationCommand command) {
+    std::lock_guard lock(impl_->mutex);
+    if(impl_->state.context
+        && impl_->state.context->generation!=command.sessionGeneration)
+        return Result::failure(failure("stale_processing_session",
+            "The processing session was replaced.",core::ErrorCategory::Processing));
+    if(!impl_->accepting.load() || impl_->terminal || !impl_->state.context
+        || !impl_->state.processingAvailable || !impl_->processor)
+        return Result::failure(failure("processing_configuration_unavailable",
+            "Processing configuration activation is unavailable.",core::ErrorCategory::Processing));
+    const auto revision=command.definition.version.configurationRevision;
+    if(revision==0U)
+        return Result::failure(failure("processing_configuration_revision_required",
+            "Processing configuration revisions must be nonzero.",core::ErrorCategory::Processing));
+    if(impl_->state.processingConfigurationPending)
+        return Result::failure(failure("processing_configuration_busy",
+            "A processing configuration is already pending or executing.",core::ErrorCategory::Processing));
+    if(revision<=impl_->latestProcessingConfigurationRevision)
+        return Result::failure(failure("processing_configuration_revision_not_increasing",
+            "Processing configuration revisions must increase within a session.",core::ErrorCategory::Processing));
+    impl_->processingConfigurationIntent=std::move(command);
+    impl_->latestProcessingConfigurationRevision=revision;
+    impl_->state.processingConfigurationPending=true;
     impl_->changed.notify_all();
     return Result::success();
 }

@@ -193,4 +193,18 @@ The [CLAHE record](milestones/m08-clahe.md) specifies prepared OpenCV state, typ
 | Complete simulator and native checks | Integrated application compatibility and actual XCB window exposure | Clean `e3e427a`: 56/56 plus X11 1/1 in each configuration |
 | Tests-disabled app/resource linkage | Preset factory pulls embedded RCC resource without unit-test linkage | Release app builds; factory and RCC initializer present, GoogleTest symbols absent |
 
-The [M9 record](milestones/m09-presets.md#verification-and-completion) retains source, timings, review and evidence locations. Whole-branch spec review is approved; independent quality review is approved with no actionable findings. This is local unpublished Task 1 implementation, with M9 hosted Windows CI and milestone acceptance pending. It does not implement the preset selector, processing controls, Compare, camera dialogs or fullscreen, and does not close M8 performance or deferred Windows/hardware gates.
+The [M9 record](milestones/m09-presets.md#verification-and-completion) retains source, timings, review and evidence locations. Whole-branch spec review is approved; independent quality review is approved with no actionable findings. Task 1 subsequently merged through PR #17 after Linux/Windows Debug/Release CI passed; milestone acceptance remains pending. It does not implement the preset selector, processing controls, Compare, camera dialogs or fullscreen, and does not close M8 performance or deferred Windows/hardware gates.
+
+
+## M9 Task 2 verification map
+
+| Contract | Focused verification |
+|---|---|
+| Complete drafts, ≤30 Hz monotonic drag, exact release and preset cancellation | `ProcessingControls` model tests |
+| Canonical controls, precise numeric entry, compatible Median settings and processing-only Reset | `ProcessingControls` panel and `LivePipeline` integration tests |
+| Explicit no-frame activation outcomes, session/revision rejection and adapter failures | `ProcessingConfiguration` |
+| Single settings owner, independent section revisions, coalescing, unsafe load and drain | `Configuration.StartupPreferences` |
+| Enhanced/fallback pixels, completed-paint identity/labels and pause | `FramePresenter` |
+| Shared scroll content with persistent warnings/Retry/Pause | `WorkstationView`, `MainWindowSmoke`, actual panel layout test |
+
+The [Task 2 record](milestones/m09-processing-controls.md) holds scope and final verification status. This slice adds a single Enhanced preview; synchronized mode switching/Compare remains later work.

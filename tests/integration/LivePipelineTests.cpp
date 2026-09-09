@@ -2,6 +2,11 @@
 #include "SimulatorComposition.hpp"
 #include "FrameEngineTestAccess.hpp"
 #include <QLabel>
+#include <QComboBox>
+#include <QDoubleSpinBox>
+#include <lumora/configuration/PresetCodec.hpp>
+#include <lumora/ui/ProcessingPanel.hpp>
+#include <lumora/ui/ImageViewport.hpp>
 #include <lumora/application/LivePipeline.hpp>
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
@@ -42,6 +47,8 @@ public:
     std::optional<application::StartupPreferences> record;
     std::mutex mutex;
     std::optional<application::StartupPreferences> saved;
+    application::PresetState presetState;
+    std::optional<application::PresetState> savedPresets;
     bool failLoad{false};
     bool failSave{false};
     std::function<void()> beforeLoad;
@@ -50,11 +57,11 @@ public:
         if(failLoad) return core::Result<configuration::ApplicationConfiguration>::failure(
             {core::ErrorCategory::Configuration,"load_failed","Load failed.","",false});
         configuration::ApplicationConfiguration value;
-        value.startup=record;
+        value.startup=record; value.presets=presetState;
         return core::Result<configuration::ApplicationConfiguration>::success(value);
     }
     core::Result<void> save(const configuration::ApplicationConfiguration& value) override {
-        std::lock_guard lock(mutex);saved=value.startup;
+        std::lock_guard lock(mutex);saved=value.startup;savedPresets=value.presets;
         if(failSave) return core::Result<void>::failure(
             {core::ErrorCategory::Configuration,"save_failed","Save failed.","",false});
         return core::Result<void>::success();
@@ -127,6 +134,81 @@ struct Fixture {
         return controller.presenter()->presentedBundle()!=nullptr;
     }
 };
+camera::CameraConfiguration controlsRequest() { auto value=request(); value.roi={0,0,64,48}; return value; }
+camera::sim::SimulatedCameraOptions controlsOptions() { auto value=options(); value.capabilities.roi.maximum={0,0,64,48}; return value; }
+std::unique_ptr<MemoryIo> invertedPresetsIo() {
+    auto io=std::make_unique<MemoryIo>(); io->presetState.selectedId={"custom"};
+    io->presetState.activePipeline.stages.back().enabled=true; return io;
+}
+std::string processingFailureDetail(Fixture& fixture) {
+    const auto snapshot=fixture.pipeline.snapshot();
+    std::string detail;
+    if(snapshot.processingConfigurationOutcome && snapshot.processingConfigurationOutcome->error) {
+        const auto& error=*snapshot.processingConfigurationOutcome->error; detail=error.code;
+        for(const auto& violation:error.violations) detail+=" / "+violation.detail;
+        if(error.preparationError) detail+=" / "+error.preparationError->diagnosticDetail;
+    }
+    if(auto* label=fixture.view.findChild<QLabel*>("processingSettingsStatus")) detail+=" / "+label->text().toStdString();
+    if(const auto preferences=fixture.preferences.latestStatus();preferences->warning) detail+=" / "+preferences->warning->diagnosticDetail;
+    return detail;
+}
+TEST(LivePipeline, LoadedPresetActivatesWithoutStartingCameraAndSavesAcknowledgedState) {
+    auto io=std::make_unique<MemoryIo>(); auto* memory=io.get();
+    auto repository=configuration::PresetCodec::loadDefaultRepository().value();
+    ASSERT_TRUE(repository.apply({"standard"}).hasValue()); io->presetState=repository.snapshot();
+    Fixture f(std::move(io),controlsOptions(),{},controlsRequest()); ASSERT_TRUE(f.initialize());
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision.has_value();})) << processingFailureDetail(f);
+    auto snapshot=f.pipeline.snapshot(); ASSERT_TRUE(snapshot.processingConfigurationOutcome);
+    EXPECT_FALSE(snapshot.processingConfigurationOutcome->error);
+    EXPECT_EQ(snapshot.camera->state,application::CameraSessionState::Disconnected);
+    EXPECT_EQ(snapshot.camera->acquisitionCounters.acquired,0U);
+    auto* selector=f.view.findChild<QComboBox*>("presetSelector"); ASSERT_NE(selector,nullptr);
+    EXPECT_EQ(selector->currentData().toString(),QStringLiteral("standard"));
+    std::lock_guard lock(memory->mutex); ASSERT_TRUE(memory->savedPresets);
+    EXPECT_EQ(memory->savedPresets->selectedId.value,"standard");
+}
+TEST(LivePipeline, ProcessingControlRevisionReachesFramesAndResetPreservesPausedCameraAndViewport) {
+    Fixture f(std::make_unique<MemoryIo>(),controlsOptions(),{},controlsRequest()); ASSERT_TRUE(f.begin());
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision.has_value();})) << processingFailureDetail(f);
+    auto* selector=f.view.findChild<QComboBox*>("presetSelector"); ASSERT_NE(selector,nullptr);
+    const auto previous=f.preferences.latestStatus()->latestSavedPresetRevision;
+    selector->setCurrentIndex(selector->findData("standard"));
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision>previous;})) << processingFailureDetail(f);
+    const auto applied=f.pipeline.snapshot().processingConfigurationOutcome; ASSERT_TRUE(applied);
+    ASSERT_TRUE(f.next()); ASSERT_TRUE(f.latest()->enhanced);
+    EXPECT_EQ(f.latest()->enhanced->pipelineVersion.configurationRevision,applied->configurationRevision);
+    ASSERT_TRUE(f.paint()); f.controller.presenter()->pause();
+    auto frozen=f.controller.presenter()->presentedBundle();
+    f.view.imageViewport()->setActualPixels();
+    const auto camera=f.pipeline.snapshot().camera;
+    auto* reset=f.view.findChild<QPushButton*>("resetProcessing"); ASSERT_NE(reset,nullptr); reset->click();
+    ASSERT_TRUE(f.wait([&]{auto result=f.pipeline.snapshot().processingConfigurationOutcome;
+        return result && result->configurationRevision>applied->configurationRevision;}));
+    EXPECT_EQ(f.controller.presenter()->presentedBundle(),frozen);
+    EXPECT_EQ(f.view.viewerState(),ui::ViewerState::Paused);
+    EXPECT_EQ(f.view.imageViewport()->transform().mode(),ui::ViewScaleMode::Manual);
+    EXPECT_DOUBLE_EQ(f.view.imageViewport()->transform().scale(),1.0);
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::Streaming);
+    EXPECT_EQ(f.pipeline.snapshot().camera->sessionGeneration,camera->sessionGeneration);
+    EXPECT_EQ(f.pipeline.snapshot().camera->confirmedRevision,camera->confirmedRevision);
+    EXPECT_EQ(selector->currentData().toString(),QStringLiteral("original"));
+}
+TEST(LivePipeline, RejectedPresetRestoresAcceptedSettingsWithoutStoppingCameraOrSavingFailure) {
+    Fixture f; ASSERT_TRUE(f.begin());
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision.has_value();}));
+    const auto saved=f.preferences.latestStatus()->latestSavedPresetRevision;
+    auto* selector=f.view.findChild<QComboBox*>("presetSelector"); ASSERT_NE(selector,nullptr);
+    selector->setCurrentIndex(selector->findData("standard"));
+    ASSERT_TRUE(f.wait([&]{auto outcome=f.pipeline.snapshot().processingConfigurationOutcome;return outcome && outcome->error;}));
+    f.controller.poll();
+    EXPECT_EQ(f.pipeline.snapshot().processingConfigurationOutcome->error->code,"clahe_image_too_small");
+    EXPECT_EQ(selector->currentData().toString(),QStringLiteral("original"));
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedPresetRevision,saved);
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::Streaming);
+    EXPECT_FALSE(f.pipeline.snapshot().processingConfigurationPending);
+    auto* status=f.view.findChild<QLabel*>("processingSettingsStatus"); ASSERT_NE(status,nullptr);
+    EXPECT_NE(status->text(),QStringLiteral("Changes pending…"));
+}
 class LiveEnhancementFault final : public processing::detail::EngineHooks {
 public:
     std::atomic<bool> fail{true};
@@ -138,7 +220,7 @@ public:
 };
 TEST(LivePipeline, ProcessingRetryIsGenerationCheckedPendingWithoutFramesAndNeverReconnects) {
     auto hook=std::make_shared<LiveEnhancementFault>();
-    Fixture f(std::make_unique<MemoryIo>(),options(),[hook](core::BufferPool& p,core::BufferPool& d,const core::ImageLayout& source) {
+    Fixture f(invertedPresetsIo(),options(),[hook](core::BufferPool& p,core::BufferPool& d,const core::ImageLayout& source) {
         auto definition=processing::defaultPipeline(); definition.stages.back().enabled=true;
         auto made=processing::detail::FrameEngineTestAccess::create(p,d,source,definition,{},hook);
         if(!made.hasValue()) return core::Result<std::unique_ptr<processing::IFrameProcessor>>::failure(made.error());
@@ -188,7 +270,7 @@ TEST(LivePipeline, ProcessingRetryIsGenerationCheckedPendingWithoutFramesAndNeve
 }
 TEST(LivePipeline, SessionReplacementClearsWarningAndRejectsTheOldProcessingRetryGeneration) {
     auto hook=std::make_shared<LiveEnhancementFault>();
-    Fixture f(std::make_unique<MemoryIo>(),options(),[hook](core::BufferPool& p,core::BufferPool& d,const core::ImageLayout& source) {
+    Fixture f(invertedPresetsIo(),options(),[hook](core::BufferPool& p,core::BufferPool& d,const core::ImageLayout& source) {
         auto definition=processing::defaultPipeline(); definition.stages.back().enabled=true;
         auto made=processing::detail::FrameEngineTestAccess::create(p,d,source,definition,{},hook);
         if(!made.hasValue()) return core::Result<std::unique_ptr<processing::IFrameProcessor>>::failure(made.error());
@@ -978,7 +1060,10 @@ TEST(LivePipeline, HighDepthFactoryReceivesCoherentPlanAndActivationRevisions) {
             engine.store(made.value().get());
             return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::move(made).value());
         }, depthRequest(12));
-    ASSERT_TRUE(f.begin()); ASSERT_TRUE(f.next());
+    ASSERT_TRUE(f.begin());
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision.has_value();}));
+    const auto initialRevision=f.pipeline.snapshot().processingConfigurationOutcome->configurationRevision;
+    ASSERT_TRUE(f.next());
     auto context = f.pipeline.snapshot().context;
     EXPECT_EQ(receivedU16, context->processingPool.get()); EXPECT_EQ(receivedGray, context->displayPool.get());
     ASSERT_TRUE(receivedLayout); EXPECT_EQ(receivedLayout->storage(), core::StorageType::UInt16);
@@ -988,7 +1073,7 @@ TEST(LivePipeline, HighDepthFactoryReceivesCoherentPlanAndActivationRevisions) {
     ASSERT_TRUE(engine.load()->activate(definition).hasValue());
     ASSERT_TRUE(f.next());
     auto current = f.latest(); ASSERT_NE(current->enhanced, nullptr);
-    EXPECT_EQ(previous->enhanced->pipelineVersion.configurationRevision, 0U);
+    EXPECT_EQ(previous->enhanced->pipelineVersion.configurationRevision, initialRevision);
     EXPECT_EQ(current->enhanced->pipelineVersion.configurationRevision, 7U);
     EXPECT_EQ(current->originalDisplay->mapping.configurationRevision, 7U);
     EXPECT_EQ(current->enhancedDisplay->mapping.configurationRevision, 7U);

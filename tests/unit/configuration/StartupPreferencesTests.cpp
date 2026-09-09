@@ -213,11 +213,13 @@ struct IoState final {
     std::thread::id loadThread;
     bool blockFirstSave{false};
     bool failSave{false};
+    int saveException{0};
     bool recoveredPresets{false};
     bool savesReleased{false};
     std::vector<std::string> savedSerials;
     std::vector<std::thread::id> saveThreads;
     std::optional<ApplicationConfiguration> savedDocument;
+    std::vector<ApplicationConfiguration> savedDocuments;
 };
 
 class RecordingIo final : public IStartupPreferencesIo {
@@ -268,10 +270,13 @@ public:
         state_->savedSerials.push_back(configuration.startup->identity.serial);
         state_->saveThreads.push_back(std::this_thread::get_id());
         state_->savedDocument = configuration;
+        state_->savedDocuments.push_back(configuration);
         state_->changed.notify_all();
         if (state_->blockFirstSave && state_->savedSerials.size() == 1U) {
             state_->changed.wait(lock, [&] { return state_->savesReleased; });
         }
+        if (state_->saveException == 1) { throw std::runtime_error("save failed"); }
+        if (state_->saveException == 2) { throw 7; }
         if (state_->failSave) {
             return core::Result<void>::failure({core::ErrorCategory::Configuration,
                 "scripted_save_failure", "Startup preferences were not saved.",
@@ -665,6 +670,301 @@ TEST(StartupPreferencesService, WorkerBoundaryContainsStandardAndUnknownExceptio
         EXPECT_EQ(status->warning->code, "startup_service_worker_exception");
         service.requestStop();
         service.join();
+    }
+}
+
+
+application::PresetState standardPresets() {
+    application::PresetState state;
+    state.selectedId = {"standard"};
+    state.activePipeline = processing::standardPipeline();
+    return state;
+}
+
+struct ReleaseSaveOnExit final {
+    std::shared_ptr<IoState> state;
+    bool wait() {
+        std::unique_lock lock(state->mutex);
+        return state->changed.wait_for(lock, std::chrono::seconds{2}, [&] {
+            return !state->savedDocuments.empty();
+        });
+    }
+    void release() {
+        std::lock_guard lock(state->mutex);
+        state->savesReleased = true;
+        state->changed.notify_all();
+    }
+    ~ReleaseSaveOnExit() { release(); }
+};
+
+TEST(StartupPreferencesService, PublishesInitialPresetsWithoutAnySaveOrCameraIntent) {
+    auto state = std::make_shared<IoState>();
+    state->recoveredPresets = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    EXPECT_FALSE(service.latestStatus()->loadedPresets.has_value());
+    ASSERT_TRUE(service.start().hasValue());
+    service.requestStop();
+    service.join();
+    const auto status = service.latestStatus();
+    ASSERT_TRUE(status->loadCompleted);
+    ASSERT_TRUE(status->loadedPresets.has_value());
+    EXPECT_EQ(status->loadedPresets->selectedId.value, "saved-user");
+    ASSERT_EQ(status->loadedPresets->customPresets.size(), 1U);
+    EXPECT_EQ(status->loadedPresets->customPresets.front().revision, 23U);
+    EXPECT_FALSE(status->latestAttemptedPresetSaveRevision.has_value());
+    EXPECT_FALSE(status->latestSavedPresetRevision.has_value());
+    EXPECT_TRUE(state->savedDocuments.empty());
+}
+
+TEST(StartupPreferencesService, MergesPendingSectionsAndKeepsInitialLoadMetadata) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    state->recoveredPresets = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    EXPECT_FALSE(service.postPresetSave(1U, standardPresets()).hasValue());
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(release.wait());
+    auto camera = preferences();
+    camera.identity.serial = "NEW-CAMERA";
+    bool cameraAccepted = false;
+    bool presetsAccepted = false;
+    {
+        std::jthread cameraCaller([&] {
+            cameraAccepted = service.postSave(100U, camera).hasValue();
+        });
+        std::jthread presetCaller([&] {
+            presetsAccepted = service.postPresetSave(1U, standardPresets()).hasValue();
+        });
+    }
+    ASSERT_TRUE(cameraAccepted);
+    ASSERT_TRUE(presetsAccepted);
+    EXPECT_FALSE(service.latestStatus()->latestAttemptedPresetSaveRevision.has_value());
+    service.requestStop();
+    EXPECT_FALSE(service.postPresetSave(2U, standardPresets()).hasValue());
+    release.release();
+    service.join();
+    ASSERT_EQ(state->savedDocuments.size(), 1U);
+    const auto& saved = state->savedDocuments.front();
+    EXPECT_EQ(saved.startup->identity.serial, "NEW-CAMERA");
+    EXPECT_EQ(saved.presets.selectedId.value, "standard");
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        saved.presets.activePipeline, processing::standardPipeline()));
+    EXPECT_EQ(saved.application.value("theme"), "retained-theme");
+    EXPECT_EQ(saved.legacyPresets.value("old-selection"), "keep");
+    ASSERT_EQ(saved.presetIssues.size(), 1U);
+    EXPECT_FALSE(saved.usedDefaults);
+    ASSERT_TRUE(saved.loadWarning.has_value());
+    EXPECT_EQ(saved.loadWarning->code, "preset_entries_recovered");
+    EXPECT_EQ(state->saveThreads.front(), state->loadThread);
+    EXPECT_NE(state->loadThread, std::this_thread::get_id());
+    const auto status = service.latestStatus();
+    EXPECT_EQ(status->latestAttemptedSaveRevision, 100U);
+    EXPECT_EQ(status->latestSavedRevision, 100U);
+    EXPECT_EQ(status->latestAttemptedPresetSaveRevision, 1U);
+    EXPECT_EQ(status->latestSavedPresetRevision, 1U);
+    ASSERT_TRUE(status->loadedPreferences.has_value());
+    EXPECT_EQ(status->loadedPreferences->identity.serial, "SIM-1");
+    ASSERT_TRUE(status->loadedPresets.has_value());
+    EXPECT_EQ(status->loadedPresets->selectedId.value, "saved-user");
+    ASSERT_TRUE(status->warning.has_value());
+    EXPECT_EQ(status->warning->code, "preset_entries_recovered");
+}
+
+TEST(StartupPreferencesService, PresetValidationDoesNotConsumeIndependentRevision) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(release.wait());
+    EXPECT_FALSE(service.postPresetSave(0U, standardPresets()).hasValue());
+    auto invalid = standardPresets();
+    invalid.selectedId = {"missing"};
+    EXPECT_FALSE(service.postPresetSave(1U, invalid).hasValue());
+    invalid = standardPresets();
+    invalid.selectedId = {"original"}; // Named selection must match the active definition.
+    EXPECT_FALSE(service.postPresetSave(1U, invalid).hasValue());
+    invalid = standardPresets();
+    invalid.customPresets.push_back({{"standard"}, "Reserved", "", false, 1U, 1U,
+        processing::standardPipeline()});
+    EXPECT_FALSE(service.postPresetSave(1U, invalid).hasValue());
+    ASSERT_TRUE(service.postPresetSave(1U, standardPresets()).hasValue());
+    EXPECT_FALSE(service.postPresetSave(1U, standardPresets()).hasValue());
+    ASSERT_TRUE(service.postPresetSave(2U, application::PresetState{}).hasValue());
+    EXPECT_FALSE(service.postPresetSave(1U, standardPresets()).hasValue());
+    ASSERT_TRUE(service.postSave(1U, preferences()).hasValue());
+    service.requestStop();
+    release.release();
+    service.join();
+    ASSERT_EQ(state->savedDocuments.size(), 1U);
+    EXPECT_EQ(state->savedDocuments.front().presets.selectedId.value, "original");
+    EXPECT_EQ(service.latestStatus()->latestSavedRevision, 1U);
+    EXPECT_EQ(service.latestStatus()->latestSavedPresetRevision, 2U);
+}
+
+TEST(StartupPreferencesService, CoalescesBothSectionsBehindAnExecutingPresetSaveAndDrains) {
+    auto state = std::make_shared<IoState>();
+    state->blockFirstSave = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseSaveOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(service.postPresetSave(1U, standardPresets()).hasValue());
+    ASSERT_TRUE(release.wait());
+    const auto inFlight = service.latestStatus();
+    EXPECT_EQ(inFlight->latestAttemptedPresetSaveRevision, 1U);
+    EXPECT_FALSE(inFlight->latestSavedPresetRevision.has_value());
+    EXPECT_FALSE(inFlight->latestAttemptedSaveRevision.has_value());
+    auto camera = preferences();
+    camera.identity.serial = "SUPERSEDED";
+    ASSERT_TRUE(service.postSave(1U, camera).hasValue());
+    ASSERT_TRUE(service.postPresetSave(2U, standardPresets()).hasValue());
+    camera.identity.serial = "NEWEST";
+    ASSERT_TRUE(service.postSave(2U, camera).hasValue());
+    ASSERT_TRUE(service.postPresetSave(3U, application::PresetState{}).hasValue());
+    service.requestStop();
+    release.release();
+    service.join();
+    ASSERT_EQ(state->savedDocuments.size(), 2U);
+    EXPECT_EQ(state->savedDocuments[0].startup->identity.serial, "SIM-1");
+    EXPECT_EQ(state->savedDocuments[0].presets.selectedId.value, "standard");
+    EXPECT_EQ(state->savedDocuments[1].startup->identity.serial, "NEWEST");
+    EXPECT_EQ(state->savedDocuments[1].presets.selectedId.value, "original");
+    EXPECT_EQ(state->saveThreads[0], state->saveThreads[1]);
+    const auto status = service.latestStatus();
+    EXPECT_EQ(status->latestSavedRevision, 2U);
+    EXPECT_EQ(status->latestSavedPresetRevision, 3U);
+    EXPECT_EQ(status->latestAttemptedSaveRevision, 2U);
+    EXPECT_EQ(status->latestAttemptedPresetSaveRevision, 3U);
+    EXPECT_FALSE(inFlight->latestSavedPresetRevision.has_value());
+}
+
+TEST(StartupPreferencesService, UnsafeLoadSettlesBothAcceptedSectionsWithoutWriting) {
+    for (const bool failedLoad : {false, true}) {
+        auto state = std::make_shared<IoState>();
+        state->blockLoad = true;
+        state->failLoad = failedLoad;
+        state->unpreservedLoad = !failedLoad;
+        StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+        ReleaseLoadOnExit release{state};
+        ASSERT_TRUE(service.start().hasValue());
+        ASSERT_TRUE(release.wait());
+        ASSERT_TRUE(service.postSave(8U, preferences()).hasValue());
+        ASSERT_TRUE(service.postPresetSave(9U, standardPresets()).hasValue());
+        release.release();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+        while (!service.latestStatus()->latestAttemptedPresetSaveRevision.has_value()
+            && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::yield();
+        }
+        EXPECT_FALSE(service.postPresetSave(10U, standardPresets()).hasValue());
+        service.requestStop();
+        service.join();
+        const auto status = service.latestStatus();
+        EXPECT_EQ(status->latestAttemptedSaveRevision, 8U);
+        EXPECT_EQ(status->latestAttemptedPresetSaveRevision, 9U);
+        EXPECT_FALSE(status->latestSavedRevision.has_value());
+        EXPECT_FALSE(status->latestSavedPresetRevision.has_value());
+        EXPECT_TRUE(state->savedDocuments.empty());
+        ASSERT_TRUE(status->warning.has_value());
+        EXPECT_EQ(status->warning->code, "startup_save_source_unsafe");
+        if (failedLoad) { EXPECT_FALSE(status->loadedPresets.has_value()); }
+    }
+}
+
+TEST(StartupPreferencesService, FailedCombinedWriteDoesNotClaimEitherSectionDurable) {
+    for (const int exceptionKind : {0, 1, 2}) {
+        auto state = std::make_shared<IoState>();
+        state->blockLoad = true;
+        state->failSave = exceptionKind == 0;
+        state->saveException = exceptionKind;
+        StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+        ReleaseLoadOnExit release{state};
+        ASSERT_TRUE(service.start().hasValue());
+        ASSERT_TRUE(release.wait());
+        ASSERT_TRUE(service.postSave(5U, preferences()).hasValue());
+        ASSERT_TRUE(service.postPresetSave(6U, standardPresets()).hasValue());
+        service.requestStop();
+        release.release();
+        service.join();
+        ASSERT_EQ(state->savedDocuments.size(), 1U);
+        const auto status = service.latestStatus();
+        EXPECT_EQ(status->latestAttemptedSaveRevision, 5U);
+        EXPECT_EQ(status->latestAttemptedPresetSaveRevision, 6U);
+        EXPECT_FALSE(status->latestSavedRevision.has_value());
+        EXPECT_FALSE(status->latestSavedPresetRevision.has_value());
+        ASSERT_TRUE(status->warning.has_value());
+        EXPECT_EQ(status->warning->code, exceptionKind == 0
+            ? "scripted_save_failure" : "startup_service_worker_exception");
+    }
+}
+
+TEST(StartupPreferencesService, LaterWholeDocumentSuccessSettlesPreviouslyFailedSection) {
+    for (const bool presetFirst : {false, true}) {
+        auto state = std::make_shared<IoState>();
+        state->failSave = true;
+        StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+        ASSERT_TRUE(service.start().hasValue());
+        auto camera = preferences();
+        camera.identity.serial = "RETAINED-CHANGE";
+        ASSERT_TRUE((presetFirst ? service.postPresetSave(7U, standardPresets())
+                                 : service.postSave(8U, camera)).hasValue());
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+        while ((!service.latestStatus()->warning
+                || service.latestStatus()->warning->code != "scripted_save_failure")
+            && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::yield();
+        }
+        const auto failed = service.latestStatus();
+        ASSERT_TRUE(failed->warning.has_value());
+        ASSERT_EQ(failed->warning->code, "scripted_save_failure");
+        EXPECT_FALSE(failed->latestSavedPresetRevision.has_value());
+        EXPECT_FALSE(failed->latestSavedRevision.has_value());
+        {
+            std::lock_guard lock(state->mutex);
+            state->failSave = false;
+        }
+        ASSERT_TRUE((presetFirst ? service.postSave(8U, camera)
+                                 : service.postPresetSave(7U, standardPresets())).hasValue());
+        service.requestStop();
+        service.join();
+        ASSERT_EQ(state->savedDocuments.size(), 2U);
+        const auto& saved = state->savedDocuments.back();
+        EXPECT_EQ(saved.startup->identity.serial, "RETAINED-CHANGE");
+        EXPECT_EQ(saved.presets.selectedId.value, "standard");
+        const auto status = service.latestStatus();
+        EXPECT_EQ(status->latestAttemptedSaveRevision, 8U);
+        EXPECT_EQ(status->latestSavedRevision, 8U);
+        EXPECT_EQ(status->latestAttemptedPresetSaveRevision, 7U);
+        EXPECT_EQ(status->latestSavedPresetRevision, 7U);
+        EXPECT_FALSE(status->warning.has_value());
+        EXPECT_FALSE(failed->latestSavedPresetRevision.has_value());
+        EXPECT_FALSE(failed->latestSavedRevision.has_value());
+    }
+}
+
+TEST(StartupPreferencesService, LoadExceptionSettlesBothPendingSections) {
+    for (const int exceptionKind : {1, 2}) {
+        auto state = std::make_shared<IoState>();
+        state->blockLoad = true;
+        state->loadException = exceptionKind;
+        StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+        ReleaseLoadOnExit release{state};
+        ASSERT_TRUE(service.start().hasValue());
+        ASSERT_TRUE(release.wait());
+        ASSERT_TRUE(service.postSave(3U, preferences()).hasValue());
+        ASSERT_TRUE(service.postPresetSave(4U, standardPresets()).hasValue());
+        service.requestStop();
+        release.release();
+        service.join();
+        const auto status = service.latestStatus();
+        EXPECT_EQ(status->latestAttemptedSaveRevision, 3U);
+        EXPECT_EQ(status->latestAttemptedPresetSaveRevision, 4U);
+        EXPECT_FALSE(status->latestSavedPresetRevision.has_value());
+        EXPECT_FALSE(status->loadedPresets.has_value());
+        EXPECT_TRUE(state->savedDocuments.empty());
+        ASSERT_TRUE(status->warning.has_value());
+        EXPECT_EQ(status->warning->code, "startup_service_worker_exception");
     }
 }
 

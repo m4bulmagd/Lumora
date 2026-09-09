@@ -1,5 +1,6 @@
 #pragma once
 
+#include <lumora/application/Preset.hpp>
 #include <lumora/camera/CameraTypes.hpp>
 #include <lumora/core/Error.hpp>
 #include <lumora/core/Result.hpp>
@@ -21,11 +22,14 @@ struct StartupPreferences final {
 
 struct StartupPreferencesStatus final {
     bool loadCompleted{false};
-    // This remains the initial loaded record. Successful saves are represented
-    // only by latestSavedRevision; they do not rewrite load provenance.
+    // These remain the initial loaded records. Successful saves are represented
+    // by the section revisions below; they do not rewrite load provenance.
     std::optional<StartupPreferences> loadedPreferences;
+    std::optional<PresetState> loadedPresets;
     std::optional<std::uint64_t> latestAttemptedSaveRevision;
     std::optional<std::uint64_t> latestSavedRevision;
+    std::optional<std::uint64_t> latestAttemptedPresetSaveRevision;
+    std::optional<std::uint64_t> latestSavedPresetRevision;
     std::optional<core::Error> warning;
 };
 
