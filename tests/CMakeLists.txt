@@ -3,7 +3,8 @@ add_executable(lumora_application_tests
   unit/application/CameraCommandMailboxTests.cpp
   unit/application/AcquisitionWorkerTests.cpp
   unit/application/ProcessingWorkerTests.cpp
-  unit/application/StartupPreferencesTests.cpp)
+  unit/application/StartupPreferencesTests.cpp
+  unit/application/PresetRepositoryTests.cpp)
 target_link_libraries(lumora_application_tests PRIVATE
   lumora::application lumora::camera_simulator GTest::gtest_main)
 target_include_directories(lumora_application_tests PRIVATE
@@ -24,6 +25,9 @@ set_tests_properties(Application.ProcessingWorker PROPERTIES TIMEOUT 60)
 add_test(NAME Application.StartupPreferences
   COMMAND lumora_application_tests --gtest_filter=StartupPreferences.*)
 set_tests_properties(Application.StartupPreferences PROPERTIES TIMEOUT 60)
+add_test(NAME Application.PresetRepository
+  COMMAND lumora_application_tests --gtest_filter=PresetRepository.*)
+set_tests_properties(Application.PresetRepository PROPERTIES TIMEOUT 60)
 
 add_executable(lumora_processing_tests
   unit/processing/ProcessingDefaultsTests.cpp

@@ -132,6 +132,9 @@ add_library(
   application/include/lumora/application/LivePipeline.hpp
   application/src/LivePipeline.cpp
   application/src/LiveResourcePreparation.cpp
+  application/include/lumora/application/Preset.hpp
+  application/include/lumora/application/PresetRepository.hpp
+  application/src/PresetRepository.cpp
 )
 add_library(lumora::application ALIAS lumora_application)
 target_include_directories(lumora_application PUBLIC
