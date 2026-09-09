@@ -463,6 +463,12 @@ core::Result<void> ClaheStage::process(const ImageView& source,
         auto* impl_ = job.impl;
         const auto& source = job.source;
         const auto destination = job.destination;
+        const auto* const lut = impl_->lut.data();
+        const auto* const xIndex1 = impl_->xIndex1.data();
+        const auto* const xIndex2 = impl_->xIndex2.data();
+        const auto* const xWeight = impl_->xWeight.data();
+        const auto* const xWeight1 = impl_->xWeight1.data();
+        const int width = impl_->width;
         const float inverseTileHeight = 1.0F / static_cast<float>(impl_->tileHeight);
         for (int y = static_cast<int>(begin); y < static_cast<int>(end); ++y) {
             const float tileY = static_cast<float>(y) * inverseTileHeight - 0.5F;
@@ -478,16 +484,16 @@ core::Result<void> ClaheStage::process(const ImageView& source,
                 secondTileY * impl_->grid) * histogramBins;
             const auto sourceRow = source.row(static_cast<std::uint32_t>(y));
             const auto destinationRow = destination.row(static_cast<std::uint32_t>(y));
-            for (int x = 0; x < impl_->width; ++x) {
+            for (int x = 0; x < width; ++x) {
                 const auto index = static_cast<std::size_t>(x);
                 const auto sample = loadU16(sourceRow.data() + index * sizeof(std::uint16_t));
-                const auto firstIndex = static_cast<std::size_t>(impl_->xIndex1[index]) + sample;
-                const auto secondIndex = static_cast<std::size_t>(impl_->xIndex2[index]) + sample;
+                const auto firstIndex = static_cast<std::size_t>(xIndex1[index]) + sample;
+                const auto secondIndex = static_cast<std::size_t>(xIndex2[index]) + sample;
                 const float result =
-                    (impl_->lut[firstRowOffset + firstIndex] * impl_->xWeight1[index]
-                        + impl_->lut[firstRowOffset + secondIndex] * impl_->xWeight[index]) * yWeight1
-                    + (impl_->lut[secondRowOffset + firstIndex] * impl_->xWeight1[index]
-                        + impl_->lut[secondRowOffset + secondIndex] * impl_->xWeight[index]) * yWeight;
+                    (lut[firstRowOffset + firstIndex] * xWeight1[index]
+                        + lut[firstRowOffset + secondIndex] * xWeight[index]) * yWeight1
+                    + (lut[secondRowOffset + firstIndex] * xWeight1[index]
+                        + lut[secondRowOffset + secondIndex] * xWeight[index]) * yWeight;
                 storeU16(destinationRow.data() + index * sizeof(std::uint16_t),
                     cv::saturate_cast<std::uint16_t>(result));
             }
