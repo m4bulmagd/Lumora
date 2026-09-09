@@ -1,8 +1,8 @@
 # M8 display-output performance continuation
 
-**Date:** 2026-09-09. **Status:** Local implementation, measurements and independent evidence audit complete; unpublished.
+**Date:** 2026-09-09. **Status:** Implementation and evidence approved; integrated through PR #15.
 
-This bounded continuation targets measured display-output cost without changing image values or interfaces. Clean baseline `405c97b721a2699463626d0219cf2b345b7ae30c` repeatedly called immutable layout getters inside the mapper pixel loop and orientation row/tile loops. Clean candidate `e801ecea0c99e7a8f3a2659b8db8b1408e031733` hoists those getter results into local immutable values in two implementation files. The branch `perf/m08-display-output` remains local and is not approved for publication.
+This bounded continuation targets measured display-output cost without changing image values or interfaces. Clean baseline `405c97b721a2699463626d0219cf2b345b7ae30c` repeatedly called immutable layout getters inside the mapper pixel loop and orientation row/tile loops. Clean candidate `e801ecea0c99e7a8f3a2659b8db8b1408e031733` hoists those getter results into local immutable values in two implementation files. The historical `perf/m08-display-output` branch was local during implementation and measurement; its later integration is recorded below.
 
 ## Retained implementation
 
@@ -79,10 +79,14 @@ Unchanged candidate controls remain about 23.070/23.149 ms for CLAHE, 10.497/10.
 
 The getter-hoist implementation is retained. The strict final normal verifier passes: all complete outputs, measured aggregate FNV fingerprints, resource plans, errors, drops, and measured C++ allocation counts match, with zero errors, drops, calls, bytes, or releases. Both 64×48 normal portable and separately controlled glibc allocation profiles pass at 100 warm-ups/1,000 measured cycles. All 26 reference PGM files are byte-identical with matching hashes. Independent final evidence audit is approved with no required corrections.
 
-The next bounded investigation should quantify CLAHE interpolation and histogram-bin scan costs against this faster baseline before considering a backend change. M9 presets, controls, and synchronized views remain later work.
+The next bounded investigation is quantifying CLAHE interpolation and histogram-bin scan costs against this faster baseline before any backend change. No CLAHE speedup has been established. M9 presets, controls, and synchronized views remain later work.
 
-## Evidence, publication, and open gates
+## Evidence, integration, and open gates
 
-Baseline, stage-profile, validation, disassembly, and candidate artifacts are retained under `out/qa/m08-display-output/`. This local record does not publish `perf/m08-display-output` and does not claim hosted Windows/MSVC CI.
+Baseline, stage-profile, validation, disassembly, and candidate artifacts are retained under `out/qa/m08-display-output/` in the preserved feature worktree. The performance figures remain bound to clean baseline `405c97b721a2699463626d0219cf2b345b7ae30c` and measured clean candidate `e801ecea0c99e7a8f3a2659b8db8b1408e031733`.
+
+[PR #15](https://github.com/m4bulmagd/Lumora/pull/15) merged at 2026-09-09T09:54:34Z as `c4f7fed7b16822de0b81e079b2dd68b18861c580`. Its tree `e3dbb3eba1226090a9908c2818ad6d546da588db` equals verified PR-head `c03251013c38de4e0d7a3f244200c65bbacbb9ba` tree. Fresh local verification at that head passed 54/54 in Debug (60.03 s) and Release (25.33 s). [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34336142497) passed 54/54 in Debug (73.48 s) and Release (23.90 s), plus native X11 1/1 in Debug (0.43 s) and Release (0.04 s). [Windows/MSVC PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34336142419) passed 54/54 in Debug (85.00 s) and Release (39.41 s). Matching [Linux](https://github.com/m4bulmagd/Lumora/actions/runs/34336138823) and [Windows](https://github.com/m4bulmagd/Lumora/actions/runs/34336138794) branch-push runs also passed. The PR head and merge commit are integration revisions, not measurement revisions.
+
+Merged-main verification is pending in the [Linux](https://github.com/m4bulmagd/Lumora/actions/workflows/linux-simulator.yml?query=branch%3Amain) and [Windows](https://github.com/m4bulmagd/Lumora/actions/workflows/windows-simulator.yml?query=branch%3Amain) workflows; no main-CI success is claimed here.
 
 The 2048 33.3 ms/30 FPS goal, designated Windows reference/workstation/freshness and performance acceptance, native Windows 11 visual/DPI and packaging validation, deferred M4/M5 acceptance, and the M6 camera/NIC profile all remain open. No simulator or Linux result establishes the physical Basler format or designated Windows performance.
