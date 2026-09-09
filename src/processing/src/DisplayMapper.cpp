@@ -86,12 +86,16 @@ core::Result<core::DisplayMapping> DisplayMapper::map(
             "Display mapping input and output storage must not overlap.");
     }
 
-    for (std::uint32_t y = 0U; y < source.layout().height(); ++y) {
+    const auto sourceWidth = source.layout().width();
+    const auto sourceHeight = source.layout().height();
+    const auto destinationStrideBytes = destinationLayout.strideBytes();
+    const auto destinationRowBytes = destinationLayout.rowBytes();
+    for (std::uint32_t y = 0U; y < sourceHeight; ++y) {
         const auto sourceRow = source.row(y);
         auto destinationRow = boundedDestination.subspan(
-            static_cast<std::size_t>(y) * destinationLayout.strideBytes(),
-            destinationLayout.rowBytes());
-        for (std::uint32_t x = 0U; x < source.layout().width(); ++x) {
+            static_cast<std::size_t>(y) * destinationStrideBytes,
+            destinationRowBytes);
+        for (std::uint32_t x = 0U; x < sourceWidth; ++x) {
             const auto value = readU16(sourceRow, static_cast<std::size_t>(x) * 2U);
             destinationRow[x] = static_cast<std::byte>(
                 (static_cast<std::uint32_t>(value) + 128U) / 257U);
