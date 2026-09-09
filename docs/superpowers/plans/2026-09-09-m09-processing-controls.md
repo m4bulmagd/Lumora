@@ -32,3 +32,7 @@ The controller waits for the one asynchronous preset load before creating/enabli
 4. **Review and evidence** — build Debug/Release simulator targets, focused tests, complete headless suites and native X11 smoke. Run a desktop rendering smoke for the panel layout. Independent review of changes against this plan and repository architecture; fix findings, then document exact checks and remaining gates. Commit reviewed source/tests/docs. Task 2 publication is a later integration decision.
 
 Root owns shared builds and Git. Independent application and preferences implementations may proceed in parallel with UI work after these contracts are recorded. Record actual RED/GREEN outcomes; do not claim pre-existing lifecycle flakiness fixed by passing repeats.
+
+## Completion checkpoint
+
+Task 1 merged through PR #17 as `f3e1bcc`, and this branch starts from its integration documentation checkpoint `2c02ddb`. All four implementation/verification steps above are complete locally at source `e55cddf`; the [execution record](../../architecture/milestones/m09-processing-controls.md#verification-record) contains review outcomes, Debug/Release and native X11 results, and the exact evidence location. Task 2 remains unpublished. Hosted platform CI and integration are next, with Task 3 and the deferred acceptance gates still separate.

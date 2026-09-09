@@ -1,6 +1,6 @@
 # M9 Task 2: processing controls and Enhanced preview
 
-Date: 2026-09-10. Branch: `codex/m09-processing-controls`, based on integrated Task 1 and documentation checkpoint `2c02ddb`. Status: implementation under local verification.
+Date: 2026-09-10. Branch: `codex/m09-processing-controls`, based on integrated Task 1 and documentation checkpoint `2c02ddb`. Status: implemented, independently reviewed and locally verified; unpublished.
 
 The owner approved publication of Task 1 and continuation with Task 2. The [implementation plan](../../superpowers/plans/2026-09-09-m09-processing-controls.md) refines the original M9 plan against the actual interfaces. Task 1 merged through [PR #17](https://github.com/m4bulmagd/Lumora/pull/17) after Linux/Windows Debug/Release CI passed. This continuation does not close M8 performance, native Windows 11, M6 hardware or milestone acceptance gates.
 
@@ -24,4 +24,19 @@ Processing edits wait for the one asynchronous initial preset load. Loading sett
 
 ## Verification record
 
-Behavioral RED was recorded for the model, panel, service, activation interface, Enhanced presentation and controller binding. Focused GREEN and full Debug/Release/native results will be recorded after review and final checks. Local evidence is under `out/qa/m09-controls/` in the preserved controls worktree. The inherited intermittent lifecycle timeout is not claimed fixed by this work.
+Behavioral RED was recorded for the model, panel, service, activation interface, Enhanced presentation and controller binding. Focused GREEN includes all eight affected CTest entries (`ProcessingControls`, `ProcessingConfiguration`, `Configuration.StartupPreferences`, `FramePresenter`, `WorkstationView`, `MainWindowSmoke`, `LivePipeline` and `WorkstationController`) in 13.21 s before the source commit.
+
+Independent reviews covered application activation, preferences ownership and UI model/controller/panel integration. Findings were fixed and rereviewed with no remaining actionable items: adapter exception containment, complete facade validation, test cleanup lifetime, numeric round-trip precision, canceled-slider release, stale admission preserving the desired draft, and older rejection preserving newer edit status. Local `review-record.md` summarizes the findings and regression evidence.
+
+The final checks below ran from clean source `e55cddf4817f0026621e64c33edae466a6aafebe`. Documentation-only commits follow this source.
+
+| Check | Debug | Release | Evidence label |
+|---|---|---|---|
+| Full simulator build, `cmake --build --preset linux-gcc-<configuration>-sim --parallel 3` | Passed | Passed | `final-debug-build`, `final-release-build` |
+| Full headless suite, `ctest --preset linux-gcc-<configuration>-sim --output-on-failure -LE 'hardware\|desktop'` | 58/58, 79.70 s | 58/58, 28.66 s | `final-debug-test`, `final-release-test` |
+| Native X11, `xvfb-run -a ctest --preset linux-gcc-<configuration>-sim --output-on-failure -L desktop --no-tests=error` | 1/1, 0.12 s | 1/1, 0.06 s | `final-debug-x11`, `final-release-x11` |
+| Actual `ProcessingPanel.CompleteWorkstationKeepsEveryControlReachableAtSupportedSizes` under XCB/Xvfb | 1/1, 0.249 s | Not separately run | `final-native-layout` |
+
+The layout case checks both supported window sizes, horizontal containment, every control's scroll reachability and viewer prominence. Its final 1280×800 screenshot was inspected: labels and entries are readable, and the sidebar scroll leaves the viewer dominant. Xvfb evidence does not verify a physical monitor or Windows DPI. An earlier screenshot-only export failed because this pinned Qt build could not save PNG; BMP export and lossless PNG conversion succeeded without a source change. That failed command is retained alongside the successful final evidence.
+
+Local evidence is under `out/qa/m09-controls/` in the preserved `.worktrees/m09-controls` checkout. `verification-manifest.json` verifies all seven successful command records, matching clean start/end source revisions and SHA-256 log hashes. The final screenshot is `processing-panel-final.bmp` (with a PNG format conversion for inspection). Task 2 has not been published or run hosted platform CI. Next integration is publication and matching Linux/Windows Debug/Release CI, followed by Task 3 Original/Enhanced switching and Compare. No processing algorithm or performance measurement changed; M8 performance and deferred native Windows/hardware/acceptance gates remain open. The inherited intermittent lifecycle timeout is not claimed fixed by this work.
