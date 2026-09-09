@@ -46,7 +46,7 @@ SIM-LIVE produces Mono12 samples with 12 valid bits (0–4095), unpacked into a 
 
 The software is still an engineering/evaluation build. It is **not for clinical use**, must not be used for diagnosis, and must not acquire or store real patient data.
 
-M9 Task 1 is implemented locally, with final verification/review in progress, on the isolated `feat/m09-presets` branch under the approved [preset and persistence contract](docs/architecture/milestones/m09-presets.md). It adds validated preset state and storage; the preset selector, processing controls and Compare view belong to later M9 tasks.
+M9 Task 1 is implemented locally on `feat/m09-presets`: validated presets, explicit Custom editing state, custom save/delete/restore and typed schema3 persistence with migration and recovery. [Local verification](docs/architecture/milestones/m09-presets.md#verification-and-completion) passes 56/56 checks and native X11 smoke in Debug and Release, plus a tests-disabled app/resource linkage check. Independent spec and code-quality reviews are approved; the branch is unpublished and M9 hosted CI remains pending. The preset selector and processing controls are next (M9 Task 2); Compare follows later.
 
 ## Build
 

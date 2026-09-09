@@ -1,8 +1,8 @@
 # M9 Task 1: presets and persistence
 
-Date: 2026-09-09. Status: implemented locally on `feat/m09-presets`; final integration verification and review in progress.
+Date: 2026-09-09. Status: implemented locally on `feat/m09-presets`; Linux verification and independent reviews complete.
 
-The owner approved M9 Task 1 after PR16 integration at main `145d727`. This scoped continuation adds preset domain operations, a shipped JSON resource, typed saved state, and configuration migration. It does not accept M8 performance, designated Windows evidence, deferred native M4/M5 checks, or M6 hardware work. M9 Tasks 2–5 (processing controls, Compare, camera dialogs, fullscreen) remain later work. No application startup or live activation changes belong to Task 1.
+The owner approved M9 Task 1 after PR16 integration at main `145d727`. This scoped continuation adds preset domain operations, a shipped JSON resource, typed saved state, and configuration migration. It does not accept M8 performance, designated Windows evidence, deferred native M4/M5 checks, or M6 hardware work. M9 Tasks 2–5 (processing controls, Compare, camera dialogs, fullscreen) remain later work. Preset activation, startup selection policy and UI controls remain later work; Task 1 only extends the existing settings load/save path.
 
 ## Domain and ownership
 
@@ -28,12 +28,28 @@ Migration is explicit 1 → 2 (startup becomes null) then 2 → 3 (empty validat
 
 An invalid configuration/preset envelope is a whole-file failure, preserving existing ConfigurationStore quarantine/default behavior. A missing or invalid shipped resource is an installation error and must propagate without quarantining a valid user file. The JSON boundary rejects lossy UTF-8 conversion of application strings so IDs and names round-trip exactly. A malformed custom entry is reported and skipped; first valid duplicate ID wins, so an invalid occurrence does not reserve an ID. Reserved IDs/builtIn=true, future versions/stages, incomplete pipelines and bad parameters are rejected per entry. Valid entries survive. Unknown/mismatched selected IDs recover to custom while preserving a valid active pipeline; an invalid active pipeline recovers to Original. Explicit valid selection with duplicate values is preserved. Encode is strict: invalid state cannot replace an existing valid file. Existing startup persistence continues to preserve the complete configuration; no new I/O or worker is introduced into application/UI/processing.
 
+The supported schema, customPresets array and legacy object form the required envelope. An absent or wrongly typed activePipeline recovers to Original; an absent or wrongly typed selectedId recovers to Custom when active values are valid. Unknown fields in pipeline, stage, parameter and recipe records are rejected, including a persisted runtime revision. Both UTF-8 and unpaired UTF-16 conversion failures are rejected.
+
 ## Verification and completion
 
-Use independent literal expectations for behavior, not only codec round trips. Cover all built-ins and exact Standard, missing/reordered/invalid disabled stages, immutable/reserved IDs, atomic failures, edit-to-Custom, revision/overflow, duplicate-value identity and selected-delete preservation. Cover resource loading from a different working directory, numeric/Unicode round trips, every parameter/mode, partial-entry recovery, selection recovery, malformed envelopes, schema 1 → 2 → 3 equivalence, legacy/startup/other-section preservation, and atomic failed save. Run focused Debug/Release tests, full suites and native smoke, plus tests-disabled app/configuration resource linkage. Update plans/traceability/progress with implementation evidence. Commit locally in the isolated branch; publication and later UI development are separate work.
+The domain is committed at `4b26d8b`, configuration/resource/migration at `609dfa1`, and the final synthetic injected-recipe tests and contract clarifications at `e3e427a`. Domain fixtures prove the application accepts injected High Contrast/Soft Detail recipes; independent literal resource tests verify the official values. Production keeps those recipes in JSON only.
 
-Configuration edge rulings: the supported schema, customPresets array and legacy object define the required envelope; absent/wrong-type activePipeline recovers to Original, and absent/wrong-type selectedId recovers to Custom when active values are valid. Reject unknown fields in pipeline/stage/parameter and custom/resource recipe records, including an unexpected persisted runtime revision. Reject lossy string conversion in both directions (invalid UTF-8 or unpaired UTF-16). A resource check before reading/defaulting/quarantining the user file is an acceptable simple installation-error boundary.
+All final full-suite checks ran at clean `e3e427a`, with unchanged Git revision and clean status at both ends of each recorded command:
 
-## Local implementation checkpoint
+| Local Linux/GCC check | Debug | Release |
+|---|---|---|
+| Complete simulator build | Passed | Passed |
+| Headless CTest suite | 56/56, 59.63 s | 56/56, 25.66 s |
+| Native X11 smoke | 1/1, 0.11 s | 1/1, 0.05 s |
+| Focused preset domain | 8/8 cases | 8/8 cases |
+| Focused configuration | All 3 registrations passed | All 3 registrations passed |
 
-Domain operations are committed at `4b26d8b`; resource/codec/schema migration at `609dfa1`. Eight application cases and all three configuration registrations pass in Debug and Release. The tests-disabled Release app builds and links the embedded preset resource and loading factory without GoogleTest. Full-suite/native verification and final review are pending at this checkpoint. Main remains at `145d727`; this branch is not published or accepted.
+The separate tests-OFF/Basler-OFF Release application build passed at production source `609dfa1`; the later checkpoint changes tests/docs only. Symbol inspection confirms both `qInitResources_default_presets()` and `PresetCodec::loadDefaultRepository()` in the app, with no GoogleTest symbols. This is independent of the resource-lifetime test, whose direct RCC reference could otherwise mask a static-library linkage problem.
+
+The checks cover owned/atomic state transitions, immutable/reserved IDs, complete disabled-stage validation, classification versus explicit identity, revisions/overflow, strict restore, complete recipe parameters/modes, exact uint64 and Unicode persistence, indexed partial recovery, migration equivalence, unrelated settings/startup preservation and failed-save byte preservation. A real Qt resource unregister/register test confirms installation failures neither quarantine a valid user file nor invent defaults. The existing startup service code is unchanged.
+
+The preset domain spec/quality review is approved after a test-only injection refinement. The independent whole-branch spec review, including the configuration adapter, is approved with no actionable findings. The independent configuration and whole-branch quality reviews are also approved with no actionable findings. Reports and immutable command/log/result records remain locally under `.superpowers/sdd/2026-09-09-m09-presets/` and `out/qa/m09-presets/validation/`. Labels `final-debug-*` and `final-release-*` record the full/native checks; `app-no-tests-build` and `app-no-tests-linkage.json` record the standalone app proof. Earlier RED records intentionally capture missing behavior before implementation.
+
+The local overrides reuse the pinned dynamic dependency installation through ignored `CMakeUserPresets.json`. Builds use the canonical `linux-gcc-debug-sim` and `linux-gcc-release-sim` build/test presets; headless checks exclude `hardware|desktop`, while native checks run `xvfb-run -a ctest --preset <preset> --output-on-failure -L desktop --no-tests=error`. The separate app override sets tests and benchmarks OFF. This configuration-only work adds no performance claim or benchmark rerun.
+
+The branch is committed locally and remains unpublished. `main` retains the PR16 integration checkpoint. Linux/Windows hosted CI for M9 and milestone acceptance remain pending; M8 performance, designated/native Windows validation and M6 hardware gates remain open. The next development slice is M9 Task 2: the preset selector and coalesced processing controls, using these typed domain and persistence APIs.

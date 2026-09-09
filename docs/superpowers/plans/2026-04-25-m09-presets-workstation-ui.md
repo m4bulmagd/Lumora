@@ -45,7 +45,7 @@ The owner-authorized [2026-09-09 preset contract](../../architecture/milestones/
 - Consumes: `PipelineDefinition`, `processing::standardPipeline()`, configuration schema, and built-in JSON resource.
 - Produces: `PresetId`, versioned `Preset`, typed `PresetState`, and `PresetRepository::list/find/apply/edit/classify/saveCustom/deleteCustom/restore/snapshot`. JSON resource loading and persistence belong to configuration; the application model is Qt-free.
 
-- [ ] **Step 1: Write failing built-in and Custom-transition tests**
+- [x] **Step 1: Write failing built-in and Custom-transition tests**
 
 ```cpp
 TEST(PresetRepository, BuiltInsAreImmutableAndEditsBecomeCustom) {
@@ -60,23 +60,23 @@ TEST(PresetRepository, BuiltInsAreImmutableAndEditsBecomeCustom) {
 }
 ```
 
-- [ ] **Step 2: Verify missing repository fails**
+- [x] **Step 2: Verify missing repository fails**
 
 Build `lumora_application_tests`; expect failure.
 
-- [ ] **Step 3: Define complete built-in presets**
+- [x] **Step 3: Define complete built-in presets**
 
 Create Original, Standard, High Contrast, Soft Detail, and Custom. Original disables all optional enhancement stages while retaining Normalize and WindowLevel. Standard must normalize equal to `processing::standardPipeline()`. Every file entry includes schema version, order version, stable ID, neutral description, fixed canonical stage order, enabled flags, and all parameter values. Reordered definitions are invalid.
 
-- [ ] **Step 4: Implement parsing and classification**
+- [x] **Step 4: Implement parsing and classification**
 
 Validate built-ins through `PipelineCompiler`. Compare normalized pipeline values, not display labels, when classifying a definition. User presets use distinct IDs and may duplicate parameters but not IDs.
 
-- [ ] **Step 5: Test round-trip and invalid preset isolation**
+- [x] **Step 5: Test round-trip and invalid preset isolation**
 
 Cover missing stage, out-of-range value, unknown future stage, duplicate ID, built-in deletion/overwrite, custom save/delete, and schema migration. Invalid custom entries are reported and skipped without losing valid entries.
 
-- [ ] **Step 6: Commit presets**
+- [x] **Step 6: Commit presets**
 
 ```powershell
 git add src/application src/configuration config/default-presets.json tests/unit/application/PresetRepositoryTests.cpp
