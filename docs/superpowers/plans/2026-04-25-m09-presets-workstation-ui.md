@@ -43,19 +43,20 @@ The owner-authorized [2026-09-09 preset contract](../../architecture/milestones/
 
 **Interfaces:**
 - Consumes: `PipelineDefinition`, `processing::standardPipeline()`, configuration schema, and built-in JSON resource.
-- Produces: `PresetId`, `Preset { id, name, description, builtIn, pipeline }`, `PresetRepository::list/find/apply/saveCustom/deleteCustom`, and typed preset persistence.
+- Produces: `PresetId`, versioned `Preset`, typed `PresetState`, and `PresetRepository::list/find/apply/edit/classify/saveCustom/deleteCustom/restore/snapshot`. JSON resource loading and persistence belong to configuration; the application model is Qt-free.
 
 - [ ] **Step 1: Write failing built-in and Custom-transition tests**
 
 ```cpp
 TEST(PresetRepository, BuiltInsAreImmutableAndEditsBecomeCustom) {
-    auto repository = loadDefaultPresets();
+    auto repository = makeRepository(); // Test-local shipped recipe fixture.
     auto standard = repository.find(PresetId{"standard"}).value();
     EXPECT_TRUE(standard.builtIn);
     EXPECT_FALSE(repository.deleteCustom(standard.id).hasValue());
     auto edited = standard.pipeline;
     setGamma(edited, 1.4);
-    EXPECT_EQ(repository.classify(edited), PresetId{"custom"});
+    ASSERT_TRUE(repository.edit(edited).hasValue());
+    EXPECT_EQ(repository.snapshot().selectedId, PresetId{"custom"});
 }
 ```
 

@@ -24,20 +24,22 @@ using lumora::processing::ClaheParameters;
 using lumora::processing::PipelineDefinition;
 using lumora::processing::SharpenParameters;
 
-[[nodiscard]] PipelineDefinition highContrastPipeline() {
+[[nodiscard]] PipelineDefinition injectedHighContrastPipeline() {
     auto definition = lumora::processing::standardPipeline();
-    std::get<BrightnessContrastParameters>(definition.stages[2].parameters).contrast = 1.25;
-    std::get<ClaheParameters>(definition.stages[4].parameters).clipLimit = 3.0;
+    std::get<BrightnessContrastParameters>(definition.stages[2].parameters).contrast = 1.6;
+    std::get<ClaheParameters>(definition.stages[4].parameters).clipLimit = 4.5;
     return definition;
 }
 
-[[nodiscard]] PipelineDefinition softDetailPipeline() {
+[[nodiscard]] PipelineDefinition injectedSoftDetailPipeline() {
     auto definition = lumora::processing::standardPipeline();
-    std::get<ClaheParameters>(definition.stages[4].parameters).clipLimit = 1.5;
-    std::get<SharpenParameters>(definition.stages[6].parameters).amount = 0.5;
+    std::get<ClaheParameters>(definition.stages[4].parameters).clipLimit = 1.2;
+    std::get<SharpenParameters>(definition.stages[6].parameters).amount = 0.7;
     return definition;
 }
 
+// High Contrast and Soft Detail bodies are injected resource data. These valid
+// synthetic values intentionally differ from the official resource recipes.
 [[nodiscard]] std::vector<Preset> shippedPresets() {
     return {
         {PresetId{"original"}, "Original", "Original full-range processing.", true,
@@ -45,9 +47,9 @@ using lumora::processing::SharpenParameters;
         {PresetId{"standard"}, "Standard", "Balanced processing defaults.", true,
             1U, 1U, lumora::processing::standardPipeline()},
         {PresetId{"high-contrast"}, "High Contrast", "Higher local and global contrast.",
-            true, 1U, 1U, highContrastPipeline()},
+            true, 1U, 1U, injectedHighContrastPipeline()},
         {PresetId{"soft-detail"}, "Soft Detail", "Gentler local contrast and sharpening.",
-            true, 1U, 1U, softDetailPipeline()},
+            true, 1U, 1U, injectedSoftDetailPipeline()},
         {PresetId{"custom"}, "Custom", "Current manually edited processing.", false,
             1U, 1U, lumora::processing::defaultPipeline()},
     };
@@ -132,10 +134,10 @@ TEST(PresetRepository, CreatesFindsAppliesAndReturnsOwnedPresetState) {
     expectPipelineExactly(
         presetWithId(listed, "standard").pipeline,
         lumora::processing::standardPipeline());
-    EXPECT_TRUE(lumora::application::validatePresetPipeline(
-        presetWithId(listed, "high-contrast").pipeline).hasValue());
-    EXPECT_TRUE(lumora::application::validatePresetPipeline(
-        presetWithId(listed, "soft-detail").pipeline).hasValue());
+    expectPipelineExactly(presetWithId(listed, "high-contrast").pipeline,
+        injectedHighContrastPipeline());
+    expectPipelineExactly(presetWithId(listed, "soft-detail").pipeline,
+        injectedSoftDetailPipeline());
 
     auto foundStandard = repository.find(PresetId{"standard"});
     ASSERT_TRUE(foundStandard.hasValue());
@@ -153,23 +155,28 @@ TEST(PresetRepository, CreatesFindsAppliesAndReturnsOwnedPresetState) {
         foundAgain.value().pipeline, lumora::processing::standardPipeline());
     EXPECT_EQ(repository.list().size(), 5U);
 
+    auto appliedSoftDetail = repository.apply(PresetId{"soft-detail"});
+    ASSERT_TRUE(appliedSoftDetail.hasValue());
+    expectPipelineExactly(appliedSoftDetail.value(), injectedSoftDetailPipeline());
+    EXPECT_EQ(repository.snapshot().selectedId, PresetId{"soft-detail"});
+
     auto applied = repository.apply(PresetId{"high-contrast"});
     ASSERT_TRUE(applied.hasValue());
-    expectPipelineExactly(applied.value(), highContrastPipeline());
+    expectPipelineExactly(applied.value(), injectedHighContrastPipeline());
     auto state = repository.snapshot();
     EXPECT_EQ(state.selectedId, PresetId{"high-contrast"});
-    expectPipelineExactly(state.activePipeline, highContrastPipeline());
+    expectPipelineExactly(state.activePipeline, injectedHighContrastPipeline());
 
     std::get<ClaheParameters>(applied.value().stages[4].parameters).clipLimit = 39.0;
     state.activePipeline.stages.clear();
     const auto ownedState = repository.snapshot();
     EXPECT_EQ(ownedState.selectedId, PresetId{"high-contrast"});
-    expectPipelineExactly(ownedState.activePipeline, highContrastPipeline());
+    expectPipelineExactly(ownedState.activePipeline, injectedHighContrastPipeline());
 
     const auto custom = repository.find(PresetId{"custom"});
     ASSERT_TRUE(custom.hasValue());
     EXPECT_FALSE(custom.value().builtIn);
-    expectPipelineExactly(custom.value().pipeline, highContrastPipeline());
+    expectPipelineExactly(custom.value().pipeline, injectedHighContrastPipeline());
 
     const auto beforeCustomApply = repository.snapshot();
     const auto customApply = repository.apply(PresetId{"custom"});
