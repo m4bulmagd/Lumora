@@ -1,6 +1,6 @@
 # M9 Task 4A: stopped exposure and gain settings
 
-Date: 2026-09-10. Branch: `codex/m09-camera-settings`. Status: implemented, independently reviewed and committed locally; clean Linux Debug/Release and native verification passed. Unpublished. This is a bounded part of Task 4, not completion or acceptance of M9.
+Date: 2026-09-10. Branch: `codex/m09-camera-settings`. Status: implemented, independently reviewed and merged through PR #20 after Linux/Windows Debug/Release CI passed. This is a bounded part of Task 4, not completion or acceptance of M9.
 
 The owner authorized Compare publication, Linux/Windows Debug/Release CI and merge when both pass, followed by camera settings development. The [refined plan](../../superpowers/plans/2026-09-10-m09-camera-settings.md) extends the existing M5 startup contract and single preferences writer. [Compare integration](m09-compare.md) is recorded separately.
 
@@ -32,7 +32,7 @@ The new integration cases cover stopped Apply/readback/fresh Confirm/Start, reta
 
 Independent task and whole-branch source reviews are approved with no remaining actionable findings. Development logs and screenshots are retained under `out/qa/m09-camera-settings/` in the preserved settings worktree; task/review records are under `.superpowers/sdd/2026-09-10-m09-camera-settings/`.
 
-Hosted CI for Task 4A, native Windows 11 visual/DPI checks, hardware validation, the 30 FPS target and separate milestone acceptance remain open. The inherited intermittent lifecycle timeout remains unresolved; a passing rerun is not a synchronization fix.
+At this development checkpoint, hosted CI for Task 4A had not run; the subsequent passing PR checks are recorded below. Native Windows 11 visual/DPI checks, hardware validation, the 30 FPS target and separate milestone acceptance remain open. The inherited intermittent lifecycle timeout remains unresolved; a passing run is not a synchronization fix.
 
 
 ## Final source verification
@@ -52,4 +52,18 @@ The final native case checks 560×560 and 720×640 and saves two `camera-setting
 
 `out/qa/m09-camera-settings/verification-manifest.json` validates seven successful immutable command records, matching clean source revisions and SHA-256 log hashes. `final-screenshots.json` binds both original BMP hashes to the native command and source. `review-record.md` preserves preflight, task and final review records. The independent final evidence/documentation audit approved all seven command chains, both screenshot hashes/pixel-identical PNG conversions, review closures and Compare integration evidence. Its stale traceability-status finding was corrected; no actionable findings remain. The audit is preserved in the ignored execution ledger.
 
-The branch remains local for the next publication decision and Linux/Windows Debug/Release CI. The next bounded development step is low-FPS watchdog coverage/correction before enabling frame-rate editing. Remaining Task 4 resource rebinding, capability/schema, per-camera and administrator-orientation work and Task 5 fullscreen/preferences remain separate. Neither the inherited lifecycle timeout nor the outstanding performance and acceptance gates is closed by these checks.
+At this final source-verification checkpoint, the branch remained local awaiting publication and Linux/Windows Debug/Release CI. The subsequent integration is recorded below. Remaining Task 4 resource rebinding, capability/schema, per-camera and administrator-orientation work and Task 5 fullscreen/preferences remain separate. Neither the inherited lifecycle timeout nor the outstanding performance and acceptance gates is closed by these checks.
+
+## PR #20 integration
+
+On 2026-09-10, [PR #20](https://github.com/m4bulmagd/Lumora/pull/20) merged reviewed publication head `d808f15cba99323828e489dea719b8c4fa9b47b7` as `ad5e5088a89d9a7f98c93ffa646350c3d28c7d97`. The clean camera-settings worktree was fetched and fast-forwarded to the merge. The empty `git diff d808f15 ad5e508` proves the merged tree is identical to the reviewed publication-head tree. Production source remains unchanged from independently reviewed `0b6f8f4590bc700f79f3b22f55041a6e81c07f14`.
+
+| Check | Debug | Release | Evidence |
+|---|---|---|---|
+| Fresh local publication-head full headless suite | 62/62, 65.53 s | 62/62, 26.16 s | Publication-head records under `out/qa/m09-camera-settings/` |
+| [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34493588520) | 62/62, 50.24 s; X11 1/1, 0.09 s | 62/62, 22.07 s; X11 1/1, 0.03 s | `out/qa/m09-camera-settings/pr20-linux-job.log` |
+| [Windows PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34493588645) | 62/62, 101.03 s | 62/62, 41.73 s | `out/qa/m09-camera-settings/pr20-windows-job.log` |
+
+All required PR job steps passed. Optional Windows stress was skipped. No CI correction or rerun was needed. Post-merge `main` CI has not been checked. Hosted Windows CI does not supply native Windows 11 visual/DPI, hardware, performance or formal acceptance evidence.
+
+The follow-on development sequence is a separate local low-FPS watchdog correction, followed by numeric stopped-FPS editing. Those changes are outside this integrated Task 4A checkpoint. The integrated Task 4A dialog continues to show FPS, ROI, format and acquisition mode read-only. Same-device resource rebinding, richer capability flags, per-camera records, administrator orientation and Task 5 fullscreen/preferences remain separate. The inherited lifecycle timeout, 30 FPS target, native Windows/hardware gates and formal M9 acceptance remain open; M9 is not complete.
