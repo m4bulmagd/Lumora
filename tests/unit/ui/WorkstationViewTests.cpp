@@ -548,4 +548,75 @@ TEST(WorkstationView, SafetyIndicationsRemainVisibleWhenReparentedFullscreen) {
     EXPECT_TRUE(overlay->text().startsWith(QStringLiteral("PAUSED\n")));
 }
 
+
+TEST(WorkstationView, DisplayChoicesFollowFrameAvailabilityAndKeepCompletedSelection) {
+    WorkstationView view;
+    view.show();
+    QCoreApplication::processEvents();
+    auto* original = view.findChild<QAction*>(QStringLiteral("originalModeAction"));
+    auto* enhanced = view.findChild<QAction*>(QStringLiteral("enhancedModeAction"));
+    auto* compare = view.findChild<QAction*>(QStringLiteral("compareModeAction"));
+    auto* reason = view.findChild<QLabel*>(QStringLiteral("displayModeAvailabilityReason"));
+    ASSERT_NE(original, nullptr);
+    ASSERT_NE(enhanced, nullptr);
+    ASSERT_NE(compare, nullptr);
+    ASSERT_NE(reason, nullptr);
+    EXPECT_FALSE(original->isEnabled());
+    EXPECT_FALSE(enhanced->isEnabled());
+    EXPECT_FALSE(compare->isEnabled());
+
+    view.setDisplayModeAvailability(true, false);
+    view.setPresentedDisplayMode(lumora::ui::DisplayMode::Original);
+    EXPECT_TRUE(original->isEnabled());
+    EXPECT_FALSE(enhanced->isEnabled());
+    EXPECT_FALSE(compare->isEnabled());
+    EXPECT_TRUE(reason->isVisible());
+    EXPECT_FALSE(reason->text().isEmpty());
+    view.setDisplayModeAvailability(true, true);
+    EXPECT_TRUE(enhanced->isEnabled());
+    EXPECT_TRUE(compare->isEnabled());
+    EXPECT_FALSE(reason->isVisible());
+    EXPECT_TRUE(original->isChecked());
+    EXPECT_FALSE(enhanced->isChecked());
+    EXPECT_FALSE(compare->isChecked());
+
+    int requests = 0;
+    QObject::connect(&view, &WorkstationView::displayModeRequested, &view,
+        [&](lumora::ui::DisplayMode mode) {
+            ++requests;
+            EXPECT_EQ(mode, lumora::ui::DisplayMode::Compare);
+        });
+    compare->trigger();
+    EXPECT_EQ(requests, 1);
+    EXPECT_TRUE(original->isChecked());
+    EXPECT_FALSE(compare->isChecked());
+    view.setPresentedDisplayMode(lumora::ui::DisplayMode::Compare);
+    EXPECT_TRUE(compare->isChecked());
+    EXPECT_FALSE(original->isChecked());
+    EXPECT_FALSE(enhanced->isChecked());
+    EXPECT_EQ(view.imageViewport()->accessibleName(), QStringLiteral("Original and Enhanced comparison viewport"));
+    EXPECT_EQ(view.findChild<QLabel*>(QStringLiteral("previewModeLabel"))->text(), QStringLiteral("Compare"));
+}
+
+TEST(WorkstationView, LiveProcessingWarningsDoNotDisableAFrozenPair) {
+    WorkstationView view;
+    view.show();
+    view.setDisplayModeAvailability(true, true);
+    view.setPresentedDisplayMode(lumora::ui::DisplayMode::Compare);
+    view.setStatus({ViewerState::Paused, FrameFreshness::Current,
+        std::chrono::system_clock::time_point{}, std::chrono::milliseconds{700}});
+    lumora::processing::ProcessorStatus status;
+    status.mode = lumora::processing::ProcessorMode::OriginalOnlyLatched;
+    view.setProcessingStatus(status);
+    const auto* compare = view.findChild<QAction*>(QStringLiteral("compareModeAction"));
+    const auto* overlay = view.findChild<QLabel*>(QStringLiteral("frameStateOverlay"));
+    ASSERT_NE(compare, nullptr);
+    ASSERT_NE(overlay, nullptr);
+    EXPECT_TRUE(compare->isEnabled());
+    EXPECT_TRUE(compare->isChecked());
+    EXPECT_TRUE(overlay->isVisible());
+    EXPECT_TRUE(overlay->text().contains(QStringLiteral("PAUSED")));
+    EXPECT_TRUE(overlay->text().contains(QStringLiteral("700")));
+}
+
 }  // namespace

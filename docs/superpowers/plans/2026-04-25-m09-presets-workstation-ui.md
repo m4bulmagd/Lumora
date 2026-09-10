@@ -141,6 +141,8 @@ git commit -m "feat(ui): add coalesced enhancement controls"
 
 ### Task 3: Original, Enhanced, and synchronized Compare presentation
 
+The owner-authorized [2026-09-10 refined plan](2026-09-10-m09-compare.md) and [Task 3 milestone record](../../architecture/milestones/m09-compare.md) refine this task against the integrated viewer. They extend the existing ImageViewport into one atomic canvas with a shared transform instead of introducing a second widget, preserving its standalone API. The refined plan specifies token/mode/owner paint receipts, frozen-bundle switching and fallback/recovery semantics; its verification checklist records completion.
+
 **Files:**
 - Create: `src/ui/include/lumora/ui/DisplayMode.hpp`
 - Create: `src/ui/include/lumora/ui/ComparisonViewport.hpp`

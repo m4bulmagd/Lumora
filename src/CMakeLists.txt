@@ -243,6 +243,7 @@ add_library(
   lumora_ui
   STATIC
   ui/include/lumora/ui/FramePresenter.hpp
+  ui/include/lumora/ui/DisplayMode.hpp
   ui/include/lumora/ui/CameraStartupPanel.hpp
   ui/include/lumora/ui/ImageViewport.hpp
   ui/include/lumora/ui/MainWindow.hpp

@@ -2,6 +2,7 @@
 
 #include <lumora/core/Frame.hpp>
 #include <lumora/core/LatestValueSlot.hpp>
+#include <lumora/ui/DisplayMode.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -27,6 +28,8 @@ public:
     void pause();
     void resume();
     void resetSource(core::LatestValueSlot<core::FrameBundle>& freshSlot);
+    void setDisplayMode(DisplayMode mode);
+    [[nodiscard]] DisplayMode displayMode() const noexcept;
     [[nodiscard]] std::uint64_t displayedFrameCount() const noexcept;
     [[nodiscard]] std::shared_ptr<const core::FrameBundle> presentedBundle()
         const noexcept;
