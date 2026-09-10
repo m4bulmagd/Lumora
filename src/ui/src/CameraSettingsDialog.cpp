@@ -45,6 +45,15 @@ bool validRange(const camera::NumericCapability& capability) {
         && capability.increment > 0;
 }
 
+bool supportsFrameRatePrecision(const NumericEntry& entry, const camera::NumericCapability& capability) {
+    if (!validRange(capability) || capability.minimum <= 0.0) return false;
+    // Fixed-decimal rounding must be finer than the closest doubles anywhere
+    // in the positive range. Qt's decimal limit cannot preserve all denormals.
+    const auto smallestGap = capability.minimum - std::nextafter(capability.minimum, 0.0);
+    const auto decimalQuantum = std::pow(10.0, -entry.decimals());
+    return smallestGap > decimalQuantum;
+}
+
 }  // namespace
 
 struct CameraSettingsDialog::Impl final {
@@ -60,6 +69,7 @@ struct CameraSettingsDialog::Impl final {
     bool invalidated{false};
     QComboBox* exposureMode;
     QComboBox* gainMode;
+    NumericEntry* frameRateValue;
     NumericEntry* exposureValue;
     NumericEntry* gainValue;
     QLabel* sourceLabel;
@@ -78,6 +88,11 @@ struct CameraSettingsDialog::Impl final {
         auto* form = new QFormLayout;
         form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+        frameRateValue = numeric(form, "cameraFrameRateValue", CameraSettingsDialog::tr("&Frame rate (fps)"));
+        // Qt caps decimal places at DBL_MAX_10_EXP + DBL_DIG. Configure before
+        // assigning bounds or values, which QDoubleSpinBox otherwise rounds.
+        frameRateValue->setDecimals(std::numeric_limits<double>::max_exponent10
+            + std::numeric_limits<double>::digits10);
         exposureMode = mode(form, "cameraExposureMode", CameraSettingsDialog::tr("&Exposure mode"));
         exposureValue = numeric(form, "cameraExposureValue", CameraSettingsDialog::tr("Exposure (&µs)"));
         gainMode = mode(form, "cameraGainMode", CameraSettingsDialog::tr("&Gain mode"));
@@ -106,6 +121,12 @@ struct CameraSettingsDialog::Impl final {
             submitted = draft;
             submissionAdmitted = false;
             emit dialog.settingsApplyRequested(source->sessionGeneration, *source->actualIdentity, *draft);
+        });
+        QObject::connect(frameRateValue, &QDoubleSpinBox::valueChanged, &dialog, [this](double value) {
+            if (draft) {
+                draft->requestedFps = value;
+                refresh();
+            }
         });
         QObject::connect(exposureValue, &QDoubleSpinBox::valueChanged, &dialog, [this](double value) {
             if (draft && draft->exposure.mode == camera::ExposureMode::Manual) {
@@ -206,6 +227,7 @@ struct CameraSettingsDialog::Impl final {
         }
         exposureMode->setCurrentIndex(exposureMode->findData(static_cast<int>(draft->exposure.mode)));
         gainMode->setCurrentIndex(gainMode->findData(static_cast<int>(draft->gain.mode)));
+        initializeNumeric(frameRateValue, capabilities.frameRate, draft->requestedFps);
         initializeNumeric(exposureValue, capabilities.exposure, draft->exposure.requestedMicroseconds);
         initializeNumeric(gainValue, capabilities.gain, draft->gain.requestedDb);
         if (presentation.selectedCameraId != source->actualIdentity)
@@ -273,9 +295,8 @@ struct CameraSettingsDialog::Impl final {
             ? CameraSettingsDialog::tr("Camera: %1").arg(QString::fromStdString(source->actualIdentity->value))
             : CameraSettingsDialog::tr("Camera unavailable"));
         if (draft) {
-            fixedFields->setText(CameraSettingsDialog::tr("Read-only settings\nFrame rate: %1 fps · Format: %2\nROI: x %3, y %4, width %5, height %6\nAcquisition: %7")
-                .arg(draft->requestedFps ? number(dialog, *draft->requestedFps) : CameraSettingsDialog::tr("Automatic"),
-                    QString::fromStdString(draft->pixelFormat.canonicalName))
+            fixedFields->setText(CameraSettingsDialog::tr("Read-only settings\nFormat: %1\nROI: x %2, y %3, width %4, height %5\nAcquisition: %6")
+                .arg(QString::fromStdString(draft->pixelFormat.canonicalName))
                 .arg(draft->roi.x).arg(draft->roi.y).arg(draft->roi.width).arg(draft->roi.height)
                 .arg(draft->acquisitionMode == camera::AcquisitionMode::Continuous
                     ? CameraSettingsDialog::tr("Continuous") : CameraSettingsDialog::tr("Triggered")));
@@ -303,16 +324,23 @@ struct CameraSettingsDialog::Impl final {
         } else {
             editable = true;
         }
-        const bool valid = draft && source && source->capabilities
+        const bool frameRatePrecisionSupported = source && source->capabilities
+            && supportsFrameRatePrecision(*frameRateValue, source->capabilities->frameRate);
+        const bool valid = draft && source && source->capabilities && frameRatePrecisionSupported
+            && draft->requestedFps && std::isfinite(*draft->requestedFps) && *draft->requestedFps > 0.0
             && exposureMode->currentIndex() >= 0 && gainMode->currentIndex() >= 0
             && camera::validateCameraConfiguration(*draft, *source->capabilities).hasValue();
-        if (editable && !valid) {
-            message = CameraSettingsDialog::tr("Settings unavailable or outside the camera's supported ranges. Review exposure, gain and camera capabilities before applying.");
+        if (editable && source && source->capabilities && validRange(source->capabilities->frameRate)
+            && source->capabilities->frameRate.minimum > 0.0 && !frameRatePrecisionSupported) {
+            message = CameraSettingsDialog::tr("The camera's frame-rate range exceeds this editor's numeric precision. Camera settings cannot be applied here.");
+        } else if (editable && !valid) {
+            message = CameraSettingsDialog::tr("Settings unavailable or outside the camera's supported ranges. Review frame rate, exposure, gain and camera capabilities before applying.");
         } else if (editable) {
             message = CameraSettingsDialog::tr("Apply settings, review the actual readback, then explicitly Confirm before Start.");
         }
         exposureMode->setEnabled(editable && exposureMode->count() > 0);
         gainMode->setEnabled(editable && gainMode->count() > 0);
+        frameRateValue->setEnabled(editable && draft && frameRatePrecisionSupported);
         exposureValue->setEnabled(editable && draft && draft->exposure.mode == camera::ExposureMode::Manual
             && source && source->capabilities && validRange(source->capabilities->exposure));
         gainValue->setEnabled(editable && draft && draft->gain.mode == camera::GainMode::Manual
