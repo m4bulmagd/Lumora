@@ -1,6 +1,6 @@
 # M9 Task 4A: stopped exposure and gain settings
 
-Date: 2026-09-10. Branch: `codex/m09-camera-settings`. Status: implementation in local verification; unpublished. This is a bounded part of Task 4, not completion or acceptance of M9.
+Date: 2026-09-10. Branch: `codex/m09-camera-settings`. Status: implemented, independently reviewed and committed locally; clean Linux Debug/Release and native verification passed. Unpublished. This is a bounded part of Task 4, not completion or acceptance of M9.
 
 The owner authorized Compare publication, Linux/Windows Debug/Release CI and merge when both pass, followed by camera settings development. The [refined plan](../../superpowers/plans/2026-09-10-m09-camera-settings.md) extends the existing M5 startup contract and single preferences writer. [Compare integration](m09-compare.md) is recorded separately.
 
@@ -30,6 +30,26 @@ Independent Task A/C review passed. Task B review found that an intermediate con
 
 The new integration cases cover stopped Apply/readback/fresh Confirm/Start, retained resources and source continuity, stale generation/identity and invalid-value rejection, pending/streaming rejection, persistence and next-launch Resume, newer unconfirmed edits, slow preferences loading, mismatched selected identity, failed Apply and priority Disconnect. Existing M5 startup and processing-control tests remain part of full verification.
 
-Independent task and whole-branch source reviews are approved. Final source-bound verification will be recorded below after the clean source commit. Development logs and screenshots are retained under `out/qa/m09-camera-settings/` in the preserved settings worktree; task/review records are under `.superpowers/sdd/2026-09-10-m09-camera-settings/`.
+Independent task and whole-branch source reviews are approved with no remaining actionable findings. Development logs and screenshots are retained under `out/qa/m09-camera-settings/` in the preserved settings worktree; task/review records are under `.superpowers/sdd/2026-09-10-m09-camera-settings/`.
 
 Hosted CI for Task 4A, native Windows 11 visual/DPI checks, hardware validation, the 30 FPS target and separate milestone acceptance remain open. The inherited intermittent lifecycle timeout remains unresolved; a passing rerun is not a synchronization fix.
+
+
+## Final source verification
+
+Implementation commit `28cb1c3` is followed by the reviewed compiler correction `0b6f8f4590bc700f79f3b22f55041a6e81c07f14`. The initial clean Debug run passed 62/62 in 64.86 s, but the subsequent Release build reported GCC 15 `-Wmaybe-uninitialized` during an inlined `std::variant` copy in the new command helper. The helper now borrows the caller's command synchronously instead of making an intermediate moved value; `LivePipeline::post` still receives and queues its own copy. No warning was disabled or timeout extended. Release rebuilt successfully and passed the eight focused registrations in 5.17 s. The failed build and earlier behavioral RED runs are preserved.
+
+All final checks below ran from clean `0b6f8f4590bc700f79f3b22f55041a6e81c07f14`, with unchanged clean start/end revisions. Documentation-only completion follows this source.
+
+| Check | Debug | Release | Evidence labels |
+|---|---|---|---|
+| Full simulator build, `cmake --build --preset linux-gcc-<configuration>-sim -j 3` | Passed | Passed | `verified-debug-build`, `verified-release-build` |
+| Full headless suite, `ctest --preset linux-gcc-<configuration>-sim --output-on-failure -LE 'hardware\|desktop'` | 62/62, 65.95 s | 62/62, 26.67 s | `verified-debug-test`, `verified-release-test` |
+| Native X11 desktop smoke, `xvfb-run -a ctest --preset linux-gcc-<configuration>-sim --output-on-failure -L desktop --no-tests=error` | 1/1, 0.12 s | 1/1, 0.06 s | `verified-debug-x11`, `verified-release-x11` |
+| Actual dialog under XCB/Xvfb, `CameraSettingsDialog.NativeDialogLayoutFitsSupportedSizesAndCanBeCaptured` | 1/1, 0.087 s | Not separately run | `verified-native-dialog` |
+
+The final native case checks 560×560 and 720×640 and saves two `camera-settings-final-<size>.bmp` captures. Both lossless PNG conversions were inspected: source/read-only fields, mode selectors, fractional values, actual readback, guidance and buttons remain readable and contained. This synthetic dialog fixture uses Mono8 metadata; it does not change SIM-LIVE's Mono12 acquisition. Xvfb screenshots are rendered-window evidence, not physical-display or native Windows DPI acceptance.
+
+`out/qa/m09-camera-settings/verification-manifest.json` validates seven successful immutable command records, matching clean source revisions and SHA-256 log hashes. `final-screenshots.json` binds both original BMP hashes to the native command and source. `review-record.md` preserves preflight, task and final review records. The independent final evidence/documentation audit approved all seven command chains, both screenshot hashes/pixel-identical PNG conversions, review closures and Compare integration evidence. Its stale traceability-status finding was corrected; no actionable findings remain. The audit is preserved in the ignored execution ledger.
+
+The branch remains local for the next publication decision and Linux/Windows Debug/Release CI. The next bounded development step is low-FPS watchdog coverage/correction before enabling frame-rate editing. Remaining Task 4 resource rebinding, capability/schema, per-camera and administrator-orientation work and Task 5 fullscreen/preferences remain separate. Neither the inherited lifecycle timeout nor the outstanding performance and acceptance gates is closed by these checks.

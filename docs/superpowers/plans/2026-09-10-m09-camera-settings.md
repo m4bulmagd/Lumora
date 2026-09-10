@@ -82,5 +82,8 @@ Files: WorkstationController.hpp/.cpp, tests/integration/LivePipelineTests.cpp (
 ## Task D: completion and evidence
 
 - [x] Independent whole-branch source/spec review; preserve task review records and close actionable findings.
-- [ ] Full Linux Debug/Release build/headless suites, native X11 in both, actual camera dialog screenshot inspection. Commit reviewed source/tests and source-bound clean checks under out/qa/m09-camera-settings.
-- [ ] Update README, PROGRESS, original/refined plans, traceability, launch guide and dedicated milestone with Compare integration and Task4A local scope/results. Keep all remaining Task4 work and capability/FPS limitations explicit. Commit docs; Task4A remains local for subsequent publication decision.
+- [x] Full Linux Debug/Release build/headless suites, native X11 in both, actual camera dialog screenshot inspection. Commit reviewed source/tests and source-bound clean checks under out/qa/m09-camera-settings.
+- [x] Update README, PROGRESS, original/refined plans, traceability, launch guide and dedicated milestone with Compare integration and Task4A local scope/results. Keep all remaining Task4 work and capability/FPS limitations explicit. Commit docs; Task4A remains local for subsequent publication decision.
+
+
+Final source `0b6f8f4`: full Debug/Release62/62 in65.95/26.67s, native X11each1/1 in0.12/0.06s; native dialog1/1 in0.087s at560×560 and720×640 with both captures inspected. Seven clean command records and two BMP hashes are verified. The [milestone record](../../architecture/milestones/m09-camera-settings.md#final-source-verification) preserves review corrections, compiler diagnostic and evidence limits. Completion documentation and the independent evidence audit are complete; no Task4A publication or full Task4 acceptance is claimed.
