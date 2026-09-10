@@ -190,6 +190,8 @@ git commit -m "feat(ui): add synchronized original enhanced comparison"
 
 ### Task 4: Camera selection and safe settings dialog
 
+The owner-authorized [Task 4A refined plan](2026-09-10-m09-camera-settings.md) and [camera-settings record](../../architecture/milestones/m09-camera-settings.md) implement stopped exposure/gain editing first, preserving the existing startup panel and preferences policy. FPS/ROI/format editing, richer availability/writability capabilities, same-device resource rebinding, per-camera records and installation orientation remain unfinished steps below. The refinement does not mark this full task complete.
+
 Extend the [M5 startup contract](../../architecture/milestones/m05-preflight.md#3-minimal-startup-ui-and-persistence). M5 already provides minimal startup controls, typed saved preferences, capability comparison, confirmation/revision guards, and asynchronous persistence. This task replaces/expands the small `CameraStartupPanel` with the complete panel/dialog without duplicating its controller policy or stored last-camera record.
 
 **Files:**

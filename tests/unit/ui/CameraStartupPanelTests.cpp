@@ -1,4 +1,7 @@
 #include <lumora/ui/CameraStartupPanel.hpp>
+#include <lumora/ui/CameraSettingsDialog.hpp>
+#include <QDoubleSpinBox>
+#include <QEvent>
 
 #include <QPushButton>
 #include <QLabel>
@@ -92,7 +95,7 @@ TEST(CameraStartupPanel, RequestedAndActualFixedConfigurationAreBothVisible) {
         configuration(30.0), configuration(29.5)};
     CameraStartupPanelPresentation presentation;
     presentation.cameraStatus = std::move(status);
-    presentation.fixedRequestedConfiguration = configuration(30.0);
+    presentation.requestedConfiguration = configuration(30.0);
     presentation.preferencesLoadCompleted = true;
 
     panel.setPresentation(std::move(presentation));
@@ -170,7 +173,7 @@ TEST(CameraStartupPanel, ControlsEmitIntentsWithoutOptimisticStateChanges) {
     CameraStartupPanelPresentation presentation;
     presentation.cameraStatus = disconnected;
     presentation.selectedCameraId = camera::CameraId{"camera-1"};
-    presentation.fixedRequestedConfiguration = configuration(30.0);
+    presentation.requestedConfiguration = configuration(30.0);
     presentation.preferencesLoadCompleted = true;
     panel.setPresentation(presentation);
     auto* combo = panel.findChild<QComboBox*>(QStringLiteral("cameraSelectionCombo"));
@@ -186,6 +189,7 @@ TEST(CameraStartupPanel, ControlsEmitIntentsWithoutOptimisticStateChanges) {
     idle->state = application::CameraSessionState::ConnectedIdle;
     idle->requestedRevision = 4U;
     idle->appliedRevision = 4U;
+    idle->requestedConfiguration = configuration(30.0);
     idle->appliedConfiguration = camera::AppliedCameraConfiguration{
         configuration(30.0), configuration(29.5)};
     presentation.cameraStatus = idle;
@@ -234,3 +238,83 @@ TEST(CameraStartupPanel, ControlsEmitIntentsWithoutOptimisticStateChanges) {
 
 }  // namespace
 }  // namespace lumora::ui
+
+namespace lumora::ui {
+namespace {
+TEST(CameraStartupPanel, OwnsOneModelessDialogAndForwardsOnlyExplicitSettingsApply) {
+    CameraStartupPanel panel;
+    auto status = std::make_shared<application::CameraStatusSnapshot>();
+    status->state = application::CameraSessionState::ConnectedIdle;
+    status->actualIdentity = camera::CameraId{"camera-1"};
+    status->sessionGeneration = 12;
+    status->capabilities = camera::CameraCapabilities{{mono8()},
+        {{0U, 0U, 16U, 16U}, {0U, 0U, 1920U, 1080U}, {1U, 1U, 1U, 1U}},
+        {1, 60, 1, false}, {10, 10000, 1, false}, {camera::ExposureMode::Manual},
+        {0, 24, 0.25, false}, {camera::GainMode::Manual}};
+    CameraStartupPanelPresentation presentation;
+    presentation.cameraStatus = status;
+    presentation.requestedConfiguration = configuration(30);
+    presentation.selectedCameraId = status->actualIdentity;
+    panel.setPresentation(presentation);
+    int settingsCount = 0;
+    int applyCount = 0;
+    int confirmCount = 0;
+    int startCount = 0;
+    QObject::connect(&panel, &CameraStartupPanel::settingsApplyRequested,
+        [&](std::uint64_t generation, camera::CameraId id, camera::CameraConfiguration request) {
+            ++settingsCount; EXPECT_EQ(generation, 12U); EXPECT_EQ(id.value, "camera-1");
+            EXPECT_EQ(request.exposure.requestedMicroseconds, 3456.0);
+        });
+    QObject::connect(&panel, &CameraStartupPanel::applyRequested, [&] { ++applyCount; });
+    QObject::connect(&panel, &CameraStartupPanel::confirmRequested, [&] { ++confirmCount; });
+    QObject::connect(&panel, &CameraStartupPanel::startRequested, [&] { ++startCount; });
+    auto* button = panel.findChild<QPushButton*>("cameraSettingsButton"); ASSERT_NE(button, nullptr);
+    ASSERT_TRUE(button->isEnabled()); button->click(); button->click();
+    const auto dialogs = panel.findChildren<CameraSettingsDialog*>(); ASSERT_EQ(dialogs.size(), 1);
+    auto* dialog = dialogs.front(); EXPECT_FALSE(dialog->isModal());
+    auto* exposure = dialog->findChild<QDoubleSpinBox*>("cameraExposureValue"); ASSERT_NE(exposure, nullptr);
+    exposure->setValue(3456.0); panel.setPresentation(presentation);
+    EXPECT_DOUBLE_EQ(exposure->value(), 3456.0); EXPECT_EQ(settingsCount, 0);
+    auto* apply = dialog->findChild<QPushButton*>("applyCameraSettingsButton"); ASSERT_NE(apply, nullptr);
+    apply->click(); EXPECT_EQ(settingsCount, 1);
+    EXPECT_EQ(applyCount, 0); EXPECT_EQ(confirmCount, 0); EXPECT_EQ(startCount, 0);
+    presentation.selectedCameraId = camera::CameraId{"different-camera"}; panel.setPresentation(presentation);
+    EXPECT_FALSE(apply->isEnabled());
+    dialog->reject(); EXPECT_EQ(settingsCount, 1);
+    presentation.selectedCameraId = status->actualIdentity; panel.setPresentation(presentation);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    button->click(); ASSERT_EQ(panel.findChildren<CameraSettingsDialog*>().size(), 1);
+    EXPECT_TRUE(panel.findChild<CameraSettingsDialog*>()->findChild<QPushButton*>("applyCameraSettingsButton")->isEnabled());
+}
+}
+}
+
+namespace lumora::ui {
+namespace {
+TEST(CameraStartupPanel, DifferentSelectedSourceDisablesApplyConfirmAndStart) {
+    CameraStartupPanel panel;
+    auto status = std::make_shared<application::CameraStatusSnapshot>();
+    status->state = application::CameraSessionState::ConnectedIdle;
+    status->actualIdentity = camera::CameraId{"connected-camera"};
+    status->requestedRevision = 2;
+    status->appliedRevision = 2;
+    status->requestedConfiguration = configuration(30);
+    status->appliedConfiguration = camera::AppliedCameraConfiguration{configuration(30), configuration(30)};
+    CameraStartupPanelPresentation presentation;
+    presentation.cameraStatus = status;
+    presentation.requestedConfiguration = configuration(30);
+    presentation.selectedCameraId = camera::CameraId{"different-camera"};
+    panel.setPresentation(presentation);
+    EXPECT_FALSE(panel.findChild<QPushButton*>("applyCameraButton")->isEnabled());
+    EXPECT_FALSE(panel.findChild<QPushButton*>("confirmCameraButton")->isEnabled());
+    status = std::make_shared<application::CameraStatusSnapshot>(*status);
+    status->confirmedRevision = 2; presentation.cameraStatus = status; panel.setPresentation(presentation);
+    EXPECT_FALSE(panel.findChild<QPushButton*>("startCameraButton")->isEnabled());
+    EXPECT_TRUE(panel.findChild<QPushButton*>("disconnectCameraButton")->isEnabled());
+    presentation.selectedCameraId.reset(); panel.setPresentation(presentation);
+    EXPECT_FALSE(panel.findChild<QPushButton*>("applyCameraButton")->isEnabled());
+    EXPECT_FALSE(panel.findChild<QPushButton*>("confirmCameraButton")->isEnabled());
+    EXPECT_FALSE(panel.findChild<QPushButton*>("startCameraButton")->isEnabled());
+}
+}
+}

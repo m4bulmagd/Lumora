@@ -128,6 +128,7 @@ add_library(
   application/src/ProcessingWorkerCounters.hpp
   application/src/ProcessingWorker.cpp
   application/include/lumora/application/StartupPreferences.hpp
+  application/src/CameraSettingsPolicy.cpp
   application/src/StartupPreferences.cpp
   application/include/lumora/application/LivePipeline.hpp
   application/src/LivePipeline.cpp
@@ -244,6 +245,7 @@ add_library(
   STATIC
   ui/include/lumora/ui/FramePresenter.hpp
   ui/include/lumora/ui/DisplayMode.hpp
+  ui/include/lumora/ui/CameraSettingsDialog.hpp
   ui/include/lumora/ui/CameraStartupPanel.hpp
   ui/include/lumora/ui/ImageViewport.hpp
   ui/include/lumora/ui/MainWindow.hpp
@@ -251,6 +253,7 @@ add_library(
   ui/include/lumora/ui/WorkstationStatus.hpp
   ui/include/lumora/ui/WorkstationView.hpp
   ui/src/ImageViewport.cpp
+  ui/src/CameraSettingsDialog.cpp
   ui/src/CameraStartupPanel.cpp
   ui/include/lumora/ui/WorkstationController.hpp
   ui/include/lumora/ui/ProcessingControlsModel.hpp

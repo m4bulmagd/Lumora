@@ -3,6 +3,7 @@ add_executable(lumora_application_tests
   unit/application/CameraCommandMailboxTests.cpp
   unit/application/AcquisitionWorkerTests.cpp
   unit/application/ProcessingWorkerTests.cpp
+  unit/application/CameraSettingsPolicyTests.cpp
   unit/application/StartupPreferencesTests.cpp
   unit/application/PresetRepositoryTests.cpp)
 target_link_libraries(lumora_application_tests PRIVATE
@@ -22,6 +23,9 @@ set_tests_properties(Application.AcquisitionWorker PROPERTIES TIMEOUT 60)
 add_test(NAME Application.ProcessingWorker
   COMMAND lumora_application_tests --gtest_filter=ProcessingWorker.*)
 set_tests_properties(Application.ProcessingWorker PROPERTIES TIMEOUT 60)
+add_test(NAME Application.CameraSettingsPolicy
+  COMMAND lumora_application_tests --gtest_filter=CameraSettingsPolicy.*)
+set_tests_properties(Application.CameraSettingsPolicy PROPERTIES TIMEOUT 60)
 add_test(NAME Application.StartupPreferences
   COMMAND lumora_application_tests --gtest_filter=StartupPreferences.*)
 set_tests_properties(Application.StartupPreferences PROPERTIES TIMEOUT 60)
@@ -61,6 +65,7 @@ set_tests_properties(Processing.Mono8PassThrough PROPERTIES TIMEOUT 60)
 add_executable(
   lumora_ui_tests
   support/QtTestMain.cpp
+  unit/ui/CameraSettingsDialogTests.cpp
   unit/ui/CameraStartupPanelTests.cpp
   unit/ui/ProcessingPanelTests.cpp
   unit/ui/ProcessingControlsModelTests.cpp
@@ -119,10 +124,12 @@ add_test(
 add_test(NAME ProcessingControls COMMAND lumora_ui_tests --gtest_filter=Controls.*:ProcessingPanel.*)
 add_test(NAME WorkstationController COMMAND lumora_ui_tests --gtest_filter=WorkstationController.*)
 # Surface stalled Qt startup promptly on unattended CI runners.
+add_test(NAME CameraSettingsDialog COMMAND lumora_ui_tests --gtest_filter=CameraSettingsDialog.*)
+
 # Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
 # does not make the installed Qt platform plugins discoverable by itself.
 set_tests_properties(
-  MainWindowSmoke ViewportTransform ImageViewport ComparisonViewport CompareWorkstation WorkstationView FramePresenter CameraStartupPanel WorkstationController ProcessingControls
+  MainWindowSmoke ViewportTransform ImageViewport ComparisonViewport CompareWorkstation WorkstationView FramePresenter CameraSettingsDialog CameraStartupPanel WorkstationController ProcessingControls
   PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
