@@ -50,11 +50,12 @@ struct LivePipelineSnapshot final {
 
 // Provider and clock outlive the pipeline. The owner serializes start/shutdown;
 // post, snapshot and acknowledgement are safe concurrently and never join or
-// allocate pools. The control thread provisions the prepared source format, ROI,
-// frame rate and acquisition mode with admitted aligned 10 raw / 9 U16 / 16 Gray8
-// pools and prepared resources. Exposure and gain may change without rebinding those
-// resources. The budget covers one session; legacy custom private storage is marked
-// unknown.
+// allocate pools. The control thread provisions the prepared source format, full
+// ROI and continuous acquisition mode with admitted aligned 10 raw / 9 U16 / 16 Gray8
+// pools and prepared resources. Exposure, gain and explicit positive finite FPS may
+// change while stopped without rebinding those resources, subject to camera
+// capabilities. The budget covers one session; legacy custom private storage is
+// marked unknown.
 class LivePipeline final {
 public:
     // Runs on the control thread. The returned processor may borrow both pools

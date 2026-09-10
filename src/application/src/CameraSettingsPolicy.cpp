@@ -1,5 +1,7 @@
 #include <lumora/application/CameraSettingsPolicy.hpp>
 
+#include <cmath>
+
 namespace lumora::application {
 
 bool isCameraSettingsCompatible(
@@ -21,7 +23,9 @@ bool isCameraSettingsCompatible(
         && requestedRoi.y == preparedRoi.y
         && requestedRoi.width == preparedRoi.width
         && requestedRoi.height == preparedRoi.height
-        && requested.requestedFps == prepared.requestedFps
+        && requested.requestedFps && prepared.requestedFps
+        && std::isfinite(*requested.requestedFps) && *requested.requestedFps > 0.0
+        && std::isfinite(*prepared.requestedFps) && *prepared.requestedFps > 0.0
         && requested.acquisitionMode == prepared.acquisitionMode;
 }
 

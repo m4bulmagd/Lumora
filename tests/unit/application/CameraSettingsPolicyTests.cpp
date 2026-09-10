@@ -1,6 +1,7 @@
 #include <lumora/application/CameraSettingsPolicy.hpp>
 
 #include <gtest/gtest.h>
+#include <limits>
 
 namespace lumora::application {
 namespace {
@@ -85,24 +86,36 @@ TEST(CameraSettingsPolicy, RejectsEveryRoiCoordinateAndExtentDifference) {
     EXPECT_FALSE(isCameraSettingsCompatible(height, prepared));
 }
 
-TEST(CameraSettingsPolicy, RequiresIdenticalOptionalFrameRate) {
+TEST(CameraSettingsPolicy, PermitsExplicitPositiveFiniteFrameRateDifferences) {
     const auto prepared = preparedConfiguration();
 
+    // Capability bounds and quantization belong to camera validation and readback.
+    for (const double fps : {1.0, 1.25, 60.0, 61.0}) {
+        SCOPED_TRACE(fps);
+        auto different = prepared;
+        different.requestedFps = fps;
+        EXPECT_TRUE(isCameraSettingsCompatible(different, prepared));
+        EXPECT_TRUE(isCameraSettingsCompatible(prepared, different));
+    }
+}
+
+TEST(CameraSettingsPolicy, RequiresExplicitPositiveFiniteFrameRateInBothConfigurations) {
+    const auto prepared = preparedConfiguration();
     auto missing = prepared;
     missing.requestedFps.reset();
     EXPECT_FALSE(isCameraSettingsCompatible(missing, prepared));
+    EXPECT_FALSE(isCameraSettingsCompatible(prepared, missing));
+    EXPECT_FALSE(isCameraSettingsCompatible(missing, missing));
 
-    auto different = prepared;
-    different.requestedFps = 29.97;
-    EXPECT_FALSE(isCameraSettingsCompatible(different, prepared));
-
-    auto noPreparedFrameRate = prepared;
-    noPreparedFrameRate.requestedFps.reset();
-    EXPECT_FALSE(isCameraSettingsCompatible(prepared, noPreparedFrameRate));
-
-    auto bothMissing = prepared;
-    bothMissing.requestedFps.reset();
-    EXPECT_TRUE(isCameraSettingsCompatible(bothMissing, noPreparedFrameRate));
+    for (const double fps : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN(),
+             std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()}) {
+        SCOPED_TRACE(fps);
+        auto invalid = prepared;
+        invalid.requestedFps = fps;
+        EXPECT_FALSE(isCameraSettingsCompatible(invalid, prepared));
+        EXPECT_FALSE(isCameraSettingsCompatible(prepared, invalid));
+        EXPECT_FALSE(isCameraSettingsCompatible(invalid, invalid));
+    }
 }
 
 TEST(CameraSettingsPolicy, RequiresIdenticalAcquisitionMode) {

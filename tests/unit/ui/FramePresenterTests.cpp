@@ -345,6 +345,60 @@ TEST(FramePresenter, OneFpsBecomesStaleAtThreeSeconds) {
     EXPECT_EQ(view.status().freshness, FrameFreshness::Stale);
 }
 
+TEST(FramePresenter, CompletedFramesUpdateFreshnessAcrossThirtyOneAndSixtyFps) {
+    LatestValueSlot<FrameBundle> slot;
+    WorkstationView view;
+    ManualClock clock;
+    view.resize(640, 480);
+    FramePresenter presenter(slot, view, clock);
+    const auto thirtyFps = lumora::test::makeBundle(64, 32, 1U, clock, 30.0);
+    (void)slot.publish(thirtyFps);
+    presenter.refresh();
+    paint(view);
+    ASSERT_EQ(presenter.presentedBundle(), thirtyFps);
+    clock.advance(499ms);
+    presenter.refresh();
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Current);
+    clock.advance(1ms);
+
+    const auto oneFps = lumora::test::makeBundle(64, 32, 2U, clock, 1.0);
+    (void)slot.publish(oneFps);
+    presenter.refresh();
+    EXPECT_EQ(presenter.presentedBundle(), thirtyFps);
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Stale);
+    paint(view);
+    ASSERT_EQ(presenter.presentedBundle(), oneFps);
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Current);
+    clock.advance(2999ms);
+    presenter.refresh();
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Current);
+
+    const auto sixtyFps = lumora::test::makeBundle(64, 32, 3U, clock, 60.0);
+    (void)slot.publish(sixtyFps);
+    presenter.refresh();
+    EXPECT_EQ(presenter.presentedBundle(), oneFps);
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Current);
+    clock.advance(1ms);
+    presenter.refresh();
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Stale);
+    paint(view);
+    ASSERT_EQ(presenter.presentedBundle(), sixtyFps);
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Current);
+
+    // Host receipt is one millisecond older than the completed 60 FPS paint.
+    clock.advance(498ms);
+    presenter.refresh();
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Current);
+    (void)slot.publish(lumora::test::makeBundle(64, 32, 2U, clock, 1.0));
+    presenter.refresh();
+    paint(view);
+    EXPECT_EQ(presenter.presentedBundle(), sixtyFps);
+    clock.advance(1ms);
+    presenter.refresh();
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Stale);
+    EXPECT_EQ(presenter.displayedFrameCount(), 3U);
+}
+
 TEST(FramePresenter, InvalidActualFpsCannotReplaceCompletedFrame) {
     LatestValueSlot<FrameBundle> slot;
     WorkstationView view;
