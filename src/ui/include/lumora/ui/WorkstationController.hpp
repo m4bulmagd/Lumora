@@ -20,6 +20,9 @@ public:
     [[nodiscard]] core::Result<void> start();
     void poll();
     void selectCamera(camera::CameraId id);
+    [[nodiscard]] core::Result<void> applyCameraSettings(
+        std::uint64_t sessionGeneration, camera::CameraId cameraId,
+        camera::CameraConfiguration requested);
     [[nodiscard]] core::Result<void> dispatch(CameraStartupIntent intent);
     [[nodiscard]] FramePresenter* presenter() const noexcept;
     void shutdown() noexcept;

@@ -48,7 +48,7 @@ The software is still an engineering/evaluation build. It is **not for clinical 
 
 M9 Task 1 merged through [PR #17](https://github.com/m4bulmagd/Lumora/pull/17): validated presets, Custom editing state, custom save/delete/restore and typed schema 3 persistence with migration and recovery. [Task 2 processing controls](docs/architecture/milestones/m09-processing-controls.md#pr-18-integration) merged through [PR #18](https://github.com/m4bulmagd/Lumora/pull/18) as `c3f1c49` after Linux/GCC and Windows/MSVC Debug/Release CI passed at `bf21cee`. It adds preset selection, exact numeric entries/sliders, live activation, acknowledged settings persistence and an Enhanced preview. The records retain exact verification and the disclosed intermittent lifecycle timeout.
 
-[Task 3 display modes and synchronized Compare](docs/architecture/milestones/m09-compare.md#pr-19-integration) merged through [PR #19](https://github.com/m4bulmagd/Lumora/pull/19) as `d47fedb` after Linux/GCC and Windows/MSVC Debug/Release CI passed at `57a31d7`. Original, Enhanced and side-by-side Compare use the same source bundle, with shared zoom/pan and frozen-pair switching while paused. Display mode selection leaves processing settings unchanged. The record preserves the initial Linux timeout, passing bounded rerun and separate local lifecycle failure; the inherited issue remains unresolved. Camera settings and fullscreen remain later M9 slices; acceptance is separate.
+[Task 3 display modes and synchronized Compare](docs/architecture/milestones/m09-compare.md#pr-19-integration) merged through [PR #19](https://github.com/m4bulmagd/Lumora/pull/19) as `d47fedb` after Linux/GCC and Windows/MSVC Debug/Release CI passed at `57a31d7`. Original, Enhanced and side-by-side Compare use the same source bundle, with shared zoom/pan and frozen-pair switching while paused. Display mode selection leaves processing settings unchanged. The record preserves the initial Linux timeout, passing bounded rerun and separate local lifecycle failure; the inherited issue remains unresolved. The next local slice adds [stopped exposure/gain settings](docs/architecture/milestones/m09-camera-settings.md); full camera configuration and fullscreen remain later M9 work. Acceptance is separate.
 
 ## Build
 
@@ -59,3 +59,6 @@ Use the platform-specific contract:
 - [Requirements traceability](docs/architecture/requirements-traceability.md)
 
 Both build guides pin vcpkg to the repository's manifest baseline. Basler hardware support is intentionally absent from simulator builds and tests.
+
+
+On the local `codex/m09-camera-settings` branch, **Camera settings** edits exposure/gain while stopped and shows actual readback. Apply requires fresh explicit Confirm before Start; confirmed edits reuse saved-settings Resume. FPS, ROI and format remain read-only. The [Task 4A record](docs/architecture/milestones/m09-camera-settings.md) tracks local review and verification separately from publication and remaining Task 4 work.

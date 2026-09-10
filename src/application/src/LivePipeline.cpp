@@ -1,6 +1,6 @@
 #include <lumora/application/LivePipeline.hpp>
 #include "LiveResourcePreparation.hpp"
-#include <lumora/application/StartupPreferences.hpp>
+#include <lumora/application/CameraSettingsPolicy.hpp>
 #include <lumora/core/CheckedMath.hpp>
 #include <lumora/processing/FrameProcessingEngine.hpp>
 #include <lumora/processing/PipelineCompiler.hpp>
@@ -371,8 +371,9 @@ Result LivePipeline::post(CameraCommand command) {
          std::holds_alternative<Discover>(command.payload)))
         return Result::failure(failure("context_handoff_pending","Acknowledge the outstanding source before replacement."));
     if(auto* apply=std::get_if<ApplyConfiguration>(&command.payload);
-        apply && !cameraConfigurationsEqual(apply->configuration,impl_->fixed))
-        return Result::failure(failure("unsupported_pipeline_request","The pipeline accepts only its explicit fixed configuration."));
+        apply && !isCameraSettingsCompatible(apply->configuration,impl_->fixed))
+        return Result::failure(failure("unsupported_pipeline_request",
+            "The request changes fields bound to the prepared live pipeline."));
     auto result=impl_->incoming.post(std::move(command));impl_->changed.notify_all();return result;
 }
 Result LivePipeline::requestProcessingRetry(std::uint64_t generation) {
