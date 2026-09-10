@@ -5,6 +5,11 @@
 #include <lumora/ui/ImageViewport.hpp>
 #include <lumora/ui/WorkstationView.hpp>
 #include <QTimer>
+#include <QLabel>
+#include <limits>
+#include <lumora/configuration/PresetCodec.hpp>
+#include <lumora/ui/ProcessingControlsModel.hpp>
+#include <lumora/ui/ProcessingPanel.hpp>
 #include <algorithm>
 
 namespace lumora::ui {
@@ -22,6 +27,69 @@ struct WorkstationController::Impl {
     core::IClock& clock;
     camera::CameraConfiguration fixed;
     QTimer timer;
+    std::unique_ptr<ProcessingControlsModel> processingModel;
+    std::unique_ptr<ProcessingPanel> processingPanel;
+    std::unique_ptr<QLabel> processingLoadStatus;
+    bool presetsLoaded{false};
+    std::uint64_t presetSaveRevision{0};
+    std::optional<core::Error> presetSaveWarning;
+    void loadPresets(WorkstationController& owner,const application::StartupPreferencesStatus& status) {
+        if(presetsLoaded || !status.loadCompleted) return;
+        presetsLoaded=true;
+        auto showError=[&](const core::Error& error) {
+            processingLoadStatus->setText(QString::fromStdString(error.operatorSummary));
+        };
+        if(!status.loadedPresets) {
+            if(status.warning) showError(*status.warning);
+            else processingLoadStatus->setText(WorkstationController::tr("Processing settings are unavailable."));
+            return;
+        }
+        auto repository=configuration::PresetCodec::loadDefaultRepository();
+        if(!repository.hasValue()) { showError(repository.error()); return; }
+        auto restored=repository.value().restore(*status.loadedPresets);
+        if(!restored.hasValue()) { showError(restored.error()); return; }
+        processingModel=std::make_unique<ProcessingControlsModel>(std::move(repository).value(),clock);
+        processingPanel=std::make_unique<ProcessingPanel>(*processingModel);
+        view.addSidebarPanel(processingPanel.get()); processingLoadStatus.reset();
+        QObject::connect(processingPanel.get(),&ProcessingPanel::edited,&owner,[&owner]{owner.poll();});
+    }
+    void captureProcessing(const application::LivePipelineSnapshot& snapshot) {
+        if(!processingModel) return;
+        processingModel->bindSession(snapshot.context && snapshot.processingAvailable ? snapshot.context->generation : 0U);
+        if(snapshot.processingConfigurationOutcome) {
+            const auto& outcome=*snapshot.processingConfigurationOutcome;
+            std::optional<core::Error> error;
+            if(outcome.error) {
+                error=outcome.error->preparationError;
+                if(!error) error=core::Error{core::ErrorCategory::Processing,outcome.error->code,
+                    "Processing settings were not applied.",outcome.error->violations.empty()?"":outcome.error->violations.front().detail,true};
+            }
+            if(processingModel->complete(outcome.sessionGeneration,outcome.configurationRevision,std::move(error))) {
+                if(presetSaveRevision==std::numeric_limits<std::uint64_t>::max()) {
+                    presetSaveWarning=core::Error{core::ErrorCategory::Configuration,"preset_save_revision_exhausted",
+                        "Restart the application before saving more settings.","Save revision overflow.",true};
+                } else {
+                    auto saved=preferences.postPresetSave(++presetSaveRevision,*processingModel->acknowledged());
+                    presetSaveWarning=saved.hasValue()?std::nullopt:std::optional<core::Error>{saved.error()};
+                }
+            }
+        }
+    }
+    void updateProcessing(const application::LivePipelineSnapshot& snapshot) {
+        if(!processingModel) return;
+        captureProcessing(snapshot);
+        if(auto submission=processingModel->takeSubmission()) {
+            auto result=pipeline.setProcessingConfiguration({submission->sessionGeneration,submission->state.activePipeline});
+            if(!result.hasValue()) processingModel->rejectAdmission(submission->sessionGeneration,
+                submission->state.activePipeline.version.configurationRevision,result.error());
+        }
+        const auto saved=preferences.latestStatus();
+        auto warning=presetSaveWarning;
+        if(!warning && saved->latestAttemptedPresetSaveRevision &&
+            saved->latestSavedPresetRevision<saved->latestAttemptedPresetSaveRevision && saved->warning) warning=saved->warning;
+        processingPanel->setPersistenceWarning(std::move(warning));
+    }
+
     std::unique_ptr<FramePresenter> presenter;
     std::shared_ptr<application::LiveSessionContext> context;
     CameraStartupPanelPresentation presentation;
@@ -69,6 +137,10 @@ struct WorkstationController::Impl {
         WorkstationView& v,CameraStartupPanel& panelWidget,core::IClock& c,camera::CameraConfiguration request)
         :pipeline(p),preferences(preferencesService),view(v),panel(panelWidget),clock(c),fixed(std::move(request)) {
         presentation.fixedRequestedConfiguration=fixed;
+        processingLoadStatus=std::make_unique<QLabel>(WorkstationController::tr("Loading processing settings…"));
+        processingLoadStatus->setObjectName("processingLoadStatus");
+        processingLoadStatus->setTextFormat(Qt::PlainText); processingLoadStatus->setWordWrap(true);
+        view.addSidebarPanel(processingLoadStatus.get());
     }
 };
 WorkstationController::WorkstationController(application::LivePipeline& pipeline,
@@ -110,7 +182,7 @@ void WorkstationController::poll() {
     if(snapshot.context && snapshot.context!=d.context) {
         if(d.presenter) d.presenter->resetSource(snapshot.context->bundleSlot);
         else { d.presenter=std::make_unique<FramePresenter>(snapshot.context->bundleSlot,d.view,d.clock);d.presenter->start(); }
-        d.context=std::move(snapshot.context);
+        d.context=snapshot.context;
         (void)d.pipeline.acknowledgeContext(d.context->generation);
     }
     if(d.presenter) d.presenter->refresh();
@@ -134,10 +206,12 @@ void WorkstationController::poll() {
     if(snapshot.priorityOutcome && d.barrier==snapshot.priorityOutcome->requestId) { d.barrier.reset();d.barrierIntent.reset(); }
     auto preferences=d.preferences.latestStatus();
     if(preferences) {
+        d.loadPresets(*this,*preferences);
         d.presentation.preferencesLoadCompleted=preferences->loadCompleted;
         d.loaded=preferences->warning ? std::nullopt : preferences->loadedPreferences;
         if(preferences->warning) d.presentation.startupWarning=preferences->warning;
     }
+    d.updateProcessing(snapshot);
     if(snapshot.error) {
         d.presentation.startupWarning=snapshot.error;d.pending.reset();d.barrier.reset();d.resumePhase.reset();
         d.presentation.controlsEnabled=false;
@@ -215,7 +289,9 @@ void WorkstationController::shutdown() noexcept {
     try {
         // Capture only already-confirmed facts, without advancing poll's startup
         // or Resume continuations, before camera shutdown clears those facts.
-        d.captureConfirmation(d.pipeline.snapshot().camera);
+        const auto snapshot=d.pipeline.snapshot();
+        d.captureConfirmation(snapshot.camera);
+        d.captureProcessing(snapshot);
     } catch(...) {
         try {
             d.presentation.startupWarning=core::Error{core::ErrorCategory::Configuration,
@@ -224,6 +300,7 @@ void WorkstationController::shutdown() noexcept {
         } catch(...) { /* Best-effort warning must not prevent teardown. */ }
     }
     try { d.panel.setPresentation(d.presentation); } catch(...) {}
+    if(d.processingPanel) d.processingPanel->setEnabled(false);
     d.pipeline.shutdown();
     d.presenter.reset();d.view.imageViewport()->clear();d.context.reset();
     d.presentation.cameraStatus.reset();

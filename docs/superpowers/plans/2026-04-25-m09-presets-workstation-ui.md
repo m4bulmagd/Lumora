@@ -85,6 +85,8 @@ git commit -m "feat(presets): add validated processing bundles"
 
 ### Task 2: Processing controls and coalesced configuration publication
 
+Owner-authorized continuation: use the [2026-09-09 refined plan](2026-09-09-m09-processing-controls.md) and [Task 2 milestone record](../../architecture/milestones/m09-processing-controls.md). The application had no SetPipelineDefinition facade; the refinement supplies asynchronous generation/revision activation outcomes, extends the single settings writer and adds the minimal single Enhanced preview required to see control effects. Compare remains Task 3.
+
 **Files:**
 - Create: `src/ui/include/lumora/ui/ProcessingControlsModel.hpp`
 - Create: `src/ui/include/lumora/ui/ProcessingPanel.hpp`

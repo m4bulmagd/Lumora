@@ -1,4 +1,5 @@
 #include <lumora/configuration/StartupPreferencesService.hpp>
+#include <lumora/configuration/PresetCodec.hpp>
 
 #include <condition_variable>
 #include <cstdint>
@@ -45,6 +46,11 @@ public:
     struct SaveSubmission final {
         std::uint64_t revision;
         application::StartupPreferences preferences;
+    };
+
+    struct PresetSaveSubmission final {
+        std::uint64_t revision;
+        application::PresetState presets;
     };
 
     explicit Impl(std::unique_ptr<IStartupPreferencesIo> io)
@@ -106,21 +112,8 @@ public:
         }
 
         std::lock_guard lock(mutex_);
-        if (!started_) {
-            return core::Result<void>::failure(serviceError(
-                "startup_service_not_started", "Startup preferences are not ready.",
-                "A save cannot be submitted before the service starts."));
-        }
-        if (!accepting_ || stopSource_.stop_requested()) {
-            return core::Result<void>::failure(serviceError(
-                "startup_save_stopping", "Startup preferences were not saved.",
-                "The startup preference worker is stopping."));
-        }
-        if (status_->loadCompleted && !safeToSave_) {
-            return core::Result<void>::failure(serviceError(
-                "startup_save_source_unsafe", "Startup preferences were not saved.",
-                "The source configuration could not be read or preserved safely."));
-        }
+        const auto available = checkSaveAvailability();
+        if (!available.hasValue()) { return available; }
         if (revision == 0U || revision <= latestAcceptedRevision_) {
             return core::Result<void>::failure(serviceError(
                 "startup_save_revision_not_increasing",
@@ -129,6 +122,31 @@ public:
         }
         latestAcceptedRevision_ = revision;
         pending_ = SaveSubmission{revision, std::move(preferences)};
+        changed_.notify_all();
+        return core::Result<void>::success();
+    }
+
+    [[nodiscard]] core::Result<void> postPresetSave(
+        std::uint64_t revision, application::PresetState presets) {
+        auto repository = PresetCodec::loadDefaultRepository();
+        if (!repository.hasValue()) {
+            return core::Result<void>::failure(repository.error());
+        }
+        const auto restored = repository.value().restore(presets);
+        if (!restored.hasValue()) {
+            return core::Result<void>::failure(restored.error());
+        }
+
+        std::lock_guard lock(mutex_);
+        const auto available = checkSaveAvailability();
+        if (!available.hasValue()) { return available; }
+        if (revision == 0U || revision <= latestAcceptedPresetRevision_) {
+            return core::Result<void>::failure(serviceError(
+                "preset_save_revision_not_increasing", "Presets were not saved.",
+                "Preset save submission revisions must increase monotonically."));
+        }
+        pendingPresets_ = PresetSaveSubmission{revision, std::move(presets)};
+        latestAcceptedPresetRevision_ = revision;
         changed_.notify_all();
         return core::Result<void>::success();
     }
@@ -161,12 +179,33 @@ public:
     }
 
 private:
+    // Caller holds mutex_; both sections share admission and source safety.
+    [[nodiscard]] core::Result<void> checkSaveAvailability() const {
+        if (!started_) {
+            return core::Result<void>::failure(serviceError(
+                "startup_service_not_started", "Startup preferences are not ready.",
+                "A save cannot be submitted before the service starts."));
+        }
+        if (!accepting_ || stopSource_.stop_requested()) {
+            return core::Result<void>::failure(serviceError(
+                "startup_save_stopping", "Startup preferences were not saved.",
+                "The startup preference worker is stopping."));
+        }
+        if (status_->loadCompleted && !safeToSave_) {
+            return core::Result<void>::failure(serviceError(
+                "startup_save_source_unsafe", "Startup preferences were not saved.",
+                "The source configuration could not be read or preserved safely."));
+        }
+        return core::Result<void>::success();
+    }
+
     void publishLoadResult(core::Result<ApplicationConfiguration> loaded) {
         auto next = application::StartupPreferencesStatus{};
         next.loadCompleted = true;
         if (loaded.hasValue()) {
             document_ = std::move(loaded).value();
             next.loadedPreferences = document_->startup;
+            next.loadedPresets = document_->presets;
             next.warning = document_->loadWarning;
             initialWarning_ = document_->loadWarning;
             safeToSave_ = !(document_->usedDefaults && document_->loadWarning
@@ -191,6 +230,10 @@ private:
                 next.latestAttemptedSaveRevision = pending_->revision;
                 pending_.reset();
             }
+            if (pendingPresets_) {
+                next.latestAttemptedPresetSaveRevision = pendingPresets_->revision;
+                pendingPresets_.reset();
+            }
             accepting_ = false;
             safeToSave_ = false;
             status_ = std::make_shared<const application::StartupPreferencesStatus>(
@@ -204,20 +247,22 @@ private:
             publishLoadResult(io_->load());
             while (true) {
                 std::optional<SaveSubmission> submission;
+                std::optional<PresetSaveSubmission> presetSubmission;
                 {
                     std::unique_lock lock(mutex_);
                     changed_.wait(lock, stopSource_.get_token(), [&] {
-                        return pending_.has_value();
+                        return pending_.has_value() || pendingPresets_.has_value();
                     });
-                    if (pending_) {
-                        submission = std::move(pending_);
-                        pending_.reset();
-                    } else if (stopSource_.stop_requested()) {
+                    if (!pending_ && !pendingPresets_ && stopSource_.stop_requested()) {
                         break;
                     }
+                    submission = std::move(pending_);
+                    presetSubmission = std::move(pendingPresets_);
+                    pending_.reset();
+                    pendingPresets_.reset();
                 }
-                if (submission) {
-                    save(std::move(*submission));
+                if (submission || presetSubmission) {
+                    save(std::move(submission), std::move(presetSubmission));
                 }
             }
         } catch (const std::exception&) {
@@ -229,11 +274,17 @@ private:
         }
     }
 
-    void save(SaveSubmission submission) {
+    void save(std::optional<SaveSubmission> submission,
+        std::optional<PresetSaveSubmission> presetSubmission) {
         {
             std::lock_guard lock(mutex_);
             auto next = *status_;
-            next.latestAttemptedSaveRevision = submission.revision;
+            if (submission) {
+                next.latestAttemptedSaveRevision = submission->revision;
+            }
+            if (presetSubmission) {
+                next.latestAttemptedPresetSaveRevision = presetSubmission->revision;
+            }
             if (!safeToSave_) {
                 next.warning = serviceError(
                     "startup_save_source_unsafe", "Startup preferences were not saved.",
@@ -246,12 +297,22 @@ private:
                 std::move(next));
         }
 
-        document_->startup = std::move(submission.preferences);
+        if (submission) {
+            document_->startup = std::move(submission->preferences);
+            documentCameraRevision_ = submission->revision;
+        }
+        if (presetSubmission) {
+            document_->presets = std::move(presetSubmission->presets);
+            documentPresetRevision_ = presetSubmission->revision;
+        }
         const auto saved = io_->save(*document_);
         std::lock_guard lock(mutex_);
         auto next = *status_;
         if (saved.hasValue()) {
-            next.latestSavedRevision = submission.revision;
+            // A later whole-document write can also persist a section whose
+            // earlier write failed. Report exactly the revisions now on disk.
+            next.latestSavedRevision = documentCameraRevision_;
+            next.latestSavedPresetRevision = documentPresetRevision_;
             next.warning = initialWarning_;
         } else {
             next.warning = saved.error();
@@ -268,8 +329,12 @@ private:
     std::shared_ptr<const application::StartupPreferencesStatus> status_;
     std::optional<ApplicationConfiguration> document_;
     std::optional<SaveSubmission> pending_;
+    std::optional<PresetSaveSubmission> pendingPresets_;
+    std::optional<std::uint64_t> documentCameraRevision_;
+    std::optional<std::uint64_t> documentPresetRevision_;
     std::optional<core::Error> initialWarning_;
     std::uint64_t latestAcceptedRevision_{0U};
+    std::uint64_t latestAcceptedPresetRevision_{0U};
     bool started_{false};
     bool accepting_{false};
     bool safeToSave_{false};
@@ -293,6 +358,11 @@ core::Result<void> StartupPreferencesService::postSave(
     std::uint64_t revision,
     application::StartupPreferences preferences) {
     return impl_->postSave(revision, std::move(preferences));
+}
+
+core::Result<void> StartupPreferencesService::postPresetSave(
+    std::uint64_t revision, application::PresetState presets) {
+    return impl_->postPresetSave(revision, std::move(presets));
 }
 
 std::shared_ptr<const application::StartupPreferencesStatus>

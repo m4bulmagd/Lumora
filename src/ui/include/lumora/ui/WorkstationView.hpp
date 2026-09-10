@@ -5,6 +5,8 @@
 
 #include <QWidget>
 
+class QVBoxLayout;
+
 namespace lumora::ui {
 
 class ImageViewport;
@@ -19,6 +21,9 @@ public:
     [[nodiscard]] ImageViewport* imageViewport() const noexcept;
     [[nodiscard]] ViewerState viewerState() const noexcept;
     [[nodiscard]] const WorkstationStatus& status() const noexcept;
+    void addSidebarPanel(QWidget* panel);
+    // Describes the display frame that completed painting, not pending processing.
+    void setPreviewSource(bool enhanced);
     void setStatus(WorkstationStatus status);
     void setProcessingStatus(processing::ProcessorStatus status, bool retryPending = false);
 
@@ -31,6 +36,7 @@ private:
     void updateStatusPresentation();
 
     QWidget* sidebar_{nullptr};
+    QVBoxLayout* sidebarPanels_{nullptr};
     ImageViewport* imageViewport_{nullptr};
     WorkstationStatus status_;
     processing::ProcessorStatus processingStatus_;

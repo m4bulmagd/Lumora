@@ -16,6 +16,11 @@
 namespace lumora::ui {
 namespace {
 
+[[nodiscard]] const std::shared_ptr<const core::DisplayFrame>& selectedDisplay(
+    const core::FrameBundle& bundle) noexcept {
+    return bundle.enhancedDisplay ? bundle.enhancedDisplay : bundle.originalDisplay;
+}
+
 [[nodiscard]] bool staleFor(
     std::chrono::steady_clock::duration age,
     double actualFps) noexcept {
@@ -77,7 +82,7 @@ public:
         if (acceptedId && id <= *acceptedId) {
             return;
         }
-        auto result = view->imageViewport()->present(publication.value->originalDisplay);
+        auto result = view->imageViewport()->present(selectedDisplay(*publication.value));
         if (!result.hasValue()) {
             return;
         }
@@ -126,13 +131,14 @@ FramePresenter::FramePresenter(
     });
     view.imageViewport()->setPresentationObserver(
         [this](std::shared_ptr<const core::DisplayFrame> frame) {
-            if (!impl_->pending || impl_->pending->originalDisplay != frame) {
+            if (!impl_->pending || selectedDisplay(*impl_->pending) != frame) {
                 return;
             }
             impl_->completed = std::move(impl_->pending);
             impl_->pending.reset();
             impl_->completedAt = impl_->clock->steadyNow();
             ++impl_->displayedCount;
+            impl_->view->setPreviewSource(impl_->completed->enhancedDisplay != nullptr);
             impl_->updateStatus();
         });
     impl_->pauseConnection = QObject::connect(
@@ -190,6 +196,7 @@ void FramePresenter::resetSource(
     impl_->examinedRevision = 0U;
     impl_->displayedCount = 0U;
     impl_->paused = false;
+    impl_->view->setPreviewSource(true);
     impl_->updateStatus();
 }
 

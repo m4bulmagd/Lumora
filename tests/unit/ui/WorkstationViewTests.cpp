@@ -1,5 +1,6 @@
 #include <lumora/ui/ImageViewport.hpp>
 #include <lumora/ui/MainWindow.hpp>
+#include <lumora/ui/CameraStartupPanel.hpp>
 #include <lumora/ui/WorkstationView.hpp>
 
 #include "ViewportTestSupport.hpp"
@@ -10,6 +11,8 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QVBoxLayout>
 
 #include <gtest/gtest.h>
@@ -68,6 +71,45 @@ TEST(WorkstationView, ImageAreaDominatesInitialLayout) {
     EXPECT_LT(view.sidebar()->width(), view.imageViewport()->width());
     EXPECT_EQ(view.viewerState(), ViewerState::Live);
     EXPECT_EQ(view.status().freshness, FrameFreshness::WaitingForFrame);
+}
+
+TEST(WorkstationView, AddedPanelsShareScrollContentWithoutHidingSafetyControls) {
+    lumora::ui::MainWindow window;
+    window.resize(900, 600);
+    auto& view = window.workstationView();
+    auto* processingPanel = new QWidget;
+    processingPanel->setMinimumHeight(1000);
+    auto* panelLayout = new QVBoxLayout(processingPanel);
+    panelLayout->addWidget(new QLabel(QStringLiteral("Processing controls")));
+    panelLayout->addStretch(1);
+    panelLayout->addWidget(new QPushButton(QStringLiteral("Reset processing")));
+    view.addSidebarPanel(processingPanel);
+    lumora::processing::ProcessorStatus processing;
+    processing.mode = lumora::processing::ProcessorMode::OriginalOnlyLatched;
+    processing.retrySupported = true;
+    view.setProcessingStatus(processing);
+    window.show();
+    QCoreApplication::processEvents();
+
+    const auto scrolls = view.sidebar()->findChildren<QScrollArea*>();
+    ASSERT_EQ(scrolls.size(), 1);
+    auto* scroll = scrolls.front();
+    EXPECT_TRUE(scroll->widget()->isAncestorOf(&window.cameraStartupPanel()));
+    EXPECT_TRUE(scroll->widget()->isAncestorOf(processingPanel));
+    EXPECT_GT(scroll->verticalScrollBar()->maximum(), 0);
+    EXPECT_EQ(scroll->horizontalScrollBar()->maximum(), 0);
+    scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+    QCoreApplication::processEvents();
+
+    for (const auto* objectName : {
+             "processingWarning", "processingRetryButton", "pauseLiveButton"}) {
+        const auto* control = view.findChild<QWidget*>(QString::fromLatin1(objectName));
+        ASSERT_NE(control, nullptr) << objectName;
+        EXPECT_FALSE(scroll->widget()->isAncestorOf(control)) << objectName;
+        EXPECT_TRUE(control->isVisible()) << objectName;
+        EXPECT_TRUE(view.sidebar()->rect().contains(control->geometry())) << objectName;
+    }
+    EXPECT_GT(view.imageViewport()->width(), view.sidebar()->width());
 }
 
 TEST(WorkstationView, ExposesStableNamedEvaluationComposition) {

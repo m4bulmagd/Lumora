@@ -252,6 +252,10 @@ add_library(
   ui/src/ImageViewport.cpp
   ui/src/CameraStartupPanel.cpp
   ui/include/lumora/ui/WorkstationController.hpp
+  ui/include/lumora/ui/ProcessingControlsModel.hpp
+  ui/include/lumora/ui/ProcessingPanel.hpp
+  ui/src/ProcessingPanel.cpp
+  ui/src/ProcessingControlsModel.cpp
   ui/src/WorkstationController.cpp
   ui/src/FramePresenter.cpp
   ui/src/MainWindow.cpp

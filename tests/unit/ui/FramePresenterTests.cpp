@@ -9,6 +9,9 @@
 #include <lumora/ui/WorkstationStatus.hpp>
 #include <lumora/ui/WorkstationView.hpp>
 
+#include <QLabel>
+#include <QCoreApplication>
+
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -31,6 +34,122 @@ using lumora::ui::WorkstationView;
 
 void paint(WorkstationView& view) {
     static_cast<void>(lumora::test::paintWidget(*view.imageViewport()));
+}
+
+std::shared_ptr<const FrameBundle> makeEnhancedBundle(
+    std::uint64_t id, ManualClock& clock) {
+    const auto original = lumora::test::makeBundle(64U, 32U, id, clock);
+    const auto& displayLayout = original->originalDisplay->layout;
+    auto displayPool = lumora::core::BufferPool::create(
+        1U, displayLayout.payloadBytes()).value();
+    auto displayLease = displayPool->tryAcquire();
+    std::ranges::fill(displayLease->bytes(), std::byte{0xE0});
+    auto display = lumora::core::DisplayFrame::create(
+        id, displayLayout, std::move(*displayLease).seal(),
+        lumora::core::DisplayStorage::Gray8, original->originalDisplay->mapping,
+        original->originalDisplay->presentationOrientation).value();
+    const auto processedLayout = lumora::core::ImageLayout::create(
+        64U, 32U, 128U, lumora::core::StorageType::UInt16, 4096U).value();
+    auto processedPool = lumora::core::BufferPool::create(1U, 4096U).value();
+    auto processedLease = processedPool->tryAcquire();
+    std::ranges::fill(processedLease->bytes(), std::byte{0xE0});
+    auto processed = lumora::core::ProcessedFrame::create(
+        id, processedLayout, std::move(*processedLease).seal(), {1U, 1U, 1U}, {}).value();
+    return FrameBundle::create(original->raw, original->originalDisplay,
+        std::move(processed), std::move(display)).value();
+}
+
+TEST(FramePresenter, EnhancedPixelsAndBundleAreAcknowledgedOnlyAfterPaint) {
+    LatestValueSlot<FrameBundle> slot;
+    WorkstationView view;
+    ManualClock clock;
+    view.resize(900, 600);
+    view.show();
+    QCoreApplication::processEvents();
+    FramePresenter presenter(slot, view, clock);
+    const auto bundle = makeEnhancedBundle(1U, clock);
+    (void)slot.publish(bundle);
+    presenter.refresh();
+    EXPECT_EQ(presenter.presentedBundle(), nullptr);
+    EXPECT_EQ(presenter.displayedFrameCount(), 0U);
+
+    const auto image = lumora::test::paintWidget(*view.imageViewport());
+    EXPECT_EQ(image.pixelColor(image.width() / 2, image.height() / 2).red(), 224);
+    EXPECT_EQ(presenter.presentedBundle(), bundle);
+    EXPECT_EQ(presenter.displayedFrameCount(), 1U);
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Current);
+    const auto* label = view.findChild<QLabel*>(QStringLiteral("previewModeLabel"));
+    ASSERT_NE(label, nullptr);
+    EXPECT_EQ(label->text(), QStringLiteral("Enhanced"));
+    EXPECT_EQ(view.imageViewport()->accessibleName(), QStringLiteral("Enhanced image viewport"));
+}
+
+TEST(FramePresenter, FallbackLabelChangesOnlyWhenOriginalIsPainted) {
+    LatestValueSlot<FrameBundle> slot;
+    LatestValueSlot<FrameBundle> replacement;
+    WorkstationView view;
+    ManualClock clock;
+    view.resize(900, 600);
+    view.show();
+    QCoreApplication::processEvents();
+    FramePresenter presenter(slot, view, clock);
+    const auto* label = view.findChild<QLabel*>(QStringLiteral("previewModeLabel"));
+    ASSERT_NE(label, nullptr);
+    EXPECT_EQ(label->text(), QStringLiteral("Enhanced"));
+    (void)slot.publish(makeEnhancedBundle(1U, clock));
+    presenter.refresh();
+    paint(view);
+
+    const auto fallback = lumora::test::makeBundle(64U, 32U, 2U, clock);
+    (void)slot.publish(fallback);
+    presenter.refresh();
+    EXPECT_EQ(label->text(), QStringLiteral("Enhanced"));
+    EXPECT_EQ(presenter.presentedBundle()->sourceFrameId(), 1U);
+    const auto image = lumora::test::paintWidget(*view.imageViewport());
+    EXPECT_EQ(image.pixelColor(image.width() / 2, image.height() / 2).red(), 128);
+    EXPECT_EQ(presenter.presentedBundle(), fallback);
+    EXPECT_EQ(label->text(), QStringLiteral("Original (fallback)"));
+    EXPECT_EQ(view.imageViewport()->accessibleName(), QStringLiteral("Original image viewport"));
+
+    presenter.resetSource(replacement);
+    EXPECT_EQ(label->text(), QStringLiteral("Enhanced"));
+    EXPECT_EQ(presenter.presentedBundle(), nullptr);
+    EXPECT_EQ(view.status().freshness, FrameFreshness::WaitingForFrame);
+}
+
+TEST(FramePresenter, PauseKeepsPaintedEnhancedPixelsAndLabelAcrossPendingFallback) {
+    LatestValueSlot<FrameBundle> slot;
+    WorkstationView view;
+    ManualClock clock;
+    view.resize(900, 600);
+    view.show();
+    QCoreApplication::processEvents();
+    FramePresenter presenter(slot, view, clock);
+    const auto enhanced = makeEnhancedBundle(1U, clock);
+    (void)slot.publish(enhanced);
+    presenter.refresh();
+    paint(view);
+    (void)slot.publish(lumora::test::makeBundle(64U, 32U, 2U, clock));
+    presenter.refresh();
+    presenter.pause();
+    clock.advance(501ms);
+    presenter.refresh();
+
+    const auto image = lumora::test::paintWidget(*view.imageViewport());
+    EXPECT_EQ(image.pixelColor(image.width() / 2, image.height() / 2).red(), 224);
+    EXPECT_EQ(presenter.presentedBundle(), enhanced);
+    EXPECT_EQ(presenter.displayedFrameCount(), 1U);
+    EXPECT_EQ(view.viewerState(), ViewerState::Paused);
+    EXPECT_EQ(view.status().frameAge, 501ms);
+    const auto* label = view.findChild<QLabel*>(QStringLiteral("previewModeLabel"));
+    ASSERT_NE(label, nullptr);
+    EXPECT_EQ(label->text(), QStringLiteral("Enhanced"));
+
+    presenter.resume();
+    paint(view);
+    EXPECT_EQ(presenter.presentedBundle()->sourceFrameId(), 2U);
+    EXPECT_EQ(label->text(), QStringLiteral("Original (fallback)"));
+    EXPECT_EQ(view.status().freshness, FrameFreshness::Stale);
 }
 
 std::shared_ptr<const FrameBundle> makeUnsupportedBundle(
