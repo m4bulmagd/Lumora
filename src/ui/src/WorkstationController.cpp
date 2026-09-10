@@ -143,7 +143,7 @@ struct WorkstationController::Impl {
         return descriptor!=camera.discoveredDescriptors.end() &&
             application::isStartupResumeEligible(*loaded,*camera.actualIdentity,descriptor->identity,*camera.capabilities);
     }
-    Result post(application::CameraCommand command, Intent intent) {
+    Result post(const application::CameraCommand& command, Intent intent) {
         const bool priority=intent==Intent::Stop || intent==Intent::Disconnect;
         auto result=pipeline.post(command);
         if(result.hasValue()) {
@@ -363,7 +363,7 @@ Result WorkstationController::dispatch(Intent intent) {
         d.resumeGeneration=camera->sessionGeneration;
         command.payload=application::ApplyConfiguration{camera->sessionGeneration,d.loaded->requested,++d.revision};break;
     }
-    auto result=d.post(std::move(command),intent);
+    auto result=d.post(command,intent);
     d.panel.setPresentation(d.presentation);
     return result;
 }
