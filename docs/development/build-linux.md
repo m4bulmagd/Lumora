@@ -166,8 +166,8 @@ cmake -E remove_directory out/build
 To preserve other presets, replace `out/build` with one explicit preset directory.
 
 
-### Local camera settings development
+### Camera settings
 
-The `codex/m09-camera-settings` worktree adds **Camera settings**. After **Connect**, open it to edit supported exposure/gain modes and values while stopped. If the stream is running, use **Stop**; viewer **Pause** keeps acquiring and does not enable these edits. Choose **Apply settings**, review the separate actual readback, then explicitly **Confirm** and **Start** using the existing panel. Closing without Apply discards the draft. A changed source or external request requires closing and reopening the dialog.
+The integrated application provides **Camera settings**. After **Connect**, open it to edit supported exposure/gain modes and values while stopped. If the stream is running, use **Stop**; viewer **Pause** keeps acquiring and does not enable these edits. Choose **Apply settings**, review the separate actual readback, then explicitly **Confirm** and **Start** using the existing panel. Closing without Apply discards the draft. A changed source or external request requires closing and reopening the dialog.
 
-Confirmed settings save in the background and may be eligible for explicit **Resume Live** on the next launch. FPS, pixel format, full ROI and acquisition mode are read-only in this slice. See the [Task 4A record](../architecture/milestones/m09-camera-settings.md) for verification and remaining work. This branch is local and unpublished.
+Confirmed settings save in the background and may be eligible for explicit **Resume Live** on the next launch. FPS, pixel format, full ROI and acquisition mode are read-only in the integrated Task 4A slice. [PR #20 integration evidence](../architecture/milestones/m09-camera-settings.md#pr-20-integration) records the passing Linux/Windows Debug/Release checks. The follow-on local low-FPS watchdog and numeric stopped-FPS changes are outside this integrated Task 4A checkpoint.
