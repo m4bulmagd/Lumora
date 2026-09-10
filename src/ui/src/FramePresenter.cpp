@@ -16,11 +16,6 @@
 namespace lumora::ui {
 namespace {
 
-[[nodiscard]] const std::shared_ptr<const core::DisplayFrame>& selectedDisplay(
-    const core::FrameBundle& bundle) noexcept {
-    return bundle.enhancedDisplay ? bundle.enhancedDisplay : bundle.originalDisplay;
-}
-
 [[nodiscard]] bool staleFor(
     std::chrono::steady_clock::duration age,
     double actualFps) noexcept {
@@ -38,6 +33,32 @@ public:
     Impl(core::LatestValueSlot<core::FrameBundle>& sourceSlot,
          WorkstationView& workstationView, core::IClock& sourceClock)
         : slot(&sourceSlot), view(&workstationView), clock(&sourceClock) {}
+
+    [[nodiscard]] std::shared_ptr<const core::FrameBundle> modeSource() const {
+        return paused || !pending ? completed : pending;
+    }
+
+    void updateAvailability() {
+        const auto source = modeSource();
+        view->setDisplayModeAvailability(source != nullptr,
+            source && source->enhancedDisplay != nullptr);
+    }
+
+    [[nodiscard]] bool submit(
+        std::shared_ptr<const core::FrameBundle> bundle, DisplayMode mode) {
+        const auto token = ++nextToken;
+        auto result = view->imageViewport()->present(ViewportPresentation{
+            token, mode, bundle->originalDisplay, bundle->enhancedDisplay});
+        if (!result.hasValue()) {
+            return false;
+        }
+        pending = std::move(bundle);
+        pendingMode = mode;
+        pendingToken = token;
+        requestedMode = mode;
+        updateAvailability();
+        return true;
+    }
 
     void updateStatus() {
         WorkstationStatus status;
@@ -82,11 +103,11 @@ public:
         if (acceptedId && id <= *acceptedId) {
             return;
         }
-        auto result = view->imageViewport()->present(selectedDisplay(*publication.value));
-        if (!result.hasValue()) {
+        const auto mode = publication.value->enhancedDisplay
+            ? requestedMode : DisplayMode::Original;
+        if (!submit(publication.value, mode)) {
             return;
         }
-        pending = publication.value;
         acceptedId = id;
     }
 
@@ -102,8 +123,14 @@ public:
     QTimer timer;
     QMetaObject::Connection pauseConnection;
     QMetaObject::Connection resumeConnection;
+    QMetaObject::Connection modeConnection;
     std::shared_ptr<const core::FrameBundle> completed;
     std::shared_ptr<const core::FrameBundle> pending;
+    DisplayMode requestedMode{DisplayMode::Enhanced};
+    DisplayMode pendingMode{DisplayMode::Enhanced};
+    DisplayMode completedMode{DisplayMode::Enhanced};
+    std::uint64_t nextToken{0U};
+    std::uint64_t pendingToken{0U};
     std::optional<std::uint64_t> acceptedId;
     std::optional<std::chrono::steady_clock::time_point> completedAt;
     std::optional<std::chrono::steady_clock::time_point> lastTimerDelivery;
@@ -129,29 +156,42 @@ FramePresenter::FramePresenter(
         impl_->lastTimerDelivery = now;
         refresh();
     });
-    view.imageViewport()->setPresentationObserver(
-        [this](std::shared_ptr<const core::DisplayFrame> frame) {
-            if (!impl_->pending || selectedDisplay(*impl_->pending) != frame) {
+    view.imageViewport()->setCompletionObserver(
+        [this](const ViewportPresentation& receipt) {
+            if (!impl_->pending || receipt.token != impl_->pendingToken ||
+                receipt.mode != impl_->pendingMode ||
+                receipt.originalDisplay != impl_->pending->originalDisplay ||
+                receipt.enhancedDisplay != impl_->pending->enhancedDisplay) {
                 return;
+            }
+            if (impl_->pending != impl_->completed) {
+                impl_->completedAt = impl_->clock->steadyNow();
+                ++impl_->displayedCount;
             }
             impl_->completed = std::move(impl_->pending);
             impl_->pending.reset();
-            impl_->completedAt = impl_->clock->steadyNow();
-            ++impl_->displayedCount;
-            impl_->view->setPreviewSource(impl_->completed->enhancedDisplay != nullptr);
+            impl_->completedMode = receipt.mode;
+            impl_->pendingToken = 0U;
+            impl_->updateAvailability();
+            impl_->view->setPresentedDisplayMode(impl_->completedMode);
             impl_->updateStatus();
         });
     impl_->pauseConnection = QObject::connect(
         &view, &WorkstationView::pauseRequested, &view, [this] { pause(); });
     impl_->resumeConnection = QObject::connect(
         &view, &WorkstationView::resumeRequested, &view, [this] { resume(); });
+    impl_->modeConnection = QObject::connect(
+        &view, &WorkstationView::displayModeRequested, &view,
+        [this](DisplayMode mode) { setDisplayMode(mode); });
+    impl_->updateAvailability();
 }
 
 FramePresenter::~FramePresenter() {
     stop();
     QObject::disconnect(impl_->pauseConnection);
     QObject::disconnect(impl_->resumeConnection);
-    impl_->view->imageViewport()->setPresentationObserver({});
+    QObject::disconnect(impl_->modeConnection);
+    impl_->view->imageViewport()->setCompletionObserver({});
 }
 
 void FramePresenter::start() {
@@ -160,6 +200,26 @@ void FramePresenter::start() {
     }
 }
 void FramePresenter::stop() { impl_->timer.stop(); }
+void FramePresenter::setDisplayMode(DisplayMode mode) {
+    if (mode != DisplayMode::Original && mode != DisplayMode::Enhanced &&
+        mode != DisplayMode::Compare) {
+        return;
+    }
+    const auto source = impl_->modeSource();
+    if (!source || (mode != DisplayMode::Original && !source->enhancedDisplay)) {
+        return;
+    }
+    if (impl_->requestedMode == mode &&
+        ((impl_->pending && impl_->pendingMode == mode) ||
+         (!impl_->pending && impl_->completedMode == mode))) {
+        return;
+    }
+    static_cast<void>(impl_->submit(source, mode));
+}
+
+DisplayMode FramePresenter::displayMode() const noexcept {
+    return impl_->completed ? impl_->completedMode : impl_->requestedMode;
+}
 void FramePresenter::refresh() {
     impl_->readLatest(impl_->examinedRevision);
     impl_->updateStatus();
@@ -171,6 +231,10 @@ void FramePresenter::pause() {
     impl_->paused = true;
     impl_->view->imageViewport()->discardPendingPresentation();
     impl_->pending.reset();
+    impl_->pendingToken = 0U;
+    impl_->requestedMode = impl_->completed ? impl_->completedMode : DisplayMode::Enhanced;
+    impl_->updateAvailability();
+    impl_->view->setPresentedDisplayMode(impl_->requestedMode);
     impl_->updateStatus();
 }
 void FramePresenter::resume() {
@@ -182,6 +246,7 @@ void FramePresenter::resume() {
         ? std::optional<std::uint64_t>{impl_->completed->sourceFrameId()}
         : std::nullopt;
     impl_->readLatest(0U);
+    impl_->updateAvailability();
     impl_->updateStatus();
 }
 void FramePresenter::resetSource(
@@ -190,13 +255,18 @@ void FramePresenter::resetSource(
     impl_->slot = &freshSlot;
     impl_->pending.reset();
     impl_->completed.reset();
+    impl_->requestedMode = DisplayMode::Enhanced;
+    impl_->completedMode = DisplayMode::Enhanced;
+    impl_->pendingMode = DisplayMode::Enhanced;
+    impl_->pendingToken = 0U;
     impl_->acceptedId.reset();
     impl_->completedAt.reset();
     impl_->lastTimerDelivery.reset();
     impl_->examinedRevision = 0U;
     impl_->displayedCount = 0U;
     impl_->paused = false;
-    impl_->view->setPreviewSource(true);
+    impl_->updateAvailability();
+    impl_->view->setPresentedDisplayMode(DisplayMode::Enhanced);
     impl_->updateStatus();
 }
 

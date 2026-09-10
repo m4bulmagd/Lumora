@@ -3,6 +3,7 @@
 #include <lumora/ui/ImageViewport.hpp>
 
 #include <QAction>
+#include <QActionGroup>
 #include <QColor>
 #include <QDateTime>
 #include <QGridLayout>
@@ -102,6 +103,34 @@ WorkstationView::WorkstationView(QWidget* parent)
     previewLabel->setStyleSheet(QStringLiteral(
         "QLabel { color: #eef0f3; font-size: 18px; font-weight: 600; }"));
     sidebarLayout->addWidget(previewLabel);
+    auto* modeActions = new QActionGroup(this);
+    modeActions->setExclusive(true);
+    auto* modeLayout = new QHBoxLayout;
+    const auto addModeAction = [&](DisplayMode mode, const QString& text,
+                                   const char* name, const QString& accessibleName) {
+        auto* action = makeViewerAction(text, name, this);
+        action->setCheckable(true);
+        modeActions->addAction(action);
+        auto* button = makeActionButton(action, accessibleName, sidebar_);
+        button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        modeLayout->addWidget(button);
+        connect(action, &QAction::triggered, this, [this, mode] {
+            setPresentedDisplayMode(presentedMode_);
+            emit displayModeRequested(mode);
+        });
+    };
+    addModeAction(DisplayMode::Original, tr("Original"), "originalModeAction", tr("Show Original"));
+    addModeAction(DisplayMode::Enhanced, tr("Enhanced"), "enhancedModeAction", tr("Show Enhanced"));
+    addModeAction(DisplayMode::Compare, tr("Compare"), "compareModeAction", tr("Show Compare"));
+    sidebarLayout->addLayout(modeLayout);
+    auto* modeReason = new QLabel(sidebar_);
+    modeReason->setObjectName(QStringLiteral("displayModeAvailabilityReason"));
+    modeReason->setAccessibleName(tr("Display mode availability"));
+    modeReason->setTextFormat(Qt::PlainText);
+    modeReason->setWordWrap(true);
+    modeReason->setStyleSheet(QStringLiteral("QLabel { color: #d5dbe3; }"));
+    modeReason->hide();
+    sidebarLayout->addWidget(modeReason);
     auto* processingWarning=new QLabel(this);
     processingWarning->setObjectName(QStringLiteral("processingWarning"));
     processingWarning->setAccessibleName(tr("Enhancement processing warning"));
@@ -258,13 +287,50 @@ void WorkstationView::addSidebarPanel(QWidget* panel) {
 }
 
 void WorkstationView::setPreviewSource(bool enhanced) {
+    setPresentedDisplayMode(enhanced ? DisplayMode::Enhanced : DisplayMode::Original);
+}
+
+void WorkstationView::setDisplayModeAvailability(bool hasImage, bool hasEnhanced) {
+    enhancedImageAvailable_ = hasImage && hasEnhanced;
+    findChild<QAction*>(QStringLiteral("originalModeAction"))->setEnabled(hasImage);
+    for (const auto* name : {"enhancedModeAction", "compareModeAction"}) {
+        auto* action = findChild<QAction*>(QString::fromLatin1(name));
+        action->setEnabled(enhancedImageAvailable_);
+        action->setToolTip(enhancedImageAvailable_
+            ? tr("View the matching enhanced image from this frame.")
+            : tr("An enhanced image is not available for this frame."));
+    }
+    auto* reason = findChild<QLabel*>(QStringLiteral("displayModeAvailabilityReason"));
+    reason->setText(tr("Enhanced and Compare are unavailable for this frame. Original remains available."));
+    reason->setVisible(hasImage && !enhancedImageAvailable_);
+}
+
+void WorkstationView::setPresentedDisplayMode(DisplayMode mode) {
+    if (mode != DisplayMode::Original && mode != DisplayMode::Enhanced && mode != DisplayMode::Compare) {
+        return;
+    }
+    presentedMode_ = mode;
+    findChild<QAction*>(QStringLiteral("originalModeAction"))->setChecked(mode == DisplayMode::Original);
+    findChild<QAction*>(QStringLiteral("enhancedModeAction"))->setChecked(mode == DisplayMode::Enhanced);
+    findChild<QAction*>(QStringLiteral("compareModeAction"))->setChecked(mode == DisplayMode::Compare);
     auto* label = findChild<QLabel*>(QStringLiteral("previewModeLabel"));
-    label->setText(enhanced ? tr("Enhanced") : tr("Original (fallback)"));
-    label->setToolTip(enhanced
-        ? tr("Enhanced preview: image processing affects this view; raw samples remain unchanged.")
-        : tr("Original (display mapped): window/level and display mapping affect the view; raw samples remain unchanged."));
-    imageViewport_->setAccessibleName(enhanced
-        ? tr("Enhanced image viewport") : tr("Original image viewport"));
+    switch (mode) {
+    case DisplayMode::Original:
+        label->setText(enhancedImageAvailable_ ? tr("Original") : tr("Original (fallback)"));
+        label->setToolTip(tr("Original (display mapped): window/level and display mapping affect the view; raw samples remain unchanged."));
+        imageViewport_->setAccessibleName(tr("Original image viewport"));
+        break;
+    case DisplayMode::Enhanced:
+        label->setText(tr("Enhanced"));
+        label->setToolTip(tr("Enhanced preview: image processing affects this view; raw samples remain unchanged."));
+        imageViewport_->setAccessibleName(tr("Enhanced image viewport"));
+        break;
+    case DisplayMode::Compare:
+        label->setText(tr("Compare"));
+        label->setToolTip(tr("Original (display mapped) and Enhanced from the same frame, with synchronized zoom and pan."));
+        imageViewport_->setAccessibleName(tr("Original and Enhanced comparison viewport"));
+        break;
+    }
 }
 
 void WorkstationView::setProcessingStatus(processing::ProcessorStatus status, bool retryPending) {
