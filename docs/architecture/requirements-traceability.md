@@ -231,3 +231,15 @@ These regressions pass in the clean-source full Debug/Release suites at `f1848ec
 | `LivePipeline` camera-settings cases | Full request Apply, unchanged resources/source continuity, fresh confirmation, invalid/stale admission, persistence/Resume, late load and Disconnect | Local and PR real controller/panel/dialog and production simulator integration |
 
 The [milestone record](milestones/m09-camera-settings.md#pr-20-integration) records clean reviewed source `0b6f8f4`, local Debug/Release 62/62 plus native X11 1/1 each, inspected 560×560/720×640 dialog captures, and passing PR #20 Linux/Windows Debug/Release 62/62 CI. This partial Task 4 implementation does not cover the separate low-FPS watchdog correction or numeric stopped-FPS editing, format/ROI resource rebinding, per-camera records, administrator orientation or full M9 acceptance. FPS, ROI, format and acquisition mode remain read-only.
+
+
+## M9 Task 4B frame-rate verification map
+
+| Checks | Contract | Evidence |
+|---|---|---|
+| `Application.AcquisitionWorker` | Elapsed applied-actual FPS grace, valid-frame/Start anchor lifecycle, bounded polling/cancellation, real 1 FPS second frame | Complete local Debug/Release suites; reviewed worker source |
+| `Application.CameraSettingsPolicy`, `CameraConfiguration` | Explicit positive finite FPS admission with exact prepared descriptor/ROI/mode and authoritative capability validation | Local Debug/Release suites |
+| `CameraSettingsDialog`, `FramePresenter` | Precise numeric FPS drafts/readback, bounds and unsupported precision guidance; completed-frame 30 → 1 → 60 freshness | Local Debug/Release suites and inspected dialog captures |
+| `LivePipeline` FPS cases | Same-context/pool/source continuity, fresh confirmation, persisted requested/actual FPS, Resume mismatch and late-load protection | Complete local Debug/Release integration suites |
+
+The [Task 4B record](milestones/m09-frame-rate.md#final-source-verification) binds these results to clean `8794c1c`: 62/62 in each configuration plus native X11 1/1 each. The precision P2 is closed; the nonblocking scripted-test acknowledgement P3 is retained. The branch is unpublished, so this does not extend PR #20 hosted evidence to Task 4B. Native Windows, hardware, performance and formal acceptance remain open.

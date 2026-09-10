@@ -1,6 +1,6 @@
 # M9 Task 4B: low-FPS acquisition and stopped frame-rate editing
 
-Date: 2026-09-10. Branch: `codex/m09-frame-rate`. This local continuation follows the [Task 4A exposure/gain dialog](m09-camera-settings.md) under the [bounded implementation plan](../../superpowers/plans/2026-09-10-m09-frame-rate.md). Final source verification and publication remain pending at this development checkpoint. This is a partial Task 4 implementation, not M9 acceptance.
+Date: 2026-09-10. Branch: `codex/m09-frame-rate`. This local continuation follows the merged [Task 4A exposure/gain dialog](m09-camera-settings.md#pr-20-integration) under the [bounded implementation plan](../../superpowers/plans/2026-09-10-m09-frame-rate.md). Implemented, independently reviewed and verified locally; unpublished. This is a partial Task 4 implementation, not M9 acceptance.
 
 ## Operator behavior
 
@@ -36,7 +36,26 @@ Worker RED recorded 12 selected cases, eight expected failures in 2.407 s, inclu
 
 FPS policy RED recorded two expected failures among six cases. All seven selected controller/dialog/persistence integration cases initially failed the old FPS admission or missing editor. Dialog RED recorded ten expected failures while the changing-FPS presenter regression passed unchanged. After implementation, eight complete focused registrations pass in 11.29 s, including the complete LivePipeline registration in 10.62 s. The precision review finding was then reproduced by three failing exact-value/range regressions before its correction.
 
-Exact commands, failure logs, result/source records and review reports remain under `out/qa/m09-frame-rate/` and `.superpowers/sdd/2026-09-10-m09-frame-rate/` in the preserved worktree. Final precision review, whole-branch review, clean Debug/Release checks and native dialog captures are recorded at completion below.
+Exact commands, failure logs, result/source records and review reports remain under `out/qa/m09-frame-rate/` and `.superpowers/sdd/2026-09-10-m09-frame-rate/` in the preserved worktree. Final precision review, whole-branch review, clean Debug/Release checks and native dialog captures are recorded below.
+
+## Final source verification
+
+The elapsed watchdog is committed as `790db71`; stopped FPS admission/editor and the reviewed precision correction are committed as `9a39335`. Clean source `8794c1ce5538775fe280a0f7f37c713564f5d123` incorporates the published Task 4A integration documentation `2be1e48` without a source conflict. The source checks below have matching clean start/end revisions. Documentation-only completion follows this source.
+
+| Check | Debug | Release | Evidence labels |
+|---|---|---|---|
+| Full simulator build, `cmake --build --preset linux-gcc-<configuration>-sim --parallel 2` | Passed | Passed | `verified-debug-build`, `verified-release-build` |
+| Full headless suite, `ctest --preset linux-gcc-<configuration>-sim --output-on-failure -LE 'hardware\|desktop'` | 62/62, 78.41 s | 62/62, 38.94 s | `verified-debug-test`, `verified-release-test` |
+| Native X11 desktop smoke via Xvfb, `ctest --preset linux-gcc-<configuration>-sim --output-on-failure -L desktop --no-tests=error` | 1/1, 0.11 s | 1/1, 0.05 s | `verified-debug-x11`, `verified-release-x11` |
+| Actual dialog under XCB/Xvfb at 560×560 and 720×640 | 1/1, 0.086 s | Not separately run | `verified-native-dialog` |
+
+The precision correction passes all eight focused registrations in 10.97 s. Its independent scoped re-review closes the P2 with no new finding. Final whole-branch spec review passes; quality review passes with one retained nonblocking P3: the scripted worker test's aggregate-counter wait can acknowledge an earlier autonomous timeout before its queued result under descheduling. This is a test-robustness concern inferred from source, not an observed failure or a production defect. It remains recorded, with a separate read-only follow-up proposal; it is not claimed fixed.
+
+Both native dialog captures were inspected. The FPS row, fixed source fields, exposure/gain controls, actual readback, guidance and buttons are readable and contained at both sizes. The synthetic dialog fixture uses Mono8 metadata; production SIM-LIVE remains Mono12. Xvfb captures are rendered-window evidence and do not establish native Windows 11 DPI or physical-display acceptance.
+
+`verification-manifest.json` validates seven successful immutable command records, common clean source and SHA-256 log hashes. `final-screenshots.json` binds both original BMP hashes to that source and native command; PNG conversions were verified pixel-identical and inspected. `review-record.md` retains task, precision and whole-branch review records. This continuation remains locally committed for a separate publication decision and Linux/Windows Debug/Release CI.
+
+The independent final evidence/documentation audit approves all seven command chains, both capture hashes and pixel identities, review dispositions, documented source/timings, local links and separation from PR #20 hosted evidence. No actionable evidence contradiction remains. The audit is retained as `final-evidence-audit.md` in the execution ledger and QA directory; it does not close the recorded P3 or external acceptance gates.
 
 ## Remaining scope
 

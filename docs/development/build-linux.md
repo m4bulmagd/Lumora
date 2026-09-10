@@ -171,3 +171,10 @@ To preserve other presets, replace `out/build` with one explicit preset director
 The integrated application provides **Camera settings**. After **Connect**, open it to edit supported exposure/gain modes and values while stopped. If the stream is running, use **Stop**; viewer **Pause** keeps acquiring and does not enable these edits. Choose **Apply settings**, review the separate actual readback, then explicitly **Confirm** and **Start** using the existing panel. Closing without Apply discards the draft. A changed source or external request requires closing and reopening the dialog.
 
 Confirmed settings save in the background and may be eligible for explicit **Resume Live** on the next launch. FPS, pixel format, full ROI and acquisition mode are read-only in the integrated Task 4A slice. [PR #20 integration evidence](../architecture/milestones/m09-camera-settings.md#pr-20-integration) records the passing Linux/Windows Debug/Release checks. The follow-on local low-FPS watchdog and numeric stopped-FPS changes are outside this integrated Task 4A checkpoint.
+
+
+### Local stopped FPS continuation
+
+The `codex/m09-frame-rate` worktree also edits **Frame rate (fps)** while stopped. Build and launch from that worktree with the same instructions above. SIM-LIVE advertises 1–60 FPS. Choose **Stop**, open **Camera settings**, edit FPS, **Apply settings**, review actual readback, then **Confirm** and **Start**. Requested 1.25 FPS is retained while the simulator reads back actual 1 FPS. Ordinary Apply and eligible saved Resume retain these settings. Viewer Pause continues acquisition and does not enable editing.
+
+The low-FPS watchdog correction preserves 250 ms retrieval polling, allowing healthy slow streams to continue. The [Task 4B record](../architecture/milestones/m09-frame-rate.md#final-source-verification) retains verified source, inspected native layouts and the explicit numeric-widget precision limit. This continuation is locally committed and unpublished; ROI, format and acquisition mode remain read-only.
