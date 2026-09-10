@@ -1,6 +1,6 @@
 # M9 Task 4B: low-FPS acquisition and stopped frame-rate editing
 
-Date: 2026-09-10. Branch: `codex/m09-frame-rate`. This local continuation follows the merged [Task 4A exposure/gain dialog](m09-camera-settings.md#pr-20-integration) under the [bounded implementation plan](../../superpowers/plans/2026-09-10-m09-frame-rate.md). Implemented, independently reviewed and verified locally; unpublished. This is a partial Task 4 implementation, not M9 acceptance.
+Date: 2026-09-10. Branch: `codex/m09-frame-rate`. This continuation follows the merged [Task 4A exposure/gain dialog](m09-camera-settings.md#pr-20-integration) under the [bounded implementation plan](../../superpowers/plans/2026-09-10-m09-frame-rate.md). Implemented, independently reviewed and merged through [PR #21](https://github.com/m4bulmagd/Lumora/pull/21) after Linux/Windows Debug/Release CI passed; see the [integration record](#pr-21-integration). This is a partial Task 4 implementation, not M9 acceptance.
 
 ## Operator behavior
 
@@ -53,7 +53,7 @@ The precision correction passes all eight focused registrations in 10.97 s. Its 
 
 Both native dialog captures were inspected. The FPS row, fixed source fields, exposure/gain controls, actual readback, guidance and buttons are readable and contained at both sizes. The synthetic dialog fixture uses Mono8 metadata; production SIM-LIVE remains Mono12. Xvfb captures are rendered-window evidence and do not establish native Windows 11 DPI or physical-display acceptance.
 
-`verification-manifest.json` validates seven successful immutable command records, common clean source and SHA-256 log hashes. `final-screenshots.json` binds both original BMP hashes to that source and native command; PNG conversions were verified pixel-identical and inspected. `review-record.md` retains task, precision and whole-branch review records. This continuation remains locally committed for a separate publication decision and Linux/Windows Debug/Release CI.
+`verification-manifest.json` validates seven successful immutable command records, common clean source and SHA-256 log hashes. `final-screenshots.json` binds both original BMP hashes to that source and native command; PNG conversions were verified pixel-identical and inspected. `review-record.md` retains task, precision and whole-branch review records. At this local checkpoint the continuation was unpublished; subsequent publication, hosted CI and merge are recorded below.
 
 The independent final evidence/documentation audit approves all seven command chains, both capture hashes and pixel identities, review dispositions, documented source/timings, local links and separation from PR #20 hosted evidence. No actionable evidence contradiction remains. The audit is retained as `final-evidence-audit.md` in the execution ledger and QA directory; it does not close the recorded P3 or external acceptance gates.
 
@@ -61,4 +61,18 @@ The independent final evidence/documentation audit approves all seven command ch
 
 SIM-LIVE remains Mono12 in U16; the standalone M4 harness remains Mono8. No processing algorithm or performance benchmark changes here. The previous 2048 Standard Linux performance result remains about 16.81 FPS identity and 15.31 FPS with flip/rotation, below the 30 FPS target.
 
-The inherited intermittent context-retirement/lifecycle integration timeout remains unresolved. This acquisition timeout correction fixes a different reproduced defect. Hosted Windows CI for this new continuation, deferred native Windows 11 visual/DPI checks, hardware validation and separate milestone acceptance remain open. Task 4 format/ROI rebinding, richer capabilities, per-camera records and installation orientation, plus Task 5 fullscreen/UI preferences, remain separate work.
+The inherited intermittent context-retirement/lifecycle integration timeout remains unresolved. This acquisition timeout correction fixes a different reproduced defect. Deferred native Windows 11 visual/DPI checks, hardware validation and separate milestone acceptance remain open. Task 4 format/ROI rebinding, richer capabilities, per-camera records and installation orientation, plus Task 5 fullscreen/UI preferences, remain separate work.
+
+## PR #21 integration
+
+On 2026-09-10, [PR #21](https://github.com/m4bulmagd/Lumora/pull/21) merged reviewed publication head `a5972f221cd5314ac08269373f2aacb78122daf6` as `322a1cfa0bc24dafb1e54845fb4103a80cf00435`. Both platform logs check out PR merge `ddaf1a6881700f1129e1113ef4460b665334d8eb`, combining that head with base `2be1e4808e9831298997a9ffe46d626f94eae41a`. The publication head, tested PR merge and actual merge all have tree `f37988ed3c4e143c245d57b31dce6de797943fd2`; both comparisons have empty diffs. The clean FPS worktree was fetched and fast-forwarded to the merge. The root checkout's unrelated documentation edits remain untouched.
+
+| Check | Debug | Release | Evidence |
+|---|---|---|---|
+| Fresh local publication-head full build and headless suite | Build passed; 62/62, 77.85 s | Build passed; 62/62, 38.37 s | Six immutable publication records, including native X11 1/1 each, in `publication-verification.json` |
+| [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34506963052) | 62/62, 79.06 s; X11 1/1, 0.13 s | 62/62, 35.51 s; X11 1/1, 0.03 s | `pr21-linux-job.log`, job `102971412060` |
+| [Windows PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34506963034) | 62/62, 88.10 s | 62/62, 49.83 s | `pr21-windows-job.log`, job `102971412229` |
+
+All required PR job steps passed before merging the expected head. Optional Windows stress was skipped. No CI correction or rerun was needed. Logs, source association, publication verification and integration metadata are retained under `out/qa/m09-frame-rate/` in the preserved worktree. Post-merge main CI has not been checked. This integration documentation changes no production or test source.
+
+The nonblocking scripted-test acknowledgement P3 remains a separate test-robustness follow-up. The inherited lifecycle/context-retirement timeout remains unresolved. ROI/format rebinding and remaining Task 4 work, then Task 5 fullscreen/UI preferences, remain separate. Hosted CI does not close native Windows 11 visual/DPI, hardware, the 30 FPS target or formal milestone acceptance.
