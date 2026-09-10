@@ -1,6 +1,6 @@
 # M9 Task 2: processing controls and Enhanced preview
 
-Date: 2026-09-10. Branch: `codex/m09-processing-controls`, based on integrated Task 1 and documentation checkpoint `2c02ddb`. Status: implemented, independently reviewed and locally verified; unpublished.
+Date: 2026-09-10. Branch: `codex/m09-processing-controls`, based on integrated Task 1 and documentation checkpoint `2c02ddb`. Status: implemented, independently reviewed and merged through PR #18 after Linux/Windows Debug/Release CI passed.
 
 The owner approved publication of Task 1 and continuation with Task 2. The [implementation plan](../../superpowers/plans/2026-09-09-m09-processing-controls.md) refines the original M9 plan against the actual interfaces. Task 1 merged through [PR #17](https://github.com/m4bulmagd/Lumora/pull/17) after Linux/Windows Debug/Release CI passed. This continuation does not close M8 performance, native Windows 11, M6 hardware or milestone acceptance gates.
 
@@ -40,3 +40,18 @@ The final checks below ran from clean source `e55cddf4817f0026621e64c33edae466a6
 The layout case checks both supported window sizes, horizontal containment, every control's scroll reachability and viewer prominence. Its final 1280×800 screenshot was inspected: labels and entries are readable, and the sidebar scroll leaves the viewer dominant. Xvfb evidence does not verify a physical monitor or Windows DPI. An earlier screenshot-only export failed because this pinned Qt build could not save PNG; BMP export and lossless PNG conversion succeeded without a source change. That failed command is retained alongside the successful final evidence.
 
 Local evidence is under `out/qa/m09-controls/` in the preserved `.worktrees/m09-controls` checkout. `verification-manifest.json` verifies all seven successful command records, matching clean start/end source revisions and SHA-256 log hashes. The final screenshot is `processing-panel-final.bmp` (with a PNG format conversion for inspection). Task 2 has not been published or run hosted platform CI. Next integration is publication and matching Linux/Windows Debug/Release CI, followed by Task 3 Original/Enhanced switching and Compare. No processing algorithm or performance measurement changed; M8 performance and deferred native Windows/hardware/acceptance gates remain open. The inherited intermittent lifecycle timeout is not claimed fixed by this work.
+
+## PR #18 integration
+
+On 2026-09-10, [PR #18](https://github.com/m4bulmagd/Lumora/pull/18) merged publication head `bf21ceec60d69a04b176f4ae76c69756ad806719` as `c3f1c49e36bd208c6a62bfede734a56199f5d1ea`. The merge tree equals the verified PR-head tree. Production source at publication remains identical to `e55cddf`; its following commit changes documentation only.
+
+| Check | Debug | Release | Evidence |
+|---|---|---|---|
+| Fresh local full builds/headless suites at `bf21cee` | 58/58, 80.97 s | 58/58, 28.85 s | `publish-debug-*`, `publish-release-*` |
+| Fresh local native X11 | 1/1 | 1/1 | `publish-debug-x11`, `publish-release-x11` |
+| [Linux PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34456078784) | 58/58, 79.00 s; X11 1/1, 0.12 s | 58/58, 24.83 s; X11 1/1, 0.04 s | Job `102802653357` |
+| [Windows PR CI](https://github.com/m4bulmagd/Lumora/actions/runs/34456078794) | 58/58, 97.85 s | 58/58, 41.67 s | Job `102802653714` |
+
+All required job steps passed. Optional ten-minute Windows stress was skipped. No CI source correction was needed. `pr18-integration.json` and `pr18-test-results.json` under the preserved controls worktree's `out/qa/m09-controls/` retain the matching source, merge, job results and test-log summaries.
+
+Task 3 Original/Enhanced switching and synchronized Compare is the owner-approved continuation. This integration does not close the inherited intermittent lifecycle timeout, 30 FPS target, designated/native Windows evidence, hardware or milestone acceptance gates.
