@@ -8,6 +8,8 @@ Feature proposal · 10 September 2026
 
 **Collection:** [Future product ideas](README.md).
 
+**Related proposal:** [Workstation UI enhancements](2026-09-12-workstation-ui-enhancements.md) adds a proposed layout and operator controls for the existing capture, gallery, mask and recording ideas, while retaining the current roadmap.
+
 This is a proposed backlog based on the inspected M2 installation and Lumora's current source and plans. It does not change Lumora's accepted requirements or milestone sequence. The descriptions below refine M2 concepts for Lumora; they are not claims that M2 implements each proposed behavior.
 
 ## Foundation at the time of the proposal
