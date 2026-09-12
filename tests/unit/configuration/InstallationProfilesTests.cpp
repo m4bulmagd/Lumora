@@ -75,6 +75,59 @@ TEST(InstallationProfilesTest, CollectionRejectsDuplicatesAndCapacityOverflow) {
     for (int i = 0; i < 65; ++i) profiles.push_back(profile(std::to_string(i)));
     EXPECT_FALSE(application::validateInstallationProfiles(profiles).hasValue());
 }
+TEST(InstallationProfilesStoreTest, ReadAuthorityRejectsNonAdministratorOwnersAndWriteModes) {
+    EXPECT_TRUE(validatePosixInstallationAuthority(0, 0755).hasValue());
+    EXPECT_TRUE(validatePosixInstallationAuthority(0, 0644).hasValue());
+    EXPECT_FALSE(validatePosixInstallationAuthority(1000, 0444).hasValue());
+    EXPECT_FALSE(validatePosixInstallationAuthority(0, 0775).hasValue());
+    EXPECT_FALSE(validatePosixInstallationAuthority(0, 0664).hasValue());
+    EXPECT_FALSE(validatePosixInstallationAuthority(0, 0646).hasValue());
+}
+#ifndef _WIN32
+TEST(InstallationProfilesStoreTest, ReadAuthorityRejectsValidJsonInUnsafeDirectoryWithoutMutation) {
+    QTemporaryDir temp; ASSERT_TRUE(temp.isValid());
+    InstallationProfileStore fixture(path(temp), true);
+    ASSERT_TRUE(fixture.save(profile()).hasValue());
+    if (::geteuid() == 0) {
+        ASSERT_EQ(::chown(path(temp).parent_path().c_str(), 65534, 65534), 0);
+    }
+    QFile original(temp.path() + "/installation.json"); ASSERT_TRUE(original.open(QIODevice::ReadOnly));
+    const auto bytes = original.readAll(); original.close();
+    const auto directoryMode = std::filesystem::status(path(temp).parent_path()).permissions();
+    const auto fileMode = std::filesystem::status(path(temp)).permissions();
+    InstallationProfileStore protectedReader(path(temp), false, true);
+    EXPECT_FALSE(protectedReader.load().hasValue());
+    InstallationProfileStore protectedWriter(path(temp), true, true);
+    auto update = profile(); update.revision = 2;
+    EXPECT_FALSE(protectedWriter.save(update, true).hasValue());
+    EXPECT_EQ(std::filesystem::status(path(temp).parent_path()).permissions(), directoryMode);
+    EXPECT_EQ(std::filesystem::status(path(temp)).permissions(), fileMode);
+    ASSERT_TRUE(original.open(QIODevice::ReadOnly)); EXPECT_EQ(original.readAll(), bytes);
+    EXPECT_FALSE(QFile::exists(temp.path() + "/installation.json.invalid-backup"));
+    EXPECT_FALSE(QFile::exists(temp.path() + "/installation.json.lock"));
+    InstallationProfilesService service(std::make_unique<InstallationProfileStore>(path(temp), false, true),
+        false, application::InstallationProfilePolicy::SimulatorIdentityFallback);
+    ASSERT_TRUE(service.start().hasValue()); service.requestStop(); service.join();
+    const auto status = service.latestStatus();
+    EXPECT_TRUE(status->loadCompleted); EXPECT_TRUE(status->loadError);
+    const auto camera = profile();
+    EXPECT_FALSE(application::resolveInstallationProfile(*status, camera.identity, camera.capabilities).hasValue());
+}
+TEST(InstallationProfilesStoreTest, ReadAuthorityDoesNotTreatUnsafeExistingAncestorAsMissing) {
+    QTemporaryDir temp; ASSERT_TRUE(temp.isValid());
+    const auto root = path(temp).parent_path();
+    if (::geteuid() == 0) {
+        ASSERT_EQ(::chown(root.c_str(), 65534, 65534), 0);
+    }
+    InstallationProfileStore protectedReader(root / "Config" / "installation.json", false, true, root);
+    EXPECT_FALSE(protectedReader.load().hasValue());
+    EXPECT_FALSE(std::filesystem::exists(root / "Config"));
+    InstallationProfileStore genuinelyAbsent(root / "absent" / "installation.json", false, true, root / "absent");
+    const auto absent = genuinelyAbsent.load();
+    ASSERT_TRUE(absent.hasValue()); EXPECT_TRUE(absent.value().empty());
+    EXPECT_FALSE(std::filesystem::exists(root / "absent"));
+}
+#endif
 TEST(InstallationProfilesStoreTest, ProgramDataPathIncludesProtectedLumoraAndConfigAncestors) {
     const std::filesystem::path injected("injected-machine-data");
     EXPECT_EQ(installationProfilesPathUnderProgramData(injected),

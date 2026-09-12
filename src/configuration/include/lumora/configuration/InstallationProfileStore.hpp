@@ -33,6 +33,10 @@ private:
     std::filesystem::path protectedDirectoryRoot_;
 };
 
+// Native POSIX readers use this ownership/mode policy for both directories and files.
+[[nodiscard]] core::Result<void> validatePosixInstallationAuthority(
+    std::uint64_t ownerUserId, std::uint32_t mode);
+
 // Pure path adapter; never reads or creates the injected directory.
 [[nodiscard]] std::filesystem::path installationProfilesPathUnderProgramData(
     const std::filesystem::path& programDataDirectory);

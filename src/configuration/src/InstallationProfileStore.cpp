@@ -9,6 +9,7 @@
 #include <QUuid>
 
 #include <algorithm>
+#include <cerrno>
 #include <optional>
 #include <system_error>
 
@@ -40,6 +41,17 @@ QString qPath(const std::filesystem::path& path) {
     return QString::fromUtf8(path.native());
 #endif
 }
+core::Result<std::optional<QByteArray>> readOpenedFile(QFile& file) {
+    using Read = core::Result<std::optional<QByteArray>>;
+    if (file.size() > MaximumDocumentBytes) {
+        return Read::failure(error("installation_read_failed", "The installation file exceeds the supported size."));
+    }
+    auto bytes = file.read(MaximumDocumentBytes + 1);
+    if (file.error() != QFileDevice::NoError || bytes.size() > MaximumDocumentBytes) {
+        return Read::failure(error("installation_read_failed", "The installation file could not be read completely."));
+    }
+    return Read::success(std::move(bytes));
+}
 core::Result<std::optional<QByteArray>> readBytes(const std::filesystem::path& path) {
     using Read = core::Result<std::optional<QByteArray>>;
     std::error_code ec;
@@ -57,14 +69,7 @@ core::Result<std::optional<QByteArray>> readBytes(const std::filesystem::path& p
         return Read::failure(error("installation_read_failed", "The installation file cannot be read.",
             file.errorString().toStdString()));
     }
-    if (file.size() > MaximumDocumentBytes) {
-        return Read::failure(error("installation_read_failed", "The installation file exceeds the supported size."));
-    }
-    auto bytes = file.read(MaximumDocumentBytes + 1);
-    if (file.error() != QFileDevice::NoError || bytes.size() > MaximumDocumentBytes) {
-        return Read::failure(error("installation_read_failed", "The installation file could not be read completely."));
-    }
-    return Read::success(std::move(bytes));
+    return readOpenedFile(file);
 }
 
 #ifdef _WIN32
@@ -130,6 +135,151 @@ core::Result<void> writeWindowsFile(const QString& destination, const QByteArray
         return core::Result<void>::failure(error("installation_replace_failed", "Atomic installation file replacement failed."));
     }
     return core::Result<void>::success();
+}
+#endif
+
+core::Error unsafeAuthority() {
+    return error("installation_authority_untrusted",
+        "The machine installation path is not protected from operator changes. Ask an administrator to correct its owner and permissions.");
+}
+
+core::Result<std::vector<std::filesystem::path>> authorityDirectories(
+    const std::filesystem::path& path, const std::filesystem::path& protectedRoot) {
+    const auto parent = path.parent_path();
+    const auto root = protectedRoot.empty() ? parent : protectedRoot;
+    const auto relative = parent.lexically_relative(root);
+    if (root.empty() || relative.empty() || path.filename().empty()
+        || std::any_of(relative.begin(), relative.end(), [](const auto& component) { return component == ".."; })) {
+        return core::Result<std::vector<std::filesystem::path>>::failure(unsafeAuthority());
+    }
+    std::vector<std::filesystem::path> directories{root};
+    for (const auto& component : relative) {
+        if (component != ".") directories.push_back(directories.back() / component);
+    }
+    return core::Result<std::vector<std::filesystem::path>>::success(std::move(directories));
+}
+
+#ifdef _WIN32
+class ReadHandles final {
+public:
+    ~ReadHandles() { for (auto handle : values) CloseHandle(handle); }
+    std::vector<HANDLE> values;
+};
+
+bool trustedWindowsObject(HANDLE handle, bool directory) {
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!GetFileInformationByHandle(handle, &info)
+        || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+        || ((info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) != directory) return false;
+    PSID owner = nullptr; PACL dacl = nullptr; PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (GetSecurityInfo(handle, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &owner, nullptr, &dacl, nullptr, &descriptor) != ERROR_SUCCESS) return false;
+    const auto administrator = [](PSID sid) {
+        return sid && IsValidSid(sid)
+            && (IsWellKnownSid(sid, WinBuiltinAdministratorsSid) || IsWellKnownSid(sid, WinLocalSystemSid));
+    };
+    SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+    bool trusted = administrator(owner) && dacl != nullptr
+        && GetSecurityDescriptorControl(descriptor, &control, &revision)
+        && (control & SE_DACL_PROTECTED) != 0;
+    // Unknown/callback/object ACEs are intentionally rejected. Ordinary allow
+    // entries may grant read/execute only; every write-capable principal must
+    // be Administrators or System, including inherit-only entries.
+    constexpr DWORD readOnly = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE | GENERIC_READ | GENERIC_EXECUTE;
+    for (DWORD index = 0; trusted && index < dacl->AceCount; ++index) {
+        void* raw = nullptr;
+        if (!GetAce(dacl, index, &raw)) { trusted = false; break; }
+        const auto* header = static_cast<const ACE_HEADER*>(raw);
+        if (header->AceType == ACCESS_DENIED_ACE_TYPE) continue;
+        if (header->AceType != ACCESS_ALLOWED_ACE_TYPE) { trusted = false; break; }
+        const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw);
+        PSID sid = const_cast<DWORD*>(&ace->SidStart);
+        trusted = IsValidSid(sid) && (administrator(sid) || (ace->Mask & ~readOnly) == 0);
+    }
+    LocalFree(descriptor);
+    return trusted;
+}
+
+core::Result<std::optional<QByteArray>> readTrustedBytes(
+    const std::filesystem::path& path, const std::filesystem::path& protectedRoot) {
+    using Read = core::Result<std::optional<QByteArray>>;
+    const auto directories = authorityDirectories(path, protectedRoot);
+    if (!directories.hasValue()) return Read::failure(directories.error());
+    ReadHandles held;
+    held.values.reserve(directories.value().size() + 1);
+    for (const auto& directory : directories.value()) {
+        HANDLE handle = CreateFileW(directory.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (handle == INVALID_HANDLE_VALUE) {
+            const auto code = GetLastError();
+            if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND) return Read::success(std::nullopt);
+            return Read::failure(unsafeAuthority());
+        }
+        held.values.push_back(handle);
+        if (!trustedWindowsObject(handle, true)) return Read::failure(unsafeAuthority());
+    }
+    HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ | READ_CONTROL,
+        FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        if (GetLastError() == ERROR_FILE_NOT_FOUND) return Read::success(std::nullopt);
+        return Read::failure(unsafeAuthority());
+    }
+    held.values.push_back(handle);
+    if (!trustedWindowsObject(handle, false)) return Read::failure(unsafeAuthority());
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(handle, &size) || size.QuadPart < 0 || size.QuadPart > MaximumDocumentBytes)
+        return Read::failure(error("installation_read_failed", "The installation file size is unsupported."));
+    QByteArray bytes(static_cast<qsizetype>(size.QuadPart), '\0');
+    DWORD read = 0;
+    if (!ReadFile(handle, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr)
+        || read != static_cast<DWORD>(bytes.size()))
+        return Read::failure(error("installation_read_failed", "The installation file could not be read completely."));
+    return Read::success(std::move(bytes));
+}
+#else
+class ReadHandles final {
+public:
+    ~ReadHandles() { for (auto descriptor : values) ::close(descriptor); }
+    std::vector<int> values;
+};
+
+core::Result<std::optional<QByteArray>> readTrustedBytes(
+    const std::filesystem::path& path, const std::filesystem::path& protectedRoot) {
+    using Read = core::Result<std::optional<QByteArray>>;
+    const auto directories = authorityDirectories(path, protectedRoot);
+    if (!directories.hasValue()) return Read::failure(directories.error());
+    ReadHandles held;
+    held.values.reserve(directories.value().size() + 1);
+    for (const auto& directory : directories.value()) {
+        const int flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
+        const int descriptor = held.values.empty() ? ::open(directory.c_str(), flags)
+            : ::openat(held.values.back(), directory.filename().c_str(), flags);
+        if (descriptor < 0) {
+            if (errno == ENOENT) return Read::success(std::nullopt);
+            return Read::failure(unsafeAuthority());
+        }
+        held.values.push_back(descriptor);
+        struct stat metadata{};
+        if (::fstat(descriptor, &metadata) != 0 || !S_ISDIR(metadata.st_mode)
+            || !validatePosixInstallationAuthority(metadata.st_uid, metadata.st_mode).hasValue())
+            return Read::failure(unsafeAuthority());
+    }
+    const int descriptor = ::openat(held.values.back(), path.filename().c_str(),
+        O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (descriptor < 0) {
+        if (errno == ENOENT) return Read::success(std::nullopt);
+        return Read::failure(unsafeAuthority());
+    }
+    held.values.push_back(descriptor);
+    struct stat metadata{};
+    if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode)
+        || !validatePosixInstallationAuthority(metadata.st_uid, metadata.st_mode).hasValue())
+        return Read::failure(unsafeAuthority());
+    QFile file;
+    if (!file.open(descriptor, QIODevice::ReadOnly, QFileDevice::DontCloseHandle))
+        return Read::failure(error("installation_read_failed", "The protected installation file cannot be read."));
+    return readOpenedFile(file);
 }
 #endif
 
@@ -230,7 +380,7 @@ InstallationProfileStore::InstallationProfileStore(std::filesystem::path path, b
       protectedDirectoryRoot_(std::move(protectedDirectoryRoot)) {}
 
 core::Result<Profiles> InstallationProfileStore::load() {
-    auto bytes = readBytes(path_);
+    auto bytes = enforceMachinePermissions_ ? readTrustedBytes(path_, protectedDirectoryRoot_) : readBytes(path_);
     if (!bytes.hasValue()) return core::Result<Profiles>::failure(bytes.error());
     if (!bytes.value()) return core::Result<Profiles>::success({});
     return InstallationProfileCodec::decode(*bytes.value());
@@ -242,12 +392,19 @@ core::Result<application::InstallationCameraProfile> InstallationProfileStore::s
     if (!administratorMode_) return Saved::failure(error("installation_administrator_required", "Launch installation mode deliberately with administrator authority to save."));
     const auto valid = application::validateInstallationProfile(profile);
     if (!valid.hasValue()) return Saved::failure(valid.error());
+    if (enforceMachinePermissions_) {
+        // Never secure a formerly writable source and thereby bless records
+        // an operator could have forged. Unsafe authority needs external admin
+        // correction; JSON repair consent does not authorize trusting its data.
+        const auto trustedSource = readTrustedBytes(path_, protectedDirectoryRoot_);
+        if (!trustedSource.hasValue()) return Saved::failure(trustedSource.error());
+    }
     const auto directory = prepareDirectory(path_, enforceMachinePermissions_, protectedDirectoryRoot_);
     if (!directory.hasValue()) return Saved::failure(directory.error());
     QLockFile lock(qPath(path_) + ".lock");
     lock.setStaleLockTime(0);
     if (!lock.tryLock(0)) return Saved::failure(error("installation_lock_busy", "Another installation update is in progress. Retry after it finishes."));
-    const auto bytes = readBytes(path_);
+    const auto bytes = enforceMachinePermissions_ ? readTrustedBytes(path_, protectedDirectoryRoot_) : readBytes(path_);
     if (!bytes.hasValue()) return Saved::failure(bytes.error());
     Profiles profiles;
     bool needsBackup = false;
@@ -281,6 +438,11 @@ core::Result<application::InstallationCameraProfile> InstallationProfileStore::s
     const auto replaced = replaceFile(qPath(path_), encoded.value(), enforceMachinePermissions_);
     if (!replaced.hasValue()) return Saved::failure(replaced.error());
     return Saved::success(std::move(profile));
+}
+
+core::Result<void> validatePosixInstallationAuthority(std::uint64_t ownerUserId, std::uint32_t mode) {
+    if (ownerUserId != 0 || (mode & 0022U) != 0) return core::Result<void>::failure(unsafeAuthority());
+    return core::Result<void>::success();
 }
 
 std::filesystem::path installationProfilesPathUnderProgramData(

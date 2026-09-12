@@ -19,7 +19,14 @@ public:
     core::Result<std::vector<application::InstallationCameraProfile>> load() override {
         auto path = machineInstallationProfilesPath();
         if (!path.hasValue()) return core::Result<std::vector<application::InstallationCameraProfile>>::failure(path.error());
-        return InstallationProfileStore(std::move(path).value(), administratorMode_, true).load();
+        auto protectedRoot = path.value().parent_path();
+#ifdef _WIN32
+        protectedRoot = protectedRoot.parent_path();
+#else
+        protectedRoot = path.value().root_path();  // Verify / and /etc before the application directory.
+#endif
+        return InstallationProfileStore(std::move(path).value(), administratorMode_, true,
+            std::move(protectedRoot)).load();
     }
     core::Result<application::InstallationCameraProfile> save(
         application::InstallationCameraProfile profile, bool repairInvalid) override {
@@ -29,6 +36,8 @@ public:
         auto protectedRoot = path.value().parent_path();
 #ifdef _WIN32
         protectedRoot = protectedRoot.parent_path();  // ProgramData/Lumora owns Config too.
+#else
+        protectedRoot = path.value().root_path();
 #endif
         return InstallationProfileStore(std::move(path).value(),
             administratorMode_ && hasInstallationAdministratorAuthority(), true,
