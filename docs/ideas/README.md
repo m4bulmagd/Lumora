@@ -9,6 +9,11 @@ For current commitments, use the [PRD](../../prd.md), [implementation authority]
 | Added | Proposal | Status | Contents |
 |---|---|---|---|
 | 2026-09-10 | [M2-inspired features](2026-09-10-m2-inspired-features.md) | Saved for inspiration | Eight ideas covering snapshots, gallery/review, circular mask, temporal noise reduction, dark-frame calibration, automatic hold, sequence recording and test-session reports. |
+| 2026-09-12 | [Workstation UI enhancements](2026-09-12-workstation-ui-enhancements.md) | Saved for future planning | Proposed screen layout, simpler controls, compact camera setup, fullscreen, Capture, status strip, thumbnails, viewing masks and recording/review UI; linked to existing milestones and M2 ideas. |
+
+## Revisit the UI enhancements
+
+Keep the current roadmap. The [UI proposal](2026-09-12-workstation-ui-enhancements.md) separates refinements to M9 controls/layout, M10 capture and M11 status presentation from future gallery, mask and recording interfaces. Reuse existing features and the related M2 definitions when selecting work.
 
 ## Revisit the M2 ideas
 
