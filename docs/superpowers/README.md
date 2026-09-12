@@ -8,6 +8,8 @@ See the [current progress summary](../PROGRESS.md) for merged implementation, ve
 
 ## Document authority
 
+Saved proposals live in [Future product ideas](../ideas/README.md). They are inspiration only and do not add requirements or change the milestone order.
+
 All documents must be satisfied together:
 
 1. `prd.md` defines product intent, scope, and release boundaries.

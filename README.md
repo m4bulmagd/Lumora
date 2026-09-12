@@ -11,6 +11,7 @@ Start with:
 - [Requirements and implementation index](docs/superpowers/README.md)
 - [Architecture specification](docs/superpowers/specs/2026-04-25-xray-imaging-workstation-design.md)
 - [Fourteen-milestone roadmap](docs/superpowers/plans/2026-04-25-xray-imaging-workstation-roadmap.md)
+- [Future product ideas and inspiration](docs/ideas/README.md)
 
 Daily simulator development is planned for Linux/GCC with mandatory Linux and Windows/MSVC CI. Windows 11 remains the official installation, packaging, and final Basler hardware-acceptance platform.
 
