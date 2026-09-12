@@ -85,6 +85,8 @@ git commit -m "feat(presets): add validated processing bundles"
 
 ### Task 2: Processing controls and coalesced configuration publication
 
+Owner-authorized continuation: use the [2026-09-09 refined plan](2026-09-09-m09-processing-controls.md) and [Task 2 milestone record](../../architecture/milestones/m09-processing-controls.md). The application had no SetPipelineDefinition facade; the refinement supplies asynchronous generation/revision activation outcomes, extends the single settings writer and adds the minimal single Enhanced preview required to see control effects. Compare remains Task 3.
+
 **Files:**
 - Create: `src/ui/include/lumora/ui/ProcessingControlsModel.hpp`
 - Create: `src/ui/include/lumora/ui/ProcessingPanel.hpp`
@@ -139,6 +141,8 @@ git commit -m "feat(ui): add coalesced enhancement controls"
 
 ### Task 3: Original, Enhanced, and synchronized Compare presentation
 
+The owner-authorized [2026-09-10 refined plan](2026-09-10-m09-compare.md) and [Task 3 milestone record](../../architecture/milestones/m09-compare.md) refine this task against the integrated viewer. They extend the existing ImageViewport into one atomic canvas with a shared transform instead of introducing a second widget, preserving its standalone API. The refined plan specifies token/mode/owner paint receipts, frozen-bundle switching and fallback/recovery semantics; its verification checklist records completion.
+
 **Files:**
 - Create: `src/ui/include/lumora/ui/DisplayMode.hpp`
 - Create: `src/ui/include/lumora/ui/ComparisonViewport.hpp`
@@ -185,6 +189,8 @@ git commit -m "feat(ui): add synchronized original enhanced comparison"
 ```
 
 ### Task 4: Camera selection and safe settings dialog
+
+The owner-authorized [Task 4A refined plan](2026-09-10-m09-camera-settings.md) and [camera-settings record](../../architecture/milestones/m09-camera-settings.md) implement stopped exposure/gain editing first, preserving the existing startup panel and preferences policy. The subsequent [Task 4B frame-rate continuation](../../architecture/milestones/m09-frame-rate.md#pr-21-integration) implements low-FPS watchdog correction and stopped numeric FPS editing, merged through PR #21 after Linux/Windows Debug/Release CI passed. ROI/format editing, richer availability/writability capabilities, same-device resource rebinding, per-camera records and installation orientation remain unfinished steps below. The refinement does not mark this full task complete.
 
 Extend the [M5 startup contract](../../architecture/milestones/m05-preflight.md#3-minimal-startup-ui-and-persistence). M5 already provides minimal startup controls, typed saved preferences, capability comparison, confirmation/revision guards, and asynchronous persistence. This task replaces/expands the small `CameraStartupPanel` with the complete panel/dialog without duplicating its controller policy or stored last-camera record.
 

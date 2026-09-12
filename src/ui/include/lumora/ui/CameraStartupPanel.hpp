@@ -5,16 +5,19 @@
 #include <lumora/core/Error.hpp>
 
 #include <QWidget>
+#include <QPointer>
 
 #include <memory>
 #include <optional>
 
 namespace lumora::ui {
 
+class CameraSettingsDialog;
+
 struct CameraStartupPanelPresentation final {
     std::shared_ptr<const application::CameraStatusSnapshot> cameraStatus;
     std::optional<camera::CameraId> selectedCameraId;
-    std::optional<camera::CameraConfiguration> fixedRequestedConfiguration;
+    std::optional<camera::CameraConfiguration> requestedConfiguration;
     bool controlsEnabled{true};
     bool ordinaryOperationPending{false};
     bool preferencesLoadCompleted{false};
@@ -32,6 +35,8 @@ public:
     void setPresentation(CameraStartupPanelPresentation presentation);
 
 signals:
+    void settingsApplyRequested(std::uint64_t sessionGeneration,
+        camera::CameraId cameraId, camera::CameraConfiguration requested);
     void selectionRequested(camera::CameraId cameraId);
     void refreshRequested();
     void connectRequested();
@@ -47,6 +52,7 @@ private:
     void updatePresentation();
 
     CameraStartupPanelPresentation presentation_;
+    QPointer<CameraSettingsDialog> settingsDialog_;
 };
 
 }  // namespace lumora::ui

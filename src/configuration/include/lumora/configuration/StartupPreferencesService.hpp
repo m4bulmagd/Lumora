@@ -28,7 +28,7 @@ public:
     StartupPreferencesService(const StartupPreferencesService&) = delete;
     StartupPreferencesService& operator=(const StartupPreferencesService&) = delete;
 
-    // The owner serializes start()/join(). postSave(), latestStatus(), and
+    // The owner serializes start()/join(). Both post methods, latestStatus(), and
     // requestStop() may be called concurrently after a successful start().
     [[nodiscard]] core::Result<void> start();
     // After start, admission coalesces one latest valid confirmed value even
@@ -39,6 +39,11 @@ public:
     [[nodiscard]] core::Result<void> postSave(
         std::uint64_t revision,
         application::StartupPreferences preferences);
+    // Preset revisions increase independently from camera revisions. Each
+    // section coalesces separately; one worker merges both into one document.
+    // The same admission, source safety and shutdown rules apply.
+    [[nodiscard]] core::Result<void> postPresetSave(
+        std::uint64_t revision, application::PresetState presets);
     [[nodiscard]] std::shared_ptr<const application::StartupPreferencesStatus>
         latestStatus() const;
     void requestStop() noexcept;

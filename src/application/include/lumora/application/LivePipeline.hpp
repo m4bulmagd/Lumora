@@ -8,6 +8,17 @@
 
 namespace lumora::application {
 
+struct ProcessingConfigurationCommand final {
+    std::uint64_t sessionGeneration;
+    processing::PipelineDefinition definition;
+};
+
+struct ProcessingConfigurationOutcome final {
+    std::uint64_t sessionGeneration;
+    std::uint64_t configurationRevision;
+    std::optional<processing::PipelineValidationError> error;
+};
+
 // Borrow the slots only while retaining this handle. Workers are the sole
 // publishers. Pixel storage is bounded by the three session-owned pools.
 struct LiveSessionContext final {
@@ -28,6 +39,8 @@ struct LivePipelineSnapshot final {
     // when its already executing device operation ultimately succeeds.
     std::optional<CameraCommandOutcome> ordinaryOutcome;
     std::optional<CameraCommandOutcome> priorityOutcome;
+    std::optional<ProcessingConfigurationOutcome> processingConfigurationOutcome;
+    bool processingConfigurationPending{false};
     ProcessingWorkerSnapshot processing;
     std::optional<processing::ProcessingResources> resources;
     bool processingRetryPending{false};
@@ -37,9 +50,12 @@ struct LivePipelineSnapshot final {
 
 // Provider and clock outlive the pipeline. The owner serializes start/shutdown;
 // post, snapshot and acknowledgement are safe concurrently and never join or
-// allocate pools. The control thread provisions the exact immutable native request
-// with admitted aligned 10 raw / 9 U16 / 16 Gray8 pools and prepared resources.
-// The budget covers one session; legacy custom private storage is marked unknown.
+// allocate pools. The control thread provisions the prepared source format, full
+// ROI and continuous acquisition mode with admitted aligned 10 raw / 9 U16 / 16 Gray8
+// pools and prepared resources. Exposure, gain and explicit positive finite FPS may
+// change while stopped without rebinding those resources, subject to camera
+// capabilities. The budget covers one session; legacy custom private storage is
+// marked unknown.
 class LivePipeline final {
 public:
     // Runs on the control thread. The returned processor may borrow both pools
@@ -59,6 +75,8 @@ public:
     [[nodiscard]] core::Result<void> post(CameraCommand command);
     [[nodiscard]] LivePipelineSnapshot snapshot() const;
     [[nodiscard]] core::Result<void> requestProcessingRetry(std::uint64_t sessionGeneration);
+    [[nodiscard]] core::Result<void> setProcessingConfiguration(
+        ProcessingConfigurationCommand command);
     // The consumer resets its presenter first, then acknowledges this generation.
     // The control thread releases the retiring context after acknowledgement.
     [[nodiscard]] core::Result<void> acknowledgeContext(std::uint64_t generation);

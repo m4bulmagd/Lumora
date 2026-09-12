@@ -5,6 +5,7 @@
 #include <lumora/core/CheckedMath.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <exception>
 #include <limits>
@@ -30,6 +31,9 @@ Result cancelled() {
 }
 void increment(std::uint64_t& count) noexcept {
     if (count != std::numeric_limits<std::uint64_t>::max()) { ++count; }
+}
+bool isAcquisitionTimeout(const core::Error& error) noexcept {
+    return error.category == ErrorCategory::Acquisition && error.code == "acquisition_timeout";
 }
 bool sameFormat(const core::SourcePixelFormat& a, const core::SourcePixelFormat& b) {
     return a.canonicalName == b.canonicalName && a.canonicalEncoding == b.canonicalEncoding
@@ -57,6 +61,7 @@ struct AcquisitionWorker::Impl final {
     std::unique_ptr<camera::ICameraDevice> device;
     std::optional<camera::CameraConfiguration> fixedMode;
     std::optional<std::uint64_t> lastFrameId;
+    std::optional<std::chrono::steady_clock::time_point> acquisitionProgressAt;
     std::stop_source cancellation;
     std::jthread thread;
     bool started{false};
@@ -83,6 +88,7 @@ struct AcquisitionWorker::Impl final {
         status.desiredStreaming = false;
     }
     std::optional<core::Error> cleanup() noexcept {
+        acquisitionProgressAt.reset();
         std::optional<core::Error> error;
         if (device) {
             auto stopped = device->stopStream();
@@ -278,6 +284,7 @@ struct AcquisitionWorker::Impl final {
         auto startedStream = device->startStream();
         if (!startedStream.hasValue()) { return failAndCleanup(startedStream.error(), E::StartFailed); }
         if (stopping()) { return cancelled(); }
+        acquisitionProgressAt = clock.steadyNow();
         return event(E::StartSucceeded);
     }
     Result stopStream() {
@@ -287,6 +294,7 @@ struct AcquisitionWorker::Impl final {
         if (machine.state() != S::Streaming) { return Result::success(); }
         auto stopped = device->stopStream();
         if (!stopped.hasValue()) { return failAndCleanup(stopped.error(), E::StopFailed); }
+        acquisitionProgressAt.reset();
         return event(E::StopSucceeded);
     }
     Result disconnect() {
@@ -359,6 +367,24 @@ struct AcquisitionWorker::Impl final {
             && std::isfinite(settings.actualFps) && settings.actualFps > 0.0
             && (!lastFrameId || frame->frameId > *lastFrameId);
     }
+    bool acquisitionStalled() const noexcept {
+        if (!acquisitionProgressAt || !status.appliedConfiguration) { return false; }
+        const auto now = clock.steadyNow();
+        if (now < *acquisitionProgressAt) { return false; }
+        using Duration = std::chrono::steady_clock::duration;
+        using UnsignedTicks = std::make_unsigned_t<Duration::rep>;
+        // Subtract in unsigned ticks before converting: opposite extreme epochs
+        // cannot overflow, and nearby epochs retain precision on MSVC as well.
+        const auto elapsedTicks = static_cast<UnsignedTicks>(now.time_since_epoch().count())
+            - static_cast<UnsignedTicks>(acquisitionProgressAt->time_since_epoch().count());
+        constexpr auto minimumGrace = std::chrono::duration_cast<Duration>(std::chrono::milliseconds{750});
+        if (elapsedTicks < static_cast<UnsignedTicks>(minimumGrace.count())) { return false; }
+        const auto elapsed = std::chrono::duration<UnsignedTicks, Duration::period>{elapsedTicks};
+        // Actual FPS was validated at Apply. Avoid reciprocal duration conversion
+        // so even tiny positive rates keep their full three-frame grace.
+        return std::chrono::duration<long double>{elapsed}.count()
+            * *status.appliedConfiguration->actual.requestedFps >= 3.0L;
+    }
     void retrievalFailure(core::Error error) {
         status.latestError = error;
         if (error.category == ErrorCategory::Cancelled && stopping()) { return; }
@@ -366,10 +392,10 @@ struct AcquisitionWorker::Impl final {
             increment(status.acquisitionCounters.droppedNoRawBuffer);
         } else if (error.category == ErrorCategory::InvalidFrame) {
             increment(status.acquisitionCounters.droppedInvalidFrame);
-        } else if (error.category == ErrorCategory::Acquisition && error.code == "acquisition_timeout") {
+        } else if (isAcquisitionTimeout(error)) {
             increment(status.acquisitionCounters.timeouts);
             increment(status.consecutiveTimeouts);
-            if (status.consecutiveTimeouts >= 3U) {
+            if (acquisitionStalled()) {
                 auto result = failAndCleanup(std::move(error), E::TimeoutThresholdReached);
                 status.latestError = result.error();
             }
@@ -381,8 +407,17 @@ struct AcquisitionWorker::Impl final {
     }
     void retrieve() {
         try {
-            auto result = device->retrieve(std::chrono::milliseconds{250}, rawPool, cancellation.get_token());
+            constexpr auto pollingBudget = std::chrono::milliseconds{250};
+            const auto sliceDeadline = std::chrono::steady_clock::now() + pollingBudget;
+            auto result = device->retrieve(pollingBudget, rawPool, cancellation.get_token());
             if (stopping()) { return; }
+            if (!result.hasValue() && isAcquisitionTimeout(result.error())) {
+                // A quick timeout consumes only the remainder of this real I/O
+                // slice. Policy time stays on the injected clock, and Shutdown
+                // interrupts padding before any timeout classification.
+                (void)core::SystemClock{}.waitUntil(sliceDeadline, cancellation.get_token());
+                if (stopping()) { return; }
+            }
             if (!result.hasValue()) { retrievalFailure(result.error()); }
             else if (!validFrame(result.value())) {
                 result.value().reset();
@@ -392,6 +427,7 @@ struct AcquisitionWorker::Impl final {
                 lastFrameId = result.value()->frameId;
                 status.consecutiveTimeouts = 0U;
                 status.lastAcquiredAt = clock.steadyNow();
+                acquisitionProgressAt = status.lastAcquiredAt;
                 increment(status.acquisitionCounters.acquired);
                 if (rawSlot.publish(std::move(result.value())).replacedUnconsumed) {
                     increment(status.acquisitionCounters.droppedBeforeProcessing);

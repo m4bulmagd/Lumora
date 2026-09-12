@@ -1,5 +1,6 @@
 #include <lumora/ui/ImageViewport.hpp>
 #include <lumora/ui/MainWindow.hpp>
+#include <lumora/ui/CameraStartupPanel.hpp>
 #include <lumora/ui/WorkstationView.hpp>
 
 #include "ViewportTestSupport.hpp"
@@ -10,6 +11,8 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QVBoxLayout>
 
 #include <gtest/gtest.h>
@@ -68,6 +71,45 @@ TEST(WorkstationView, ImageAreaDominatesInitialLayout) {
     EXPECT_LT(view.sidebar()->width(), view.imageViewport()->width());
     EXPECT_EQ(view.viewerState(), ViewerState::Live);
     EXPECT_EQ(view.status().freshness, FrameFreshness::WaitingForFrame);
+}
+
+TEST(WorkstationView, AddedPanelsShareScrollContentWithoutHidingSafetyControls) {
+    lumora::ui::MainWindow window;
+    window.resize(900, 600);
+    auto& view = window.workstationView();
+    auto* processingPanel = new QWidget;
+    processingPanel->setMinimumHeight(1000);
+    auto* panelLayout = new QVBoxLayout(processingPanel);
+    panelLayout->addWidget(new QLabel(QStringLiteral("Processing controls")));
+    panelLayout->addStretch(1);
+    panelLayout->addWidget(new QPushButton(QStringLiteral("Reset processing")));
+    view.addSidebarPanel(processingPanel);
+    lumora::processing::ProcessorStatus processing;
+    processing.mode = lumora::processing::ProcessorMode::OriginalOnlyLatched;
+    processing.retrySupported = true;
+    view.setProcessingStatus(processing);
+    window.show();
+    QCoreApplication::processEvents();
+
+    const auto scrolls = view.sidebar()->findChildren<QScrollArea*>();
+    ASSERT_EQ(scrolls.size(), 1);
+    auto* scroll = scrolls.front();
+    EXPECT_TRUE(scroll->widget()->isAncestorOf(&window.cameraStartupPanel()));
+    EXPECT_TRUE(scroll->widget()->isAncestorOf(processingPanel));
+    EXPECT_GT(scroll->verticalScrollBar()->maximum(), 0);
+    EXPECT_EQ(scroll->horizontalScrollBar()->maximum(), 0);
+    scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+    QCoreApplication::processEvents();
+
+    for (const auto* objectName : {
+             "processingWarning", "processingRetryButton", "pauseLiveButton"}) {
+        const auto* control = view.findChild<QWidget*>(QString::fromLatin1(objectName));
+        ASSERT_NE(control, nullptr) << objectName;
+        EXPECT_FALSE(scroll->widget()->isAncestorOf(control)) << objectName;
+        EXPECT_TRUE(control->isVisible()) << objectName;
+        EXPECT_TRUE(view.sidebar()->rect().contains(control->geometry())) << objectName;
+    }
+    EXPECT_GT(view.imageViewport()->width(), view.sidebar()->width());
 }
 
 TEST(WorkstationView, ExposesStableNamedEvaluationComposition) {
@@ -504,6 +546,77 @@ TEST(WorkstationView, SafetyIndicationsRemainVisibleWhenReparentedFullscreen) {
     EXPECT_TRUE(banner->isVisible());
     EXPECT_TRUE(overlay->isVisible());
     EXPECT_TRUE(overlay->text().startsWith(QStringLiteral("PAUSED\n")));
+}
+
+
+TEST(WorkstationView, DisplayChoicesFollowFrameAvailabilityAndKeepCompletedSelection) {
+    WorkstationView view;
+    view.show();
+    QCoreApplication::processEvents();
+    auto* original = view.findChild<QAction*>(QStringLiteral("originalModeAction"));
+    auto* enhanced = view.findChild<QAction*>(QStringLiteral("enhancedModeAction"));
+    auto* compare = view.findChild<QAction*>(QStringLiteral("compareModeAction"));
+    auto* reason = view.findChild<QLabel*>(QStringLiteral("displayModeAvailabilityReason"));
+    ASSERT_NE(original, nullptr);
+    ASSERT_NE(enhanced, nullptr);
+    ASSERT_NE(compare, nullptr);
+    ASSERT_NE(reason, nullptr);
+    EXPECT_FALSE(original->isEnabled());
+    EXPECT_FALSE(enhanced->isEnabled());
+    EXPECT_FALSE(compare->isEnabled());
+
+    view.setDisplayModeAvailability(true, false);
+    view.setPresentedDisplayMode(lumora::ui::DisplayMode::Original);
+    EXPECT_TRUE(original->isEnabled());
+    EXPECT_FALSE(enhanced->isEnabled());
+    EXPECT_FALSE(compare->isEnabled());
+    EXPECT_TRUE(reason->isVisible());
+    EXPECT_FALSE(reason->text().isEmpty());
+    view.setDisplayModeAvailability(true, true);
+    EXPECT_TRUE(enhanced->isEnabled());
+    EXPECT_TRUE(compare->isEnabled());
+    EXPECT_FALSE(reason->isVisible());
+    EXPECT_TRUE(original->isChecked());
+    EXPECT_FALSE(enhanced->isChecked());
+    EXPECT_FALSE(compare->isChecked());
+
+    int requests = 0;
+    QObject::connect(&view, &WorkstationView::displayModeRequested, &view,
+        [&](lumora::ui::DisplayMode mode) {
+            ++requests;
+            EXPECT_EQ(mode, lumora::ui::DisplayMode::Compare);
+        });
+    compare->trigger();
+    EXPECT_EQ(requests, 1);
+    EXPECT_TRUE(original->isChecked());
+    EXPECT_FALSE(compare->isChecked());
+    view.setPresentedDisplayMode(lumora::ui::DisplayMode::Compare);
+    EXPECT_TRUE(compare->isChecked());
+    EXPECT_FALSE(original->isChecked());
+    EXPECT_FALSE(enhanced->isChecked());
+    EXPECT_EQ(view.imageViewport()->accessibleName(), QStringLiteral("Original and Enhanced comparison viewport"));
+    EXPECT_EQ(view.findChild<QLabel*>(QStringLiteral("previewModeLabel"))->text(), QStringLiteral("Compare"));
+}
+
+TEST(WorkstationView, LiveProcessingWarningsDoNotDisableAFrozenPair) {
+    WorkstationView view;
+    view.show();
+    view.setDisplayModeAvailability(true, true);
+    view.setPresentedDisplayMode(lumora::ui::DisplayMode::Compare);
+    view.setStatus({ViewerState::Paused, FrameFreshness::Current,
+        std::chrono::system_clock::time_point{}, std::chrono::milliseconds{700}});
+    lumora::processing::ProcessorStatus status;
+    status.mode = lumora::processing::ProcessorMode::OriginalOnlyLatched;
+    view.setProcessingStatus(status);
+    const auto* compare = view.findChild<QAction*>(QStringLiteral("compareModeAction"));
+    const auto* overlay = view.findChild<QLabel*>(QStringLiteral("frameStateOverlay"));
+    ASSERT_NE(compare, nullptr);
+    ASSERT_NE(overlay, nullptr);
+    EXPECT_TRUE(compare->isEnabled());
+    EXPECT_TRUE(compare->isChecked());
+    EXPECT_TRUE(overlay->isVisible());
+    EXPECT_TRUE(overlay->text().contains(QStringLiteral("PAUSED")));
+    EXPECT_TRUE(overlay->text().contains(QStringLiteral("700")));
 }
 
 }  // namespace

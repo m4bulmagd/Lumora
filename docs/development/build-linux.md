@@ -84,7 +84,7 @@ cmake --build --preset linux-gcc-debug-sim --target run-lumora
 
 Use `linux-gcc-release-sim` for Release. This development-only target selects `xcb` and the matching Debug/Release Qt plugin directory for this process; it does not require a global Qt environment setting. It runs until you close the window. Launching the binary directly may require an explicit platform-plugin path with a vcpkg build.
 
-The M7 development application displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls disabled until a frame is actually presented. Its production composition supplies a synthetic 640x480 Mono12 moving bar configured for 30 FPS. Raw samples use U16 storage; normalization and window/level remain U16 until the terminal Gray8 display mapper. See the [M7 execution record](../architecture/milestones/m07-preflight.md) for branch and verification status. No physical camera or patient data is involved. A successful launch does not establish milestone acceptance or clinical validation.
+The application displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls initially disabled. Mode actions become available when a display bundle is admitted; Pause and geometry controls become available when an image completes painting. Its production composition supplies a synthetic 640x480 Mono12 moving bar configured for 30 FPS. Raw samples use U16 storage; normalization and window/level remain U16 until the terminal Gray8 display mapper. See the [progress summary](../PROGRESS.md) for the integrated implementation and local branch verification status. No physical camera or patient data is involved. A successful launch does not establish milestone acceptance or clinical validation.
 
 For a first run:
 
@@ -97,6 +97,12 @@ For a first run:
 The viewer's **Pause / Live** button freezes/resumes the displayed image while acquisition continues. Camera **Stop** stops acquisition while retaining the connected device; **Start** can restart its still-confirmed settings. **Disconnect** closes the device and cancels pending startup/Resume intent. The last image can remain as context with the existing paused/stale indication. Explicit **Refresh** after Disconnect binds a fresh waiting source and clears that contextual image; it discovers cameras but does not reconnect. In Error, use Retry only when a desired camera identity is retained, or Disconnect then Refresh to restart discovery.
 
 Preferences are saved in the background after successful confirmation. On a later run, matching saved identity and requested settings allow the application to connect idle for capability checks and potentially offer **Resume Live**. That startup action still needs an explicit click and rechecks Apply/readback before streaming. Capability or actual-setting changes require review, Confirm and Start; a load/save warning is not durable confirmation. **Resume Live** is distinct from the viewer's **Live** button. No startup path silently streams.
+
+The merged M9 Task 2 controls appear under **Processing** after settings finish loading. Choose a preset or enable a stage and adjust its slider/numeric value. Accepted changes apply to subsequent frames and save in the background. **Reset processing** applies the Original processing preset without changing the camera, pause or zoom. A paused image stays frozen while settings change; resume the viewer to see new frames.
+
+The **Original**, **Enhanced** and **Compare** buttons above the sidebar scroll select the display mode. Compare shows Original on the left and Enhanced on the right; Fit, 100%, zoom and pan act on both panes. These buttons change presentation only: **Original mode** retains the active processing settings, while the **Original preset** changes the processing definition. Mode switching also works on the same frozen bundle while paused, preserving its timestamp and increasing age.
+
+A bundle without Enhanced falls back to Original and disables Enhanced/Compare with a visible reason. Recovery re-enables the buttons but leaves Original selected until the operator chooses a mode. A paused pair remains available despite later processing failures; Resume evaluates the newest bundle. The [Task 3 record](../architecture/milestones/m09-compare.md#verification-record) records passing local and hosted Linux/Windows verification, including the retained timeout evidence. Remaining camera configuration and fullscreen are subsequent work.
 
 Upgrading from the M5 Mono8 simulator to M7 Mono12 changes the reported capabilities. An older saved Mono8 request keeps startup disconnected: explicitly select **SIM-LIVE**, **Connect**, **Apply** and review, then **Confirm** and **Start**. It cannot authorize an unchanged-settings Resume. The separate M4 harness below still uses Mono8.
 
@@ -158,3 +164,17 @@ cmake -E remove_directory out/build
 ```
 
 To preserve other presets, replace `out/build` with one explicit preset directory.
+
+
+### Camera settings
+
+The integrated application provides **Camera settings**. After **Connect**, open it to edit supported exposure/gain modes and values while stopped. If the stream is running, use **Stop**; viewer **Pause** keeps acquiring and does not enable these edits. Choose **Apply settings**, review the separate actual readback, then explicitly **Confirm** and **Start** using the existing panel. Closing without Apply discards the draft. A changed source or external request requires closing and reopening the dialog.
+
+Confirmed settings save in the background and may be eligible for explicit **Resume Live** on the next launch. At the Task 4A checkpoint, FPS, pixel format, full ROI and acquisition mode were read-only. [PR #20 integration evidence](../architecture/milestones/m09-camera-settings.md#pr-20-integration) records the passing Linux/Windows Debug/Release checks. Task 4B subsequently added the FPS controls below.
+
+
+### Stopped frame-rate settings
+
+The application on `main` also edits **Frame rate (fps)** while stopped. Build and launch with the same instructions above. SIM-LIVE advertises 1–60 FPS. Choose **Stop**, open **Camera settings**, edit FPS, **Apply settings**, review actual readback, then **Confirm** and **Start**. Requested 1.25 FPS is retained while the simulator reads back actual 1 FPS. Ordinary Apply and eligible saved Resume retain these settings. Viewer Pause continues acquisition and does not enable editing.
+
+The low-FPS watchdog correction preserves 250 ms retrieval polling, allowing healthy slow streams to continue. The [Task 4B record](../architecture/milestones/m09-frame-rate.md#pr-21-integration) retains verified source, inspected native layouts and the explicit numeric-widget precision limit. PR #21 merged after Linux/Windows Debug/Release CI passed. ROI, format and acquisition mode remain read-only.

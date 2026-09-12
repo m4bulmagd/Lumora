@@ -1,8 +1,11 @@
 #include <lumora/ui/CameraStartupPanel.hpp>
+#include <lumora/ui/CameraSettingsDialog.hpp>
+#include <lumora/application/StartupPreferences.hpp>
 
 #include <QComboBox>
 #include <QGridLayout>
 #include <QLabel>
+#include <QLocale>
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QVBoxLayout>
@@ -73,6 +76,8 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
     layout->addWidget(requested);
     layout->addWidget(actualHeading);
     layout->addWidget(actual);
+    auto* settings = makeButton(tr("Camera settings…"), "cameraSettingsButton", this);
+    layout->addWidget(settings);
     auto* apply = makeButton(tr("Apply"), "applyCameraButton", this);
     auto* confirm = makeButton(tr("Confirm"), "confirmCameraButton", this);
     auto* start = makeButton(tr("Start"), "startCameraButton", this);
@@ -101,7 +106,26 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
     layout->addWidget(warning);
 
     connect(cameras, &QComboBox::activated, this, [this, cameras](int index) {
-        emit selectionRequested({cameras->itemData(index).toString().toStdString()});
+        const camera::CameraId selected{cameras->itemData(index).toString().toStdString()};
+        if (settingsDialog_) {
+            auto next = presentation_;
+            next.selectedCameraId = selected;
+            settingsDialog_->setPresentation(std::move(next));
+        }
+        emit selectionRequested(selected);
+    });
+    connect(settings, &QPushButton::clicked, this, [this] {
+        if (!settingsDialog_) {
+            settingsDialog_ = new CameraSettingsDialog(this);
+            settingsDialog_->setAttribute(Qt::WA_DeleteOnClose);
+            connect(settingsDialog_, &CameraSettingsDialog::settingsApplyRequested,
+                this, &CameraStartupPanel::settingsApplyRequested);
+            connect(settingsDialog_, &QDialog::finished, this, [this] { settingsDialog_ = nullptr; });
+            settingsDialog_->setPresentation(presentation_);
+        }
+        settingsDialog_->show();
+        settingsDialog_->raise();
+        settingsDialog_->activateWindow();
     });
     connect(refresh, &QPushButton::clicked, this, &CameraStartupPanel::refreshRequested);
     connect(connectButton, &QPushButton::clicked, this, &CameraStartupPanel::connectRequested);
@@ -123,12 +147,13 @@ const CameraStartupPanelPresentation& CameraStartupPanel::presentation() const n
 void CameraStartupPanel::setPresentation(CameraStartupPanelPresentation presentation) {
     presentation_ = std::move(presentation);
     updatePresentation();
+    if (settingsDialog_) settingsDialog_->setPresentation(presentation_);
 }
 
 void CameraStartupPanel::updatePresentation() {
     const auto describe = [this](const camera::CameraConfiguration& configuration) {
         const auto optionalNumber = [this](const std::optional<double>& value) {
-            return value ? QString::number(*value, 'g', 12) : tr("Automatic");
+            return value ? locale().toString(*value, 'g', QLocale::FloatingPointShortest) : tr("Automatic");
         };
         const auto exposure = configuration.exposure.mode == camera::ExposureMode::Manual
             ? tr("Manual %1 µs").arg(optionalNumber(
@@ -151,8 +176,8 @@ void CameraStartupPanel::updatePresentation() {
     auto* requested = findChild<QLabel*>(QStringLiteral("requestedConfigurationLabel"));
     auto* actual = findChild<QLabel*>(QStringLiteral("actualConfigurationLabel"));
     const auto& status = presentation_.cameraStatus;
-    const auto requestedConfiguration = presentation_.fixedRequestedConfiguration
-        ? presentation_.fixedRequestedConfiguration
+    const auto requestedConfiguration = presentation_.requestedConfiguration
+        ? presentation_.requestedConfiguration
         : status ? status->requestedConfiguration : std::nullopt;
     requested->setText(requestedConfiguration ? describe(*requestedConfiguration)
                                               : tr("Not available"));
@@ -237,7 +262,7 @@ void CameraStartupPanel::updatePresentation() {
             return tr("The selected camera is unavailable. Check its connection and select the intended camera.");
         if (error.code == "camera_format_not_available" || error.code == "unsupported_pipeline_mode" ||
             error.code == "unsupported_pipeline_request" || error.code == "camera_mode_change_requires_rebinding")
-            return tr("This live pipeline requires its fixed full-range Mono8 mode. Review the requested settings.");
+            return tr("The requested format, frame rate or image region is unavailable for this camera session. Review the requested settings.");
         if (error.code == "startup_action_unavailable" || error.code == "invalid_camera_state" ||
             error.code == "context_handoff_pending" || error.code == "context_not_bound")
             return tr("Wait for the current camera operation to finish before trying this action.");
@@ -266,6 +291,8 @@ void CameraStartupPanel::updatePresentation() {
         && status->appliedRevision != 0U
         && *status->confirmedRevision == status->appliedRevision;
     const bool applied = status && status->appliedConfiguration
+        && requestedConfiguration && status->requestedConfiguration
+        && application::cameraConfigurationsEqual(*requestedConfiguration, *status->requestedConfiguration)
         && status->requestedRevision != 0U
         && status->appliedRevision == status->requestedRevision;
     const bool globallyEnabled = presentation_.controlsEnabled;
@@ -273,6 +300,8 @@ void CameraStartupPanel::updatePresentation() {
         && !presentation_.ordinaryOperationPending;
     const bool connectedIdle = status
         && cameraState == application::CameraSessionState::ConnectedIdle;
+    const bool sourceMatches = !status || !status->actualIdentity
+        || status->actualIdentity == presentation_.selectedCameraId;
     const bool selectedAvailable = status && presentation_.selectedCameraId
         && std::any_of(status->discoveredDescriptors.begin(),
             status->discoveredDescriptors.end(), [&](const auto& descriptor) {
@@ -280,6 +309,9 @@ void CameraStartupPanel::updatePresentation() {
                     && descriptor.id == *presentation_.selectedCameraId;
             });
 
+    findChild<QPushButton*>(QStringLiteral("cameraSettingsButton"))
+        ->setEnabled(globallyEnabled && status && status->actualIdentity
+            && (connectedIdle || cameraState == application::CameraSessionState::Streaming));
     cameras->setEnabled(ordinaryEnabled);
     findChild<QPushButton*>(QStringLiteral("refreshCameraButton"))
         ->setEnabled(ordinaryEnabled
@@ -289,14 +321,14 @@ void CameraStartupPanel::updatePresentation() {
             && (cameraState == application::CameraSessionState::Disconnected
                 || cameraState == application::CameraSessionState::Error));
     findChild<QPushButton*>(QStringLiteral("applyCameraButton"))
-        ->setEnabled(ordinaryEnabled && connectedIdle
+        ->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches
             && requestedConfiguration.has_value());
     findChild<QPushButton*>(QStringLiteral("confirmCameraButton"))
-        ->setEnabled(ordinaryEnabled && connectedIdle && applied && !confirmed);
+        ->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches && applied && !confirmed);
     start->setEnabled(presentation_.controlsEnabled
         && !presentation_.ordinaryOperationPending && status
         && status->state == application::CameraSessionState::ConnectedIdle
-        && confirmed && applied);
+        && sourceMatches && confirmed && applied);
     findChild<QPushButton*>(QStringLiteral("stopCameraButton"))
         ->setEnabled(globallyEnabled
             && cameraState == application::CameraSessionState::Streaming);

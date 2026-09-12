@@ -27,7 +27,7 @@ public:
         const PipelineDefinition& definition = defaultPipeline(),
         ProcessingPreparationOptions options = {});
     [[nodiscard]] core::Result<void, PipelineValidationError> activate(
-        const PipelineDefinition& definition);
+        const PipelineDefinition& definition) override;
     [[nodiscard]] core::Result<std::shared_ptr<const core::FrameBundle>> process(
         std::shared_ptr<const core::RawFrame> raw) override;
 

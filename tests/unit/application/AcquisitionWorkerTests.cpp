@@ -1,4 +1,5 @@
 #include <lumora/application/AcquisitionWorker.hpp>
+#include <lumora/camera/sim/SimulatedCameraProvider.hpp>
 
 #include <gtest/gtest.h>
 
@@ -36,13 +37,20 @@ camera::CameraCapabilities capabilities() {
 core::Error error(ErrorCategory category, std::string code, bool recoverable = false) {
     return {category, std::move(code), "Scripted camera error.", "", recoverable};
 }
-enum class Grab { Frame, Timeout, Invalid, Exhausted, Removed, Fatal, Null, WrongRoi, Throw, FrameAfterStop };
+enum class Grab { Frame, Timeout, Invalid, Exhausted, Removed, Fatal, WrongTimeoutCategory, Null, WrongRoi, Throw, FrameAfterStop };
+
+struct ScriptedGrab final {
+    Grab value;
+    std::chrono::nanoseconds advance{0ns};
+};
 
 struct Script final {
     std::mutex mutex;
     std::condition_variable_any changed;
     std::vector<std::pair<std::string, std::thread::id>> calls;
-    std::deque<Grab> grabs;
+    std::deque<ScriptedGrab> grabs;
+    std::vector<std::chrono::steady_clock::time_point> retrieveTimes;
+    std::chrono::milliseconds minimumRetrieveTime{0ms};
     std::string blockedOperation;
     bool released{false};
     bool missing{false};
@@ -76,9 +84,9 @@ struct Script final {
         return static_cast<std::size_t>(std::count_if(calls.begin(), calls.end(),
             [&](const auto& call) { return call.first == operation; }));
     }
-    void push(Grab grab) {
+    void push(Grab grab, std::chrono::nanoseconds advance = 0ns) {
         std::lock_guard lock(mutex);
-        grabs.push_back(grab);
+        grabs.push_back({grab, advance});
         changed.notify_all();
     }
     void release() {
@@ -90,7 +98,7 @@ struct Script final {
 
 class Device final : public camera::ICameraDevice {
 public:
-    Device(Script& script, core::IClock& clock) : script_(script), clock_(clock) { script_.record("construct"); }
+    Device(Script& script, core::ManualClock& clock) : script_(script), clock_(clock) { script_.record("construct"); }
     ~Device() override { script_.record("destroy"); }
     Result<void> open() override {
         script_.record("open");
@@ -116,14 +124,22 @@ public:
     }
     Result<std::shared_ptr<const core::RawFrame>> retrieve(std::chrono::milliseconds timeout,
         core::BufferPool& pool, std::stop_token token) override {
+        const auto started = std::chrono::steady_clock::now();
         script_.record("retrieve");
         EXPECT_EQ(timeout, 250ms);
         Grab grab{Grab::Timeout};
         {
             std::unique_lock lock(script_.mutex);
+            script_.retrieveTimes.push_back(started);
             script_.changed.wait_for(lock, token, timeout, [&] { return !script_.grabs.empty() || script_.released; });
             if (token.stop_requested()) { return Result<std::shared_ptr<const core::RawFrame>>::failure(error(ErrorCategory::Cancelled, "cancelled")); }
-            if (!script_.grabs.empty()) { grab = script_.grabs.front(); script_.grabs.pop_front(); }
+            if (!script_.grabs.empty()) {
+                grab = script_.grabs.front().value;
+                clock_.advance(script_.grabs.front().advance);
+                script_.grabs.pop_front();
+            }
+            script_.changed.wait_until(lock, token, started + script_.minimumRetrieveTime, [] { return false; });
+            if (token.stop_requested()) { return Result<std::shared_ptr<const core::RawFrame>>::failure(error(ErrorCategory::Cancelled, "cancelled")); }
         }
         if (grab == Grab::FrameAfterStop) {
             script_.record("await-cancellation");
@@ -131,11 +147,14 @@ public:
             script_.changed.wait(lock, token, [] { return false; });
         }
         switch (grab) {
-        case Grab::Timeout: return failure(ErrorCategory::Acquisition, "acquisition_timeout");
+        case Grab::Timeout:
+            script_.record("timeout-return");
+            return failure(ErrorCategory::Acquisition, "acquisition_timeout");
         case Grab::Invalid: return failure(ErrorCategory::InvalidFrame, "invalid_frame");
         case Grab::Exhausted: return failure(ErrorCategory::ResourceExhaustion, "buffer_pool_exhausted");
         case Grab::Removed: return failure(ErrorCategory::CameraConnection, "camera_removed", true);
         case Grab::Fatal: return failure(ErrorCategory::Acquisition, "terminal_grab_failure");
+        case Grab::WrongTimeoutCategory: return failure(ErrorCategory::Internal, "acquisition_timeout");
         case Grab::Null: return Result<std::shared_ptr<const core::RawFrame>>::success(nullptr);
         case Grab::Throw: throw std::runtime_error("scripted retrieval exception");
         case Grab::Frame:
@@ -150,7 +169,8 @@ public:
         auto layout = core::ImageLayout::create(roi.width, roi.height, roi.width * sampleBytes,
             configuration_.pixelFormat.applicationStorage, static_cast<std::size_t>(roi.width) * roi.height * sampleBytes);
         auto settings = core::AcquisitionSettingsSnapshot::create({"Test", "Camera", "1", "virtual", {}},
-            configuration_.pixelFormat, roi, 30.0, 30.0, 100.0, 0.0);
+            configuration_.pixelFormat, roi, configuration_.requestedFps.value(),
+            configuration_.requestedFps.value(), 100.0, 0.0);
         return core::RawFrame::create(++frameId_, layout.value(), std::move(*lease).seal(),
             {frameId_, clock_.steadyNow(), clock_.utcNow(), {}, settings.value()});
     }
@@ -167,14 +187,14 @@ private:
         return Result<std::shared_ptr<const core::RawFrame>>::failure(error(category, std::move(code), recoverable));
     }
     Script& script_;
-    core::IClock& clock_;
+    core::ManualClock& clock_;
     camera::CameraConfiguration configuration_{application::configuration()};
     std::uint64_t frameId_{0U};
 };
 
 class Provider final : public camera::ICameraProvider {
 public:
-    Provider(Script& script, core::IClock& clock) : script_(script), clock_(clock) {}
+    Provider(Script& script, core::ManualClock& clock) : script_(script), clock_(clock) {}
     Result<std::vector<camera::CameraDescriptor>> discover(std::stop_token token) override {
         script_.record("discover");
         if (script_.cooperativeDiscovery) {
@@ -194,8 +214,29 @@ public:
     }
 private:
     Script& script_;
-    core::IClock& clock_;
+    core::ManualClock& clock_;
 };
+
+bool awaitStatus(core::LatestValueSlot<CameraStatusSnapshot>& status, std::uint64_t& revision,
+    std::shared_ptr<const CameraStatusSnapshot>& latest,
+    const std::function<bool(const CameraStatusSnapshot&)>& predicate) {
+    std::stop_source timeout;
+    std::condition_variable_any wake;
+    std::mutex mutex;
+    std::jthread watchdog([&](std::stop_token token) {
+        std::unique_lock lock(mutex);
+        wake.wait_for(lock, token, 2s, [] { return false; });
+        if (!token.stop_requested()) { timeout.request_stop(); }
+    });
+    while (!timeout.stop_requested()) {
+        auto value = status.waitForNewer(revision, timeout.get_token());
+        if (!value) { break; }
+        revision = value->revision;
+        latest = value->value;
+        if (predicate(*latest)) { return true; }
+    }
+    return false;
+}
 
 struct Fixture final {
     Script script;
@@ -210,27 +251,14 @@ struct Fixture final {
     std::uint64_t revision{0U};
     std::uint64_t requestId{0U};
     explicit Fixture(CameraStatusSnapshot initial = {}, std::size_t bytesPerBuffer = 48U,
-                     std::optional<camera::CameraConfiguration> prepared = configuration())
-        : pool(core::BufferPool::create(10U, bytesPerBuffer).value()),
+                     std::optional<camera::CameraConfiguration> prepared = configuration(),
+                     std::chrono::steady_clock::time_point epoch = {})
+        : clock(epoch, std::chrono::system_clock::time_point::min()),
+          pool(core::BufferPool::create(10U, bytesPerBuffer).value()),
           worker(provider, mailbox, *pool, raw, clock, status, std::move(initial), std::move(prepared)) {}
     ~Fixture() { script.release(); worker.requestStop(); worker.join(); }
     bool await(const std::function<bool(const CameraStatusSnapshot&)>& predicate) {
-        std::stop_source timeout;
-        std::condition_variable_any wake;
-        std::mutex mutex;
-        std::jthread watchdog([&](std::stop_token token) {
-            std::unique_lock lock(mutex);
-            wake.wait_for(lock, token, 2s, [] { return false; });
-            if (!token.stop_requested()) { timeout.request_stop(); }
-        });
-        while (!timeout.stop_requested()) {
-            auto value = status.waitForNewer(revision, timeout.get_token());
-            if (!value) { break; }
-            revision = value->revision;
-            latest = value->value;
-            if (predicate(*latest)) { return true; }
-        }
-        return false;
+        return awaitStatus(status, revision, latest, predicate);
     }
     template<typename Payload> bool command(Payload payload, bool success = true) {
         const auto id = ++requestId;
@@ -244,6 +272,16 @@ struct Fixture final {
         return worker.start().hasValue() && command(Discover{}) && command(Connect{{"camera-1"}})
             && command(ApplyConfiguration{0U, configuration(), 1U})
             && command(ConfirmConfiguration{0U, 1U}) && command(StartStream{0U, 1U});
+    }
+    bool deliver(Grab grab, std::chrono::nanoseconds advance = 0ns) {
+        const auto count = [](const auto& s) {
+            const auto& counters = s.acquisitionCounters;
+            return counters.acquired + counters.timeouts + counters.droppedInvalidFrame
+                + counters.droppedNoRawBuffer + counters.terminalFailures;
+        };
+        const auto before = count(*latest);
+        script.push(grab, advance);
+        return await([&](const auto& s) { return count(s) > before; });
     }
 };
 
@@ -316,35 +354,290 @@ TEST(AcquisitionWorker, StartRequiresCurrentGenerationAppliedRevisionAndConfirma
     EXPECT_FALSE(fixture.latest->confirmedRevision);
 }
 
-TEST(AcquisitionWorker, TimeoutThresholdAndValidResetClassifyDropsWithoutResettingStreak) {
+// Drops cannot renew the last accepted frame's grace or trigger terminal timeout themselves.
+TEST(AcquisitionWorker, WatchdogValidFrameResetsGraceButInvalidAndExhaustedResultsDoNot) {
     Fixture fixture;
     ASSERT_TRUE(fixture.ready());
-    fixture.script.push(Grab::Timeout);
-    ASSERT_TRUE(fixture.await([](const auto& s) { return s.consecutiveTimeouts == 1U; }));
+    EXPECT_FALSE(fixture.latest->lastAcquiredAt);
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 749ms));
     EXPECT_EQ(fixture.latest->state, S::Streaming);
-    fixture.script.push(Grab::Invalid);
-    fixture.script.push(Grab::Null);
-    fixture.script.push(Grab::WrongRoi);
-    fixture.script.push(Grab::Exhausted);
-    ASSERT_TRUE(fixture.await([](const auto& s) { return s.acquisitionCounters.droppedNoRawBuffer == 1U; }));
+    // A ready frame at the old deadline must be accepted before any terminal check.
+    ASSERT_TRUE(fixture.deliver(Grab::Frame, 1ms));
+    EXPECT_EQ(fixture.latest->lastAcquiredAt, std::chrono::steady_clock::time_point{750ms});
+    EXPECT_EQ(fixture.latest->consecutiveTimeouts, 0U);
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 749ms));
+    ASSERT_EQ(fixture.latest->state, S::Streaming);
+    ASSERT_TRUE(fixture.deliver(Grab::Invalid, 1ms));
+    ASSERT_TRUE(fixture.deliver(Grab::Null));
+    ASSERT_TRUE(fixture.deliver(Grab::WrongRoi));
+    ASSERT_TRUE(fixture.deliver(Grab::Exhausted));
+    EXPECT_EQ(fixture.latest->state, S::Streaming);
     EXPECT_EQ(fixture.latest->consecutiveTimeouts, 1U);
     EXPECT_EQ(fixture.latest->acquisitionCounters.droppedInvalidFrame, 3U);
-    fixture.script.push(Grab::Timeout);
-    ASSERT_TRUE(fixture.await([](const auto& s) { return s.consecutiveTimeouts == 2U; }));
-    EXPECT_EQ(fixture.latest->state, S::Streaming);
-    fixture.script.push(Grab::Frame);
-    ASSERT_TRUE(fixture.await([](const auto& s) { return s.acquisitionCounters.acquired == 1U; }));
-    EXPECT_EQ(fixture.latest->consecutiveTimeouts, 0U);
-    for (int i = 0; i < 3; ++i) { fixture.script.push(Grab::Timeout); }
-    ASSERT_TRUE(fixture.await([](const auto& s) { return s.state == S::Reconnecting; }));
-    EXPECT_EQ(fixture.latest->acquisitionCounters.timeouts, 5U);
+    EXPECT_EQ(fixture.latest->acquisitionCounters.droppedNoRawBuffer, 1U);
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout));
+    EXPECT_EQ(fixture.latest->state, S::Reconnecting);
+    EXPECT_EQ(fixture.latest->acquisitionCounters.timeouts, 3U);
+    EXPECT_EQ(fixture.latest->acquisitionCounters.terminalFailures, 1U);
     EXPECT_TRUE(fixture.latest->sourceReplacementRequired);
     EXPECT_EQ(fixture.latest->desiredIdentity->value, "camera-1");
     EXPECT_FALSE(fixture.latest->actualIdentity);
+    EXPECT_FALSE(fixture.latest->appliedConfiguration);
+    EXPECT_FALSE(fixture.latest->confirmedRevision);
+    EXPECT_EQ(fixture.latest->lastAcquiredAt, std::chrono::steady_clock::time_point{750ms});
     EXPECT_EQ(fixture.script.count("destroy"), 1U);
     ASSERT_TRUE(fixture.command(Retry{}, false));
     EXPECT_EQ(fixture.latest->latestError->code, "camera_context_replacement_required");
     EXPECT_EQ(fixture.script.count("create"), 1U);
+}
+
+// The first-frame deadline is elapsed time, independent of the number of timeout results.
+TEST(AcquisitionWorker, WatchdogFirstFrameStallUsesExactAppliedRateBoundaries) {
+    for (const auto actualFps : {30.0, 1.0}) {
+        SCOPED_TRACE(actualFps);
+        Fixture fixture;
+        auto actual = configuration();
+        actual.requestedFps = actualFps;
+        fixture.script.readback = actual;
+        ASSERT_TRUE(fixture.ready());
+        const auto beforeDeadline = actualFps == 30.0 ? 749ms : 2999ms;
+        ASSERT_TRUE(fixture.deliver(Grab::Timeout, beforeDeadline));
+        ASSERT_EQ(fixture.latest->state, S::Streaming);
+        EXPECT_FALSE(fixture.latest->lastAcquiredAt);
+        ASSERT_TRUE(fixture.deliver(Grab::Timeout, 1ms));
+        EXPECT_EQ(fixture.latest->state, S::Reconnecting);
+        EXPECT_EQ(fixture.latest->acquisitionCounters.timeouts, 2U);
+        EXPECT_EQ(fixture.latest->acquisitionCounters.terminalFailures, 1U);
+        EXPECT_EQ(fixture.latest->desiredIdentity, camera::CameraId{"camera-1"});
+        EXPECT_FALSE(fixture.latest->actualIdentity);
+        EXPECT_FALSE(fixture.latest->appliedConfiguration);
+        EXPECT_FALSE(fixture.latest->confirmedRevision);
+        EXPECT_TRUE(fixture.latest->sourceReplacementRequired);
+        EXPECT_FALSE(fixture.latest->lastAcquiredAt);
+        EXPECT_EQ(fixture.script.count("create"), 1U);
+        EXPECT_EQ(fixture.script.count("stop"), 1U);
+        EXPECT_EQ(fixture.script.count("close"), 1U);
+        EXPECT_EQ(fixture.script.count("destroy"), 1U);
+    }
+}
+
+TEST(AcquisitionWorker, WatchdogUsesActualOneFpsDespiteRequestedThirtyFps) {
+    Fixture fixture;
+    auto actual = configuration();
+    actual.requestedFps = 1.0;
+    fixture.script.readback = actual;
+    ASSERT_TRUE(fixture.ready());
+    ASSERT_TRUE(fixture.deliver(Grab::Frame));
+    for (int timeout = 0; timeout < 3; ++timeout) {
+        ASSERT_TRUE(fixture.deliver(Grab::Timeout, 250ms));
+        ASSERT_EQ(fixture.latest->state, S::Streaming);
+    }
+    ASSERT_TRUE(fixture.deliver(Grab::Frame, 250ms));
+    ASSERT_EQ(fixture.latest->acquisitionCounters.acquired, 2U);
+    EXPECT_EQ(fixture.latest->consecutiveTimeouts, 0U);
+    EXPECT_EQ(fixture.latest->lastAcquiredAt, std::chrono::steady_clock::time_point{1s});
+    EXPECT_EQ(fixture.latest->appliedConfiguration->requested.requestedFps, 30.0);
+    EXPECT_EQ(fixture.latest->appliedConfiguration->actual.requestedFps, 1.0);
+    const auto frame = fixture.raw.consumeAfter(0U);
+    ASSERT_TRUE(frame);
+    EXPECT_EQ(frame->value->frameId, 2U);
+    EXPECT_EQ(frame->value->metadata.acquisitionSettings.actualFps, 1.0);
+    EXPECT_FALSE(fixture.latest->sourceReplacementRequired);
+}
+
+// Quick backend failures consume real retrieval slices but cannot advance a frozen policy clock.
+TEST(AcquisitionWorker, WatchdogFrozenClockKeepsStreamingAndPadsQuickTimeouts) {
+    Fixture fixture;
+    for (int timeout = 0; timeout < 4; ++timeout) { fixture.script.push(Grab::Timeout); }
+    ASSERT_TRUE(fixture.ready());
+    ASSERT_TRUE(fixture.await([](const auto& s) {
+        return s.acquisitionCounters.timeouts >= 4U || s.state == S::Reconnecting;
+    }));
+    ASSERT_EQ(fixture.latest->state, S::Streaming);
+    EXPECT_GE(fixture.latest->consecutiveTimeouts, 4U);
+    EXPECT_EQ(fixture.clock.steadyNow(), std::chrono::steady_clock::time_point{});
+    {
+        std::lock_guard lock(fixture.script.mutex);
+        ASSERT_GE(fixture.script.retrieveTimes.size(), 4U);
+        for (std::size_t index = 1; index < 4U; ++index) {
+            EXPECT_GE(fixture.script.retrieveTimes[index] - fixture.script.retrieveTimes[index - 1U], 245ms);
+        }
+    }
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 750ms));
+    EXPECT_EQ(fixture.latest->state, S::Reconnecting);
+}
+
+TEST(AcquisitionWorker, WatchdogPaddingUsesRemainderOfSlowRetrievalSlice) {
+    Fixture fixture;
+    fixture.script.minimumRetrieveTime = 180ms;
+    fixture.script.push(Grab::Timeout);
+    fixture.script.push(Grab::Timeout);
+    ASSERT_TRUE(fixture.ready());
+    ASSERT_TRUE(fixture.await([](const auto& s) { return s.acquisitionCounters.timeouts >= 2U; }));
+    std::lock_guard lock(fixture.script.mutex);
+    ASSERT_GE(fixture.script.retrieveTimes.size(), 2U);
+    const auto betweenCalls = fixture.script.retrieveTimes[1] - fixture.script.retrieveTimes[0];
+    EXPECT_GE(betweenCalls, 245ms);
+    EXPECT_LT(betweenCalls, 400ms);
+}
+
+TEST(AcquisitionWorker, WatchdogRestartAfterIdleRearmsWithoutForgingAcquisitionTime) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.ready());
+    ASSERT_TRUE(fixture.deliver(Grab::Frame, 10ms));
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 749ms));
+    ASSERT_TRUE(fixture.command(StopStream{}));
+    fixture.clock.advance(1h);
+    ASSERT_TRUE(fixture.command(StartStream{0U, 1U}));
+    EXPECT_EQ(fixture.latest->lastAcquiredAt, std::chrono::steady_clock::time_point{10ms});
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 749ms));
+    ASSERT_EQ(fixture.latest->state, S::Streaming);
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 1ms));
+    EXPECT_EQ(fixture.latest->state, S::Reconnecting);
+    EXPECT_EQ(fixture.script.count("start"), 2U);
+}
+
+TEST(AcquisitionWorker, WatchdogIdempotentStartCannotRenewGrace) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.ready());
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 749ms));
+    ASSERT_TRUE(fixture.command(StartStream{0U, 1U}));
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 1ms));
+    EXPECT_EQ(fixture.latest->state, S::Reconnecting);
+    EXPECT_EQ(fixture.script.count("start"), 1U);
+}
+
+TEST(AcquisitionWorker, WatchdogUsesLatestActualRateAfterStoppedApply) {
+    for (const auto updatedActualFps : {1.0, 30.0}) {
+        SCOPED_TRACE(updatedActualFps);
+        Fixture fixture;
+        auto actual = configuration();
+        actual.requestedFps = updatedActualFps == 1.0 ? 30.0 : 1.0;
+        fixture.script.readback = actual;
+        ASSERT_TRUE(fixture.ready());
+        ASSERT_TRUE(fixture.command(StopStream{}));
+        actual.requestedFps = updatedActualFps;
+        fixture.script.readback = actual;
+        ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, configuration(), 2U}));
+        ASSERT_TRUE(fixture.command(ConfirmConfiguration{0U, 2U}));
+        ASSERT_TRUE(fixture.command(StartStream{0U, 2U}));
+        const auto beforeDeadline = updatedActualFps == 1.0 ? 2999ms : 749ms;
+        ASSERT_TRUE(fixture.deliver(Grab::Timeout, beforeDeadline));
+        ASSERT_EQ(fixture.latest->state, S::Streaming);
+        ASSERT_TRUE(fixture.deliver(Grab::Timeout, 1ms));
+        EXPECT_EQ(fixture.latest->state, S::Reconnecting);
+        EXPECT_EQ(fixture.script.count("create"), 1U);
+    }
+}
+
+// Neither signed duration subtraction nor a reciprocal FPS-to-duration conversion may overflow.
+TEST(AcquisitionWorker, WatchdogHandlesExtremeClockEpochsAndTinyPositiveActualRate) {
+    for (const auto actualFps : {30.0, std::numeric_limits<double>::min()}) {
+        SCOPED_TRACE(actualFps);
+        Fixture fixture({}, 48U, configuration(), std::chrono::steady_clock::time_point::min());
+        auto offered = capabilities();
+        offered.frameRate.minimum = std::numeric_limits<double>::min();
+        fixture.script.offeredCapabilities = offered;
+        auto actual = configuration();
+        actual.requestedFps = actualFps;
+        fixture.script.readback = actual;
+        ASSERT_TRUE(fixture.ready());
+        ASSERT_TRUE(fixture.deliver(Grab::Invalid, std::chrono::nanoseconds::max()));
+        ASSERT_EQ(fixture.latest->state, S::Streaming);
+        ASSERT_TRUE(fixture.deliver(Grab::Timeout, std::chrono::nanoseconds::max()));
+        EXPECT_EQ(fixture.latest->state, actualFps == 30.0 ? S::Reconnecting : S::Streaming);
+        EXPECT_EQ(fixture.latest->acquisitionCounters.terminalFailures, actualFps == 30.0 ? 1U : 0U);
+    }
+}
+
+TEST(AcquisitionWorker, WatchdogOnlyExactAcquisitionTimeoutReceivesGrace) {
+    for (const auto grab : {Grab::WrongTimeoutCategory, Grab::Fatal}) {
+        Fixture fixture;
+        ASSERT_TRUE(fixture.ready());
+        ASSERT_TRUE(fixture.deliver(grab));
+        EXPECT_EQ(fixture.latest->state, S::Error);
+        EXPECT_EQ(fixture.latest->acquisitionCounters.timeouts, 0U);
+        EXPECT_EQ(fixture.latest->acquisitionCounters.terminalFailures, 1U);
+        EXPECT_EQ(fixture.script.count("destroy"), 1U);
+    }
+}
+
+TEST(AcquisitionWorker, WatchdogShutdownCancelsQuickTimeoutPaddingAndPreservesCleanupFailure) {
+    Fixture fixture;
+    fixture.script.push(Grab::Timeout);
+    fixture.script.failClose = true;
+    ASSERT_TRUE(fixture.ready());
+    ASSERT_TRUE(fixture.script.waitFor("timeout-return"));
+    const auto started = std::chrono::steady_clock::now();
+    ASSERT_TRUE(fixture.worker.post({99U, Shutdown{}}).hasValue());
+    fixture.worker.join();
+    EXPECT_LT(std::chrono::steady_clock::now() - started, 200ms);
+    const auto finalStatus = fixture.status.consumeAfter(0U);
+    ASSERT_TRUE(finalStatus);
+    EXPECT_EQ(finalStatus->value->state, S::ShuttingDown);
+    ASSERT_TRUE(finalStatus->value->latestOutcome);
+    ASSERT_TRUE(finalStatus->value->latestOutcome->error);
+    EXPECT_EQ(finalStatus->value->latestOutcome->requestId, 99U);
+    EXPECT_EQ(finalStatus->value->latestOutcome->error->code, "close_failed");
+    EXPECT_EQ(fixture.script.count("destroy"), 1U);
+    EXPECT_FALSE(fixture.raw.consumeAfter(0U));
+}
+
+TEST(AcquisitionWorker, WatchdogRealSimulatorOneFpsPublishesSecondFrameAndHonorsPriority) {
+    for (const bool disconnect : {false, true}) {
+        SCOPED_TRACE(disconnect);
+        core::SystemClock clock;
+        auto requested = configuration();
+        requested.requestedFps = 1.0;
+        camera::sim::SimulatedCameraProvider provider({{"camera-1"}, capabilities(),
+            camera::sim::SimulationPattern::Ramp, 1.0, 42U,
+            camera::sim::SimulationPacingMode::RealTime}, clock);
+        auto pool = core::BufferPool::create(4U, 48U).value();
+        CameraCommandMailbox mailbox;
+        core::LatestValueSlot<core::RawFrame> raw;
+        core::LatestValueSlot<CameraStatusSnapshot> status;
+        AcquisitionWorker worker(provider, mailbox, *pool, raw, clock, status, {}, requested);
+        std::uint64_t revision{0U};
+        std::shared_ptr<const CameraStatusSnapshot> latest;
+        ASSERT_TRUE(worker.start().hasValue());
+        ASSERT_TRUE(worker.post({1U, Connect{{"camera-1"}}}).hasValue());
+        ASSERT_TRUE(worker.post({2U, ApplyConfiguration{0U, requested, 1U}}).hasValue());
+        ASSERT_TRUE(worker.post({3U, ConfirmConfiguration{0U, 1U}}).hasValue());
+        ASSERT_TRUE(worker.post({4U, StartStream{0U, 1U}}).hasValue());
+        ASSERT_TRUE(awaitStatus(status, revision, latest, [](const auto& s) {
+            return s.acquisitionCounters.acquired >= 1U || s.state == S::Error;
+        }));
+        ASSERT_EQ(latest->acquisitionCounters.acquired, 1U);
+        const auto first = raw.consumeAfter(0U);
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(awaitStatus(status, revision, latest, [](const auto& s) {
+            return s.acquisitionCounters.acquired >= 2U || s.state == S::Reconnecting || s.state == S::Error;
+        }));
+        ASSERT_EQ(latest->state, S::Streaming);
+        ASSERT_EQ(latest->acquisitionCounters.acquired, 2U);
+        EXPECT_GE(latest->acquisitionCounters.timeouts, 3U);
+        EXPECT_FALSE(latest->sourceReplacementRequired);
+        const auto second = raw.consumeAfter(first->revision);
+        ASSERT_TRUE(second);
+        EXPECT_GT(second->value->frameId, first->value->frameId);
+        EXPECT_EQ(second->value->metadata.acquisitionSettings.actualFps, 1.0);
+        // A timeout after frame two proves another low-FPS pacing slice is active.
+        const auto timeouts = latest->acquisitionCounters.timeouts;
+        ASSERT_TRUE(awaitStatus(status, revision, latest, [&](const auto& s) {
+            return s.acquisitionCounters.timeouts > timeouts;
+        }));
+        const auto started = std::chrono::steady_clock::now();
+        CameraCommand priority{99U, StopStream{}};
+        if (disconnect) { priority.payload = Disconnect{}; }
+        ASSERT_TRUE(worker.post(std::move(priority)).hasValue());
+        ASSERT_TRUE(awaitStatus(status, revision, latest, [](const auto& s) {
+            return s.latestOutcome && s.latestOutcome->requestId == 99U;
+        }));
+        EXPECT_LE(std::chrono::steady_clock::now() - started, 500ms);
+        EXPECT_EQ(latest->state, disconnect ? S::Disconnected : S::ConnectedIdle);
+        EXPECT_EQ(latest->acquisitionCounters.acquired, 2U);
+        EXPECT_FALSE(latest->latestOutcome->error);
+    }
 }
 
 TEST(AcquisitionWorker, ReplacementRetryDiscoversOnlyRetainedIdentityAndOpensIdle) {

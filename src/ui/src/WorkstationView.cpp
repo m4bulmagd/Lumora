@@ -3,6 +3,7 @@
 #include <lumora/ui/ImageViewport.hpp>
 
 #include <QAction>
+#include <QActionGroup>
 #include <QColor>
 #include <QDateTime>
 #include <QGridLayout>
@@ -11,11 +12,14 @@
 #include <QKeySequence>
 #include <QPalette>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSizePolicy>
+#include <QStyle>
 #include <QToolButton>
 #include <QTimeZone>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <utility>
 
 namespace lumora::ui {
@@ -86,32 +90,71 @@ WorkstationView::WorkstationView(QWidget* parent)
 
     sidebar_ = new QWidget(this);
     sidebar_->setObjectName(QStringLiteral("sidebar"));
-    sidebar_->setAccessibleName(tr("Original display sidebar"));
-    sidebar_->setFixedWidth(240);
+    sidebar_->setAccessibleName(tr("Workstation controls"));
+    sidebar_->setFixedWidth(320);
     sidebar_->setStyleSheet(QStringLiteral(
         "QWidget#sidebar { background: #24282e; border-radius: 4px; }"));
 
     auto* sidebarLayout = new QVBoxLayout(sidebar_);
     sidebarLayout->setContentsMargins(16, 16, 16, 16);
-    auto* originalLabel = new QLabel(tr("Original"), sidebar_);
-    originalLabel->setAccessibleName(tr("Original display"));
-    originalLabel->setToolTip(tr("Original (display mapped): window/level and display mapping affect the view; raw samples remain unchanged."));
-    originalLabel->setStyleSheet(QStringLiteral(
+    auto* previewLabel = new QLabel(tr("Enhanced"), sidebar_);
+    previewLabel->setObjectName(QStringLiteral("previewModeLabel"));
+    previewLabel->setAccessibleName(tr("Displayed image source"));
+    previewLabel->setStyleSheet(QStringLiteral(
         "QLabel { color: #eef0f3; font-size: 18px; font-weight: 600; }"));
-    sidebarLayout->addWidget(originalLabel);
+    sidebarLayout->addWidget(previewLabel);
+    auto* modeActions = new QActionGroup(this);
+    modeActions->setExclusive(true);
+    auto* modeLayout = new QHBoxLayout;
+    const auto addModeAction = [&](DisplayMode mode, const QString& text,
+                                   const char* name, const QString& accessibleName) {
+        auto* action = makeViewerAction(text, name, this);
+        action->setCheckable(true);
+        modeActions->addAction(action);
+        auto* button = makeActionButton(action, accessibleName, sidebar_);
+        button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        modeLayout->addWidget(button);
+        connect(action, &QAction::triggered, this, [this, mode] {
+            setPresentedDisplayMode(presentedMode_);
+            emit displayModeRequested(mode);
+        });
+    };
+    addModeAction(DisplayMode::Original, tr("Original"), "originalModeAction", tr("Show Original"));
+    addModeAction(DisplayMode::Enhanced, tr("Enhanced"), "enhancedModeAction", tr("Show Enhanced"));
+    addModeAction(DisplayMode::Compare, tr("Compare"), "compareModeAction", tr("Show Compare"));
+    sidebarLayout->addLayout(modeLayout);
+    auto* modeReason = new QLabel(sidebar_);
+    modeReason->setObjectName(QStringLiteral("displayModeAvailabilityReason"));
+    modeReason->setAccessibleName(tr("Display mode availability"));
+    modeReason->setTextFormat(Qt::PlainText);
+    modeReason->setWordWrap(true);
+    modeReason->setStyleSheet(QStringLiteral("QLabel { color: #d5dbe3; }"));
+    modeReason->hide();
+    sidebarLayout->addWidget(modeReason);
     auto* processingWarning=new QLabel(this);
     processingWarning->setObjectName(QStringLiteral("processingWarning"));
     processingWarning->setAccessibleName(tr("Enhancement processing warning"));
     processingWarning->setTextFormat(Qt::PlainText);
     processingWarning->setWordWrap(true);
-    processingWarning->setText(tr("Enhancement paused after repeated processing failures. Showing Original."));
+    processingWarning->setText(tr("Enhancement paused after repeated processing failures."));
     processingWarning->hide(); sidebarLayout->addWidget(processingWarning);
     auto* processingRetry=new QPushButton(tr("Retry enhancement"),this);
     processingRetry->setObjectName(QStringLiteral("processingRetryButton"));
     processingRetry->setAccessibleName(tr("Retry enhancement processing"));
     processingRetry->hide(); sidebarLayout->addWidget(processingRetry);
     connect(processingRetry,&QPushButton::clicked,this,&WorkstationView::processingRetryRequested);
-    sidebarLayout->addStretch(1);
+    auto* scroll = new QScrollArea(sidebar_);
+    scroll->setObjectName(QStringLiteral("sidebarPanelScroll"));
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto* panels = new QWidget;
+    sidebarPanels_ = new QVBoxLayout(panels);
+    sidebarPanels_->setContentsMargins(0, 0, 0, 0);
+    sidebarPanels_->setSpacing(12);
+    sidebarPanels_->addStretch(1);
+    scroll->setWidget(panels);
+    sidebarLayout->addWidget(scroll, 1);
 
     auto* pauseLiveButton = new QPushButton(tr("Pause"), sidebar_);
     pauseLiveButton->setObjectName(QStringLiteral("pauseLiveButton"));
@@ -132,7 +175,7 @@ WorkstationView::WorkstationView(QWidget* parent)
 
     imageViewport_ = new ImageViewport(viewerPane);
     imageViewport_->setObjectName(QStringLiteral("imageViewport"));
-    imageViewport_->setAccessibleName(tr("Original image viewport"));
+    imageViewport_->setAccessibleName(tr("Enhanced image viewport"));
     imageViewport_->setFocusPolicy(Qt::StrongFocus);
     imageViewport_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     viewerLayout->addWidget(imageViewport_, 0, 0);
@@ -213,6 +256,7 @@ WorkstationView::WorkstationView(QWidget* parent)
     connect(
         pauseLiveAction, &QAction::triggered,
         this, requestViewerStateChange);
+    setPreviewSource(true);
 }
 
 QWidget* WorkstationView::sidebar() const noexcept {
@@ -229,6 +273,64 @@ ViewerState WorkstationView::viewerState() const noexcept {
 
 const WorkstationStatus& WorkstationView::status() const noexcept {
     return status_;
+}
+
+void WorkstationView::addSidebarPanel(QWidget* panel) {
+    if (panel != nullptr) {
+        sidebarPanels_->insertWidget(sidebarPanels_->count() - 1, panel);
+        const auto margins = sidebar_->layout()->contentsMargins();
+        const auto scrollBarWidth = style()->pixelMetric(QStyle::PM_ScrollBarExtent);
+        const auto contentWidth = sidebarPanels_->minimumSize().width();
+        sidebar_->setFixedWidth(std::max(320,
+            contentWidth + margins.left() + margins.right() + scrollBarWidth));
+    }
+}
+
+void WorkstationView::setPreviewSource(bool enhanced) {
+    setPresentedDisplayMode(enhanced ? DisplayMode::Enhanced : DisplayMode::Original);
+}
+
+void WorkstationView::setDisplayModeAvailability(bool hasImage, bool hasEnhanced) {
+    enhancedImageAvailable_ = hasImage && hasEnhanced;
+    findChild<QAction*>(QStringLiteral("originalModeAction"))->setEnabled(hasImage);
+    for (const auto* name : {"enhancedModeAction", "compareModeAction"}) {
+        auto* action = findChild<QAction*>(QString::fromLatin1(name));
+        action->setEnabled(enhancedImageAvailable_);
+        action->setToolTip(enhancedImageAvailable_
+            ? tr("View the matching enhanced image from this frame.")
+            : tr("An enhanced image is not available for this frame."));
+    }
+    auto* reason = findChild<QLabel*>(QStringLiteral("displayModeAvailabilityReason"));
+    reason->setText(tr("Enhanced and Compare are unavailable for this frame. Original remains available."));
+    reason->setVisible(hasImage && !enhancedImageAvailable_);
+}
+
+void WorkstationView::setPresentedDisplayMode(DisplayMode mode) {
+    if (mode != DisplayMode::Original && mode != DisplayMode::Enhanced && mode != DisplayMode::Compare) {
+        return;
+    }
+    presentedMode_ = mode;
+    findChild<QAction*>(QStringLiteral("originalModeAction"))->setChecked(mode == DisplayMode::Original);
+    findChild<QAction*>(QStringLiteral("enhancedModeAction"))->setChecked(mode == DisplayMode::Enhanced);
+    findChild<QAction*>(QStringLiteral("compareModeAction"))->setChecked(mode == DisplayMode::Compare);
+    auto* label = findChild<QLabel*>(QStringLiteral("previewModeLabel"));
+    switch (mode) {
+    case DisplayMode::Original:
+        label->setText(enhancedImageAvailable_ ? tr("Original") : tr("Original (fallback)"));
+        label->setToolTip(tr("Original (display mapped): window/level and display mapping affect the view; raw samples remain unchanged."));
+        imageViewport_->setAccessibleName(tr("Original image viewport"));
+        break;
+    case DisplayMode::Enhanced:
+        label->setText(tr("Enhanced"));
+        label->setToolTip(tr("Enhanced preview: image processing affects this view; raw samples remain unchanged."));
+        imageViewport_->setAccessibleName(tr("Enhanced image viewport"));
+        break;
+    case DisplayMode::Compare:
+        label->setText(tr("Compare"));
+        label->setToolTip(tr("Original (display mapped) and Enhanced from the same frame, with synchronized zoom and pan."));
+        imageViewport_->setAccessibleName(tr("Original and Enhanced comparison viewport"));
+        break;
+    }
 }
 
 void WorkstationView::setProcessingStatus(processing::ProcessorStatus status, bool retryPending) {

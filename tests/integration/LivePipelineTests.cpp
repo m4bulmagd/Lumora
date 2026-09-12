@@ -2,10 +2,16 @@
 #include "SimulatorComposition.hpp"
 #include "FrameEngineTestAccess.hpp"
 #include <QLabel>
+#include <QComboBox>
+#include <QDoubleSpinBox>
+#include <lumora/configuration/PresetCodec.hpp>
+#include <lumora/ui/ProcessingPanel.hpp>
+#include <lumora/ui/ImageViewport.hpp>
 #include <lumora/application/LivePipeline.hpp>
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
 #include <lumora/ui/CameraStartupPanel.hpp>
+#include <lumora/ui/CameraSettingsDialog.hpp>
 #include <lumora/ui/FramePresenter.hpp>
 #include <lumora/ui/WorkstationController.hpp>
 #include <lumora/ui/WorkstationView.hpp>
@@ -42,6 +48,8 @@ public:
     std::optional<application::StartupPreferences> record;
     std::mutex mutex;
     std::optional<application::StartupPreferences> saved;
+    application::PresetState presetState;
+    std::optional<application::PresetState> savedPresets;
     bool failLoad{false};
     bool failSave{false};
     std::function<void()> beforeLoad;
@@ -50,11 +58,11 @@ public:
         if(failLoad) return core::Result<configuration::ApplicationConfiguration>::failure(
             {core::ErrorCategory::Configuration,"load_failed","Load failed.","",false});
         configuration::ApplicationConfiguration value;
-        value.startup=record;
+        value.startup=record; value.presets=presetState;
         return core::Result<configuration::ApplicationConfiguration>::success(value);
     }
     core::Result<void> save(const configuration::ApplicationConfiguration& value) override {
-        std::lock_guard lock(mutex);saved=value.startup;
+        std::lock_guard lock(mutex);saved=value.startup;savedPresets=value.presets;
         if(failSave) return core::Result<void>::failure(
             {core::ErrorCategory::Configuration,"save_failed","Save failed.","",false});
         return core::Result<void>::success();
@@ -127,6 +135,90 @@ struct Fixture {
         return controller.presenter()->presentedBundle()!=nullptr;
     }
 };
+bool nextAfter(Fixture& fixture, std::chrono::milliseconds elapsed) {
+    const auto previous=fixture.latest();
+    fixture.clock.advance(elapsed);
+    return fixture.wait([&] {
+        const auto value=fixture.latest();
+        return value && (!previous || value->sourceFrameId()>previous->sourceFrameId())
+            && value->raw->metadata.hostReceiptTime==fixture.clock.steadyNow();
+    });
+}
+camera::CameraConfiguration controlsRequest() { auto value=request(); value.roi={0,0,64,48}; return value; }
+camera::sim::SimulatedCameraOptions controlsOptions() { auto value=options(); value.capabilities.roi.maximum={0,0,64,48}; return value; }
+std::unique_ptr<MemoryIo> invertedPresetsIo() {
+    auto io=std::make_unique<MemoryIo>(); io->presetState.selectedId={"custom"};
+    io->presetState.activePipeline.stages.back().enabled=true; return io;
+}
+std::string processingFailureDetail(Fixture& fixture) {
+    const auto snapshot=fixture.pipeline.snapshot();
+    std::string detail;
+    if(snapshot.processingConfigurationOutcome && snapshot.processingConfigurationOutcome->error) {
+        const auto& error=*snapshot.processingConfigurationOutcome->error; detail=error.code;
+        for(const auto& violation:error.violations) detail+=" / "+violation.detail;
+        if(error.preparationError) detail+=" / "+error.preparationError->diagnosticDetail;
+    }
+    if(auto* label=fixture.view.findChild<QLabel*>("processingSettingsStatus")) detail+=" / "+label->text().toStdString();
+    if(const auto preferences=fixture.preferences.latestStatus();preferences->warning) detail+=" / "+preferences->warning->diagnosticDetail;
+    return detail;
+}
+TEST(LivePipeline, LoadedPresetActivatesWithoutStartingCameraAndSavesAcknowledgedState) {
+    auto io=std::make_unique<MemoryIo>(); auto* memory=io.get();
+    auto repository=configuration::PresetCodec::loadDefaultRepository().value();
+    ASSERT_TRUE(repository.apply({"standard"}).hasValue()); io->presetState=repository.snapshot();
+    Fixture f(std::move(io),controlsOptions(),{},controlsRequest()); ASSERT_TRUE(f.initialize());
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision.has_value();})) << processingFailureDetail(f);
+    auto snapshot=f.pipeline.snapshot(); ASSERT_TRUE(snapshot.processingConfigurationOutcome);
+    EXPECT_FALSE(snapshot.processingConfigurationOutcome->error);
+    EXPECT_EQ(snapshot.camera->state,application::CameraSessionState::Disconnected);
+    EXPECT_EQ(snapshot.camera->acquisitionCounters.acquired,0U);
+    auto* selector=f.view.findChild<QComboBox*>("presetSelector"); ASSERT_NE(selector,nullptr);
+    EXPECT_EQ(selector->currentData().toString(),QStringLiteral("standard"));
+    std::lock_guard lock(memory->mutex); ASSERT_TRUE(memory->savedPresets);
+    EXPECT_EQ(memory->savedPresets->selectedId.value,"standard");
+}
+TEST(LivePipeline, ProcessingControlRevisionReachesFramesAndResetPreservesPausedCameraAndViewport) {
+    Fixture f(std::make_unique<MemoryIo>(),controlsOptions(),{},controlsRequest()); ASSERT_TRUE(f.begin());
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision.has_value();})) << processingFailureDetail(f);
+    auto* selector=f.view.findChild<QComboBox*>("presetSelector"); ASSERT_NE(selector,nullptr);
+    const auto previous=f.preferences.latestStatus()->latestSavedPresetRevision;
+    selector->setCurrentIndex(selector->findData("standard"));
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision>previous;})) << processingFailureDetail(f);
+    const auto applied=f.pipeline.snapshot().processingConfigurationOutcome; ASSERT_TRUE(applied);
+    ASSERT_TRUE(f.next()); ASSERT_TRUE(f.latest()->enhanced);
+    EXPECT_EQ(f.latest()->enhanced->pipelineVersion.configurationRevision,applied->configurationRevision);
+    ASSERT_TRUE(f.paint()); f.controller.presenter()->pause();
+    auto frozen=f.controller.presenter()->presentedBundle();
+    f.view.imageViewport()->setActualPixels();
+    const auto camera=f.pipeline.snapshot().camera;
+    auto* reset=f.view.findChild<QPushButton*>("resetProcessing"); ASSERT_NE(reset,nullptr); reset->click();
+    ASSERT_TRUE(f.wait([&]{auto result=f.pipeline.snapshot().processingConfigurationOutcome;
+        return result && result->configurationRevision>applied->configurationRevision;}));
+    EXPECT_EQ(f.controller.presenter()->presentedBundle(),frozen);
+    EXPECT_EQ(f.view.viewerState(),ui::ViewerState::Paused);
+    EXPECT_EQ(f.view.imageViewport()->transform().mode(),ui::ViewScaleMode::Manual);
+    EXPECT_DOUBLE_EQ(f.view.imageViewport()->transform().scale(),1.0);
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::Streaming);
+    EXPECT_EQ(f.pipeline.snapshot().camera->sessionGeneration,camera->sessionGeneration);
+    EXPECT_EQ(f.pipeline.snapshot().camera->confirmedRevision,camera->confirmedRevision);
+    EXPECT_EQ(selector->currentData().toString(),QStringLiteral("original"));
+}
+TEST(LivePipeline, RejectedPresetRestoresAcceptedSettingsWithoutStoppingCameraOrSavingFailure) {
+    Fixture f; ASSERT_TRUE(f.begin());
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision.has_value();}));
+    const auto saved=f.preferences.latestStatus()->latestSavedPresetRevision;
+    auto* selector=f.view.findChild<QComboBox*>("presetSelector"); ASSERT_NE(selector,nullptr);
+    selector->setCurrentIndex(selector->findData("standard"));
+    ASSERT_TRUE(f.wait([&]{auto outcome=f.pipeline.snapshot().processingConfigurationOutcome;return outcome && outcome->error;}));
+    f.controller.poll();
+    EXPECT_EQ(f.pipeline.snapshot().processingConfigurationOutcome->error->code,"clahe_image_too_small");
+    EXPECT_EQ(selector->currentData().toString(),QStringLiteral("original"));
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedPresetRevision,saved);
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::Streaming);
+    EXPECT_FALSE(f.pipeline.snapshot().processingConfigurationPending);
+    auto* status=f.view.findChild<QLabel*>("processingSettingsStatus"); ASSERT_NE(status,nullptr);
+    EXPECT_NE(status->text(),QStringLiteral("Changes pending…"));
+}
 class LiveEnhancementFault final : public processing::detail::EngineHooks {
 public:
     std::atomic<bool> fail{true};
@@ -138,7 +230,7 @@ public:
 };
 TEST(LivePipeline, ProcessingRetryIsGenerationCheckedPendingWithoutFramesAndNeverReconnects) {
     auto hook=std::make_shared<LiveEnhancementFault>();
-    Fixture f(std::make_unique<MemoryIo>(),options(),[hook](core::BufferPool& p,core::BufferPool& d,const core::ImageLayout& source) {
+    Fixture f(invertedPresetsIo(),options(),[hook](core::BufferPool& p,core::BufferPool& d,const core::ImageLayout& source) {
         auto definition=processing::defaultPipeline(); definition.stages.back().enabled=true;
         auto made=processing::detail::FrameEngineTestAccess::create(p,d,source,definition,{},hook);
         if(!made.hasValue()) return core::Result<std::unique_ptr<processing::IFrameProcessor>>::failure(made.error());
@@ -188,7 +280,7 @@ TEST(LivePipeline, ProcessingRetryIsGenerationCheckedPendingWithoutFramesAndNeve
 }
 TEST(LivePipeline, SessionReplacementClearsWarningAndRejectsTheOldProcessingRetryGeneration) {
     auto hook=std::make_shared<LiveEnhancementFault>();
-    Fixture f(std::make_unique<MemoryIo>(),options(),[hook](core::BufferPool& p,core::BufferPool& d,const core::ImageLayout& source) {
+    Fixture f(invertedPresetsIo(),options(),[hook](core::BufferPool& p,core::BufferPool& d,const core::ImageLayout& source) {
         auto definition=processing::defaultPipeline(); definition.stages.back().enabled=true;
         auto made=processing::detail::FrameEngineTestAccess::create(p,d,source,definition,{},hook);
         if(!made.hasValue()) return core::Result<std::unique_ptr<processing::IFrameProcessor>>::failure(made.error());
@@ -313,17 +405,32 @@ TEST(LivePipeline, MatchingSavedRecordProbesIdleAndResumesOnlyOnOperatorIntent) 
     ASSERT_TRUE(f.next());ASSERT_TRUE(f.paint());
 }
 TEST(LivePipeline, ChangedReadbackCancelsResumeAndExplainsReview) {
-    auto io=std::make_unique<MemoryIo>();io->record=savedRecord();
-    io->record->lastApplied.exposure.requestedMicroseconds=101.0;
-    Fixture f(std::move(io));ASSERT_TRUE(f.initialize());
-    ASSERT_TRUE(f.wait([&]{return f.panel.presentation().resumeLiveAvailable;}));
-    ASSERT_TRUE(f.act(Intent::ResumeLive));
-    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
-    EXPECT_FALSE(f.pipeline.snapshot().camera->confirmedRevision.has_value());
-    ASSERT_TRUE(f.panel.presentation().startupWarning.has_value());
-    EXPECT_EQ(f.panel.presentation().startupWarning->code,"startup_readback_changed");
-    ASSERT_TRUE(f.act(Intent::Confirm));ASSERT_TRUE(f.act(Intent::Start));
-    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::Streaming);
+    for(const bool changedFrameRate : {false,true}) {
+        SCOPED_TRACE(changedFrameRate ? "frame rate readback" : "exposure readback");
+        auto io=std::make_unique<MemoryIo>();io->record=savedRecord();
+        if(changedFrameRate) {
+            io->record->requested.requestedFps=1.25;
+            io->record->lastApplied.requestedFps=2.0;
+        } else {
+            io->record->lastApplied.exposure.requestedMicroseconds=101.0;
+        }
+        Fixture f(std::move(io));ASSERT_TRUE(f.initialize());
+        ASSERT_TRUE(f.wait([&]{return f.panel.presentation().resumeLiveAvailable;}));
+        ASSERT_TRUE(f.act(Intent::ResumeLive));
+        const auto camera=f.pipeline.snapshot().camera;
+        EXPECT_EQ(camera->state,application::CameraSessionState::ConnectedIdle);
+        EXPECT_FALSE(camera->confirmedRevision.has_value());
+        EXPECT_EQ(camera->acquisitionCounters.acquired,0U);
+        ASSERT_TRUE(camera->appliedConfiguration);
+        if(changedFrameRate) {
+            EXPECT_DOUBLE_EQ(*camera->appliedConfiguration->requested.requestedFps,1.25);
+            EXPECT_DOUBLE_EQ(*camera->appliedConfiguration->actual.requestedFps,1.0);
+        }
+        ASSERT_TRUE(f.panel.presentation().startupWarning.has_value());
+        EXPECT_EQ(f.panel.presentation().startupWarning->code,"startup_readback_changed");
+        ASSERT_TRUE(f.act(Intent::Confirm));ASSERT_TRUE(f.act(Intent::Start));
+        EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::Streaming);
+    }
 }
 struct Gate {
     std::mutex mutex;
@@ -855,6 +962,65 @@ TEST(LivePipeline, ResolutionChangeIsRejectedBeforeMutatingTheSession) {
     EXPECT_TRUE(application::cameraConfigurationsEqual(f.pipeline.snapshot().camera->appliedConfiguration->actual,request()));
     EXPECT_EQ(f.pipeline.snapshot().context,before.context);
 }
+TEST(LivePipeline, DirectFrameRateApplyPreservesResourcesAndRequiresExplicitPositiveFiniteRequest) {
+    Fixture f; ASSERT_TRUE(f.pipeline.start().hasValue());
+    ASSERT_TRUE(waitUntil([&]{return f.pipeline.snapshot().context!=nullptr;}));
+    const auto context=f.pipeline.snapshot().context;
+    const auto raw=context->rawPool;
+    const auto processing=context->processingPool;
+    const auto display=context->displayPool;
+    ASSERT_TRUE(f.pipeline.post({1U,application::Connect{{"SIM-LIVE"}}}).hasValue());
+    ASSERT_TRUE(waitUntil([&]{const auto outcome=f.pipeline.snapshot().ordinaryOutcome;
+        return outcome && outcome->requestId==1U;}));
+    ASSERT_FALSE(f.pipeline.snapshot().ordinaryOutcome->error);
+    std::uint64_t revision=0U;
+    for(const double fps : {1.25,1.0,60.0}) {
+        SCOPED_TRACE(fps);
+        auto edited=request(); edited.requestedFps=fps;
+        const auto id=++revision+1U;
+        ASSERT_TRUE(f.pipeline.post({id,application::ApplyConfiguration{
+            context->generation,edited,revision}}).hasValue());
+        ASSERT_TRUE(waitUntil([&]{const auto outcome=f.pipeline.snapshot().ordinaryOutcome;
+            return outcome && outcome->requestId==id;}));
+        const auto applied=f.pipeline.snapshot();
+        ASSERT_FALSE(applied.ordinaryOutcome->error);
+        ASSERT_TRUE(applied.camera->requestedConfiguration);
+        ASSERT_TRUE(applied.camera->appliedConfiguration);
+        EXPECT_DOUBLE_EQ(*applied.camera->requestedConfiguration->requestedFps,fps);
+        EXPECT_DOUBLE_EQ(*applied.camera->appliedConfiguration->actual.requestedFps,fps==1.25 ? 1.0 : fps);
+        EXPECT_EQ(applied.camera->state,application::CameraSessionState::ConnectedIdle);
+        EXPECT_EQ(applied.camera->sessionGeneration,context->generation);
+        EXPECT_EQ(applied.context,context);
+        EXPECT_EQ(applied.context->rawPool,raw);
+        EXPECT_EQ(applied.context->processingPool,processing);
+        EXPECT_EQ(applied.context->displayPool,display);
+    }
+    for(const auto fps : {std::optional<double>{},std::optional<double>{0.0},std::optional<double>{-1.0},
+             std::optional<double>{std::numeric_limits<double>::quiet_NaN()},
+             std::optional<double>{std::numeric_limits<double>::infinity()},
+             std::optional<double>{-std::numeric_limits<double>::infinity()}}) {
+        SCOPED_TRACE(fps.value_or(-2.0));
+        auto invalid=request(); invalid.requestedFps=fps;
+        const auto rejected=f.pipeline.post({100U,application::ApplyConfiguration{
+            context->generation,invalid,revision+1U}});
+        ASSERT_FALSE(rejected.hasValue());
+        EXPECT_EQ(rejected.error().code,"unsupported_pipeline_request");
+        EXPECT_EQ(f.pipeline.snapshot().camera->requestedRevision,revision);
+    }
+    // A numeric request can retain prepared resources while failing camera capability validation.
+    auto outOfRange=request(); outOfRange.requestedFps=61.0;
+    ASSERT_TRUE(f.pipeline.post({101U,application::ApplyConfiguration{
+        context->generation,outOfRange,revision+1U}}).hasValue());
+    ASSERT_TRUE(waitUntil([&]{const auto outcome=f.pipeline.snapshot().ordinaryOutcome;
+        return outcome && outcome->requestId==101U;}));
+    const auto rejected=f.pipeline.snapshot();
+    ASSERT_TRUE(rejected.ordinaryOutcome->error);
+    EXPECT_EQ(rejected.ordinaryOutcome->error->category,core::ErrorCategory::CameraConfiguration);
+    EXPECT_EQ(rejected.camera->requestedRevision,revision+1U);
+    EXPECT_EQ(rejected.camera->appliedRevision,revision);
+    EXPECT_DOUBLE_EQ(*rejected.camera->appliedConfiguration->actual.requestedFps,60.0);
+    EXPECT_EQ(rejected.context,context);
+}
 TEST(LivePipeline, ShutdownWhilePausedAndReconnectingReleasesTheRetiredImage) {
     auto simulation=options();simulation.faults=camera::sim::FaultScript::create({{2,camera::sim::SimulatedFault::Disconnect}}).value();
     Fixture f(std::make_unique<MemoryIo>(),simulation);ASSERT_TRUE(f.begin());
@@ -978,7 +1144,10 @@ TEST(LivePipeline, HighDepthFactoryReceivesCoherentPlanAndActivationRevisions) {
             engine.store(made.value().get());
             return core::Result<std::unique_ptr<processing::IFrameProcessor>>::success(std::move(made).value());
         }, depthRequest(12));
-    ASSERT_TRUE(f.begin()); ASSERT_TRUE(f.next());
+    ASSERT_TRUE(f.begin());
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision.has_value();}));
+    const auto initialRevision=f.pipeline.snapshot().processingConfigurationOutcome->configurationRevision;
+    ASSERT_TRUE(f.next());
     auto context = f.pipeline.snapshot().context;
     EXPECT_EQ(receivedU16, context->processingPool.get()); EXPECT_EQ(receivedGray, context->displayPool.get());
     ASSERT_TRUE(receivedLayout); EXPECT_EQ(receivedLayout->storage(), core::StorageType::UInt16);
@@ -988,7 +1157,7 @@ TEST(LivePipeline, HighDepthFactoryReceivesCoherentPlanAndActivationRevisions) {
     ASSERT_TRUE(engine.load()->activate(definition).hasValue());
     ASSERT_TRUE(f.next());
     auto current = f.latest(); ASSERT_NE(current->enhanced, nullptr);
-    EXPECT_EQ(previous->enhanced->pipelineVersion.configurationRevision, 0U);
+    EXPECT_EQ(previous->enhanced->pipelineVersion.configurationRevision, initialRevision);
     EXPECT_EQ(current->enhanced->pipelineVersion.configurationRevision, 7U);
     EXPECT_EQ(current->originalDisplay->mapping.configurationRevision, 7U);
     EXPECT_EQ(current->enhancedDisplay->mapping.configurationRevision, 7U);
@@ -1049,6 +1218,248 @@ TEST(LivePipeline, OldMono8SavedCapabilitiesRequireReviewForShippingMono12) {
     EXPECT_EQ(f.pipeline.snapshot().camera->appliedConfiguration->actual.pixelFormat.sampleMaximum, 4095U);
     ASSERT_TRUE(f.act(Intent::Confirm)); ASSERT_TRUE(f.act(Intent::Start));
     ASSERT_TRUE(f.next());
+}
+
+TEST(LivePipeline, StoppedDialogEditsKeepTheSourceAndRequireFreshConfirmation) {
+    Fixture f; ASSERT_TRUE(f.begin()); ASSERT_TRUE(f.next()); ASSERT_TRUE(f.paint());
+    f.controller.presenter()->pause();
+    f.view.imageViewport()->setActualPixels(); f.view.imageViewport()->zoomIn();
+    const auto scale=f.view.imageViewport()->transform().scale();
+    const auto before=f.pipeline.snapshot();
+    const auto rawPool=before.context->rawPool;
+    const auto processingPool=before.context->processingPool;
+    const auto displayPool=before.context->displayPool;
+    const auto presenter=f.controller.presenter();
+    const auto oldFrame=f.controller.presenter()->presentedBundle();
+    ASSERT_TRUE(f.act(Intent::Stop));
+    auto* settings=f.panel.findChild<QPushButton*>("cameraSettingsButton");
+    ASSERT_NE(settings,nullptr); ASSERT_TRUE(settings->isEnabled()); settings->click();
+    auto* dialog=f.panel.findChild<ui::CameraSettingsDialog*>(); ASSERT_NE(dialog,nullptr);
+    auto* exposure=dialog->findChild<QDoubleSpinBox*>("cameraExposureValue");
+    auto* gain=dialog->findChild<QDoubleSpinBox*>("cameraGainValue");
+    auto* frameRate=dialog->findChild<QDoubleSpinBox*>("cameraFrameRateValue");
+    auto* apply=dialog->findChild<QPushButton*>("applyCameraSettingsButton");
+    ASSERT_NE(exposure,nullptr); ASSERT_NE(gain,nullptr); ASSERT_NE(frameRate,nullptr); ASSERT_NE(apply,nullptr);
+    exposure->setValue(123.25); gain->setValue(2.25); frameRate->setValue(1.25); apply->click();
+    ASSERT_TRUE(f.panel.presentation().ordinaryOperationPending);
+    ASSERT_TRUE(f.wait([&]{return !f.panel.presentation().ordinaryOperationPending;}));
+    EXPECT_TRUE(apply->isEnabled());
+    EXPECT_TRUE(exposure->isEnabled());
+    EXPECT_TRUE(gain->isEnabled());
+    EXPECT_TRUE(frameRate->isEnabled());
+    const auto edited=f.pipeline.snapshot();
+    ASSERT_TRUE(edited.camera->requestedConfiguration); ASSERT_TRUE(edited.camera->appliedConfiguration);
+    EXPECT_DOUBLE_EQ(*edited.camera->requestedConfiguration->exposure.requestedMicroseconds,123.25);
+    EXPECT_DOUBLE_EQ(*edited.camera->requestedConfiguration->gain.requestedDb,2.25);
+    EXPECT_DOUBLE_EQ(*edited.camera->requestedConfiguration->requestedFps,1.25);
+    EXPECT_DOUBLE_EQ(*edited.camera->appliedConfiguration->actual.exposure.requestedMicroseconds,123.0);
+    EXPECT_DOUBLE_EQ(*edited.camera->appliedConfiguration->actual.gain.requestedDb,2.0);
+    EXPECT_DOUBLE_EQ(*edited.camera->appliedConfiguration->actual.requestedFps,1.0);
+    EXPECT_EQ(edited.context,before.context);
+    EXPECT_EQ(edited.context->rawPool,rawPool);
+    EXPECT_EQ(edited.context->processingPool,processingPool);
+    EXPECT_EQ(edited.context->displayPool,displayPool);
+    EXPECT_EQ(edited.camera->sessionGeneration,before.camera->sessionGeneration);
+    EXPECT_FALSE(edited.camera->confirmedRevision);
+    EXPECT_FALSE(f.controller.dispatch(Intent::Start).hasValue());
+    EXPECT_EQ(f.controller.presenter(),presenter);
+    EXPECT_EQ(f.controller.presenter()->presentedBundle(),oldFrame);
+    EXPECT_EQ(f.view.viewerState(),ui::ViewerState::Paused);
+    EXPECT_DOUBLE_EQ(f.view.imageViewport()->transform().scale(),scale);
+    ASSERT_TRUE(f.act(Intent::Confirm)); ASSERT_TRUE(f.act(Intent::Start));
+    ASSERT_TRUE(nextAfter(f,1s));
+    const auto current=f.latest();
+    EXPECT_GT(current->sourceFrameId(),oldFrame->sourceFrameId());
+    const auto& metadata=current->raw->metadata.acquisitionSettings;
+    EXPECT_DOUBLE_EQ(metadata.requestedFps,1.25);
+    EXPECT_DOUBLE_EQ(metadata.actualFps,1.0);
+    EXPECT_DOUBLE_EQ(*metadata.exposureMicroseconds,123.0);
+    EXPECT_DOUBLE_EQ(*metadata.gainDb,2.0);
+    EXPECT_EQ(f.pipeline.snapshot().context,before.context);
+    EXPECT_EQ(f.controller.presenter()->presentedBundle(),oldFrame);
+    EXPECT_EQ(f.view.viewerState(),ui::ViewerState::Paused);
+    EXPECT_DOUBLE_EQ(f.view.imageViewport()->transform().scale(),scale);
+    // The ordinary Apply button must retain the edited request too.
+    ASSERT_TRUE(f.act(Intent::Stop)); ASSERT_TRUE(f.act(Intent::Apply));
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->exposure.requestedMicroseconds,123.25);
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->gain.requestedDb,2.25);
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->requestedFps,1.25);
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->appliedConfiguration->actual.requestedFps,1.0);
+    EXPECT_FALSE(f.pipeline.snapshot().camera->confirmedRevision);
+}
+
+TEST(LivePipeline, CameraSettingsRejectStaleInvalidAndStreamingRequestsBeforeAdmission) {
+    Fixture f; ASSERT_TRUE(f.begin());
+    auto camera=f.pipeline.snapshot().camera; auto edited=request();
+    edited.exposure.requestedMicroseconds=200.0;
+    edited.requestedFps=1.25;
+    f.controller.presenter()->pause();
+    EXPECT_FALSE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},edited).hasValue());
+    ASSERT_TRUE(f.act(Intent::Stop)); camera=f.pipeline.snapshot().camera;
+    const auto revision=camera->requestedRevision;
+    EXPECT_FALSE(f.controller.applyCameraSettings(camera->sessionGeneration+1,{"SIM-LIVE"},edited).hasValue());
+    EXPECT_FALSE(f.controller.applyCameraSettings(camera->sessionGeneration,{"other"},edited).hasValue());
+    auto invalid=edited; invalid.exposure.requestedMicroseconds=std::numeric_limits<double>::quiet_NaN();
+    EXPECT_FALSE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},invalid).hasValue());
+    invalid=edited; invalid.gain.requestedDb=11.0;
+    EXPECT_FALSE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},invalid).hasValue());
+    for(const auto fps : {std::optional<double>{},std::optional<double>{0.0},std::optional<double>{-1.0},
+             std::optional<double>{0.5},std::optional<double>{61.0},
+             std::optional<double>{std::numeric_limits<double>::quiet_NaN()},
+             std::optional<double>{std::numeric_limits<double>::infinity()},
+             std::optional<double>{-std::numeric_limits<double>::infinity()}}) {
+        SCOPED_TRACE(fps.value_or(-2.0));
+        invalid=edited; invalid.requestedFps=fps;
+        EXPECT_FALSE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},invalid).hasValue());
+    }
+    invalid=edited; invalid.roi.width=4U;
+    EXPECT_FALSE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},invalid).hasValue());
+    EXPECT_EQ(f.pipeline.snapshot().camera->requestedRevision,revision);
+    EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->exposure.requestedMicroseconds,100.0);
+    EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->requestedFps,30.0);
+    ASSERT_TRUE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},edited).hasValue());
+    EXPECT_FALSE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},edited).hasValue());
+    ASSERT_TRUE(f.wait([&]{return !f.panel.presentation().ordinaryOperationPending;}));
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->exposure.requestedMicroseconds,200.0);
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->requestedFps,1.25);
+}
+
+TEST(LivePipeline, ConfirmedEditedCameraSettingsPersistAndResumeOnNextLaunch) {
+    std::optional<application::StartupPreferences> saved;
+    {
+        auto io=std::make_unique<MemoryIo>(); auto* memory=io.get(); Fixture f(std::move(io));
+        ASSERT_TRUE(f.begin()); ASSERT_TRUE(f.act(Intent::Stop));
+        const auto camera=f.pipeline.snapshot().camera;
+        auto edited=request(); edited.exposure.requestedMicroseconds=246.25; edited.gain.requestedDb=3.25;
+        edited.requestedFps=1.25;
+        ASSERT_TRUE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},edited).hasValue());
+        ASSERT_TRUE(f.wait([&]{return !f.panel.presentation().ordinaryOperationPending;}));
+        ASSERT_TRUE(f.act(Intent::Confirm));
+        ASSERT_TRUE(f.wait([&]{std::lock_guard lock(memory->mutex); return memory->saved &&
+            memory->saved->requested.exposure.requestedMicroseconds==246.25 &&
+            memory->saved->requested.requestedFps==1.25;}));
+        std::lock_guard lock(memory->mutex); saved=memory->saved;
+    }
+    ASSERT_TRUE(saved); EXPECT_DOUBLE_EQ(*saved->lastApplied.exposure.requestedMicroseconds,246.0);
+    EXPECT_DOUBLE_EQ(*saved->requested.requestedFps,1.25);
+    EXPECT_DOUBLE_EQ(*saved->lastApplied.requestedFps,1.0);
+    auto io=std::make_unique<MemoryIo>(); io->record=saved; Fixture f(std::move(io));
+    ASSERT_TRUE(f.initialize());
+    ASSERT_TRUE(f.wait([&]{return f.panel.presentation().resumeLiveAvailable;}));
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
+    EXPECT_EQ(f.pipeline.snapshot().camera->acquisitionCounters.acquired,0U);
+    EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->gain.requestedDb,3.25);
+    EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->requestedFps,1.25);
+    ASSERT_TRUE(f.act(Intent::ResumeLive));
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::Streaming);
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->appliedConfiguration->actual.gain.requestedDb,3.0);
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->appliedConfiguration->actual.requestedFps,1.0);
+    ASSERT_TRUE(nextAfter(f,1s));
+    EXPECT_DOUBLE_EQ(f.latest()->raw->metadata.acquisitionSettings.requestedFps,1.25);
+    EXPECT_DOUBLE_EQ(f.latest()->raw->metadata.acquisitionSettings.actualFps,1.0);
+}
+
+TEST(LivePipeline, SavedResumeCannotBypassNewUnconfirmedSettings) {
+    for(const bool editFrameRate : {false,true}) {
+        SCOPED_TRACE(editFrameRate ? "frame rate edit" : "exposure edit");
+        auto io=std::make_unique<MemoryIo>(); io->record=savedRecord(); Fixture f(std::move(io));
+        ASSERT_TRUE(f.initialize()); ASSERT_TRUE(f.wait([&]{return f.panel.presentation().resumeLiveAvailable;}));
+        auto edited=request();
+        if(editFrameRate) edited.requestedFps=1.25;
+        else edited.exposure.requestedMicroseconds=300.0;
+        ASSERT_TRUE(f.controller.applyCameraSettings(f.pipeline.snapshot().camera->sessionGeneration,{"SIM-LIVE"},edited).hasValue());
+        ASSERT_TRUE(f.wait([&]{return !f.panel.presentation().ordinaryOperationPending;}));
+        EXPECT_FALSE(f.panel.presentation().resumeLiveAvailable);
+        EXPECT_FALSE(f.controller.dispatch(Intent::ResumeLive).hasValue());
+        EXPECT_FALSE(f.controller.dispatch(Intent::Start).hasValue());
+        EXPECT_FALSE(f.pipeline.snapshot().camera->confirmedRevision);
+        EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->exposure.requestedMicroseconds,
+            *edited.exposure.requestedMicroseconds);
+        EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->requestedFps,*edited.requestedFps);
+    }
+}
+
+TEST(LivePipeline, LatePreferencesCannotOverwriteSubmittedCameraSettings) {
+    Gate gate; auto io=std::make_unique<MemoryIo>(); io->record=savedRecord();
+    io->record->requested.exposure.requestedMicroseconds=400.0;
+    io->record->lastApplied.exposure.requestedMicroseconds=400.0;
+    io->record->requested.requestedFps=2.25;
+    io->record->lastApplied.requestedFps=2.0;
+    io->beforeLoad=[&]{gate.block();};
+    Fixture f(std::move(io)); ReleaseGate release{gate};
+    ASSERT_TRUE(f.initialize()); ASSERT_TRUE(gate.wait());
+    f.controller.selectCamera({"SIM-LIVE"}); ASSERT_TRUE(f.act(Intent::Connect));
+    auto edited=request(); edited.exposure.requestedMicroseconds=200.0;
+    edited.requestedFps=1.25;
+    ASSERT_TRUE(f.controller.applyCameraSettings(f.pipeline.snapshot().camera->sessionGeneration,{"SIM-LIVE"},edited).hasValue());
+    ASSERT_TRUE(f.wait([&]{return !f.panel.presentation().ordinaryOperationPending;}));
+    ASSERT_TRUE(f.act(Intent::Confirm)); gate.release();
+    ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->loadCompleted;}));
+    EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->exposure.requestedMicroseconds,200.0);
+    EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->requestedFps,1.25);
+    EXPECT_FALSE(f.panel.presentation().resumeLiveAvailable);
+    ASSERT_TRUE(f.act(Intent::Apply));
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->exposure.requestedMicroseconds,200.0);
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->requestedFps,1.25);
+    EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->appliedConfiguration->actual.requestedFps,1.0);
+}
+
+TEST(LivePipeline, SelectedOtherCameraAndFailedApplyCannotConfirmOrStartOldReadback) {
+    Fixture f; ASSERT_TRUE(f.begin()); ASSERT_TRUE(f.act(Intent::Stop));
+    const auto camera=f.pipeline.snapshot().camera;
+    f.controller.selectCamera({"another-camera"});
+    EXPECT_FALSE(f.controller.dispatch(Intent::Apply).hasValue());
+    EXPECT_FALSE(f.controller.dispatch(Intent::Confirm).hasValue());
+    EXPECT_FALSE(f.controller.dispatch(Intent::Start).hasValue());
+    EXPECT_FALSE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},request()).hasValue());
+    f.controller.selectCamera({"SIM-LIVE"});
+    auto invalid=request(); invalid.exposure.requestedMicroseconds=2000.0;
+    ASSERT_TRUE(f.pipeline.post({900U,application::ApplyConfiguration{
+        camera->sessionGeneration,invalid,camera->requestedRevision+1U}}).hasValue());
+    ASSERT_TRUE(f.wait([&]{const auto status=f.pipeline.snapshot().camera;
+        return status->latestOutcome && status->latestOutcome->requestId==900U;}));
+    EXPECT_NE(f.pipeline.snapshot().camera->requestedRevision,f.pipeline.snapshot().camera->appliedRevision);
+    EXPECT_FALSE(f.controller.dispatch(Intent::Confirm).hasValue());
+    EXPECT_FALSE(f.controller.dispatch(Intent::Start).hasValue());
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
+}
+
+TEST(LivePipeline, ReturningToEditedCameraRequiresApplyingTheDisplayedDefaults) {
+    for(const auto intent : {Intent::Confirm,Intent::Start}) {
+        SCOPED_TRACE(static_cast<int>(intent));
+        Fixture f; ASSERT_TRUE(f.begin()); ASSERT_TRUE(f.act(Intent::Stop));
+        const auto camera=f.pipeline.snapshot().camera;
+        auto edited=request(); edited.exposure.requestedMicroseconds=250.0;
+        ASSERT_TRUE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},edited).hasValue());
+        ASSERT_TRUE(f.wait([&]{return !f.panel.presentation().ordinaryOperationPending;}));
+        if(intent==Intent::Start) { ASSERT_TRUE(f.act(Intent::Confirm)); }
+        f.controller.selectCamera({"another-camera"}); f.controller.selectCamera({"SIM-LIVE"});
+        EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->exposure.requestedMicroseconds,100.0);
+        EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->exposure.requestedMicroseconds,250.0);
+        EXPECT_FALSE(f.panel.findChild<QPushButton*>("confirmCameraButton")->isEnabled());
+        EXPECT_FALSE(f.panel.findChild<QPushButton*>("startCameraButton")->isEnabled());
+        EXPECT_TRUE(f.panel.findChild<QPushButton*>("applyCameraButton")->isEnabled());
+        ASSERT_FALSE(f.controller.dispatch(intent).hasValue());
+        ASSERT_TRUE(f.act(Intent::Apply));
+        EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->exposure.requestedMicroseconds,100.0);
+        EXPECT_FALSE(f.pipeline.snapshot().camera->confirmedRevision);
+        ASSERT_FALSE(f.controller.dispatch(Intent::Start).hasValue());
+        ASSERT_TRUE(f.act(Intent::Confirm)); ASSERT_TRUE(f.act(Intent::Start));
+    }
+}
+
+TEST(LivePipeline, PendingSettingsDisconnectNeverStartsAndRetiredDialogCannotApply) {
+    Fixture f; ASSERT_TRUE(f.begin()); ASSERT_TRUE(f.act(Intent::Stop));
+    const auto old=f.pipeline.snapshot().camera;
+    auto edited=request(); edited.gain.requestedDb=5.0;
+    ASSERT_TRUE(f.controller.applyCameraSettings(old->sessionGeneration,{"SIM-LIVE"},edited).hasValue());
+    ASSERT_TRUE(f.act(Intent::Disconnect)); ASSERT_TRUE(f.act(Intent::Refresh)); ASSERT_TRUE(f.act(Intent::Connect));
+    const auto current=f.pipeline.snapshot().camera;
+    EXPECT_NE(current->sessionGeneration,old->sessionGeneration);
+    EXPECT_FALSE(f.controller.applyCameraSettings(old->sessionGeneration,{"SIM-LIVE"},edited).hasValue());
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
+    EXPECT_EQ(f.pipeline.snapshot().camera->acquisitionCounters.acquired,0U);
+    EXPECT_FALSE(f.pipeline.snapshot().camera->confirmedRevision);
 }
 
 }
