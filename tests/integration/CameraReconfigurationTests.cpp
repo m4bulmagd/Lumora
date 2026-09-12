@@ -83,7 +83,7 @@ struct ReconfigurationFixture {
         const auto id=command.requestId;auto posted=pipeline.post(std::move(command));
         if(!posted.hasValue()) { ADD_FAILURE()<<posted.error().code;return false; }
         if(!wait([&]{auto s=pipeline.snapshot();return (s.ordinaryOutcome && s.ordinaryOutcome->requestId==id)||(s.priorityOutcome && s.priorityOutcome->requestId==id);})) return false;
-        auto s=pipeline.snapshot();auto o=s.ordinaryOutcome && s.ordinaryOutcome->requestId==id ? s.ordinaryOutcome : s.priorityOutcome;
+        auto s=pipeline.snapshot();const auto& o=s.ordinaryOutcome && s.ordinaryOutcome->requestId==id ? s.ordinaryOutcome : s.priorityOutcome;
         if(success && o->error) { ADD_FAILURE()<<o->error->code;return false; }
         return success ? !o->error : o->error.has_value();
     }
