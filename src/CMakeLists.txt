@@ -130,6 +130,10 @@ add_library(
   application/include/lumora/application/StartupPreferences.hpp
   application/src/CameraSettingsPolicy.cpp
   application/src/StartupPreferences.cpp
+  application/include/lumora/application/CameraProfile.hpp
+  application/src/CameraProfile.cpp
+  application/include/lumora/application/InstallationProfiles.hpp
+  application/src/InstallationProfiles.cpp
   application/include/lumora/application/LivePipeline.hpp
   application/src/LivePipeline.cpp
   application/src/LiveResourcePreparation.cpp
@@ -213,11 +217,19 @@ add_library(
   configuration/include/lumora/configuration/PresetIssue.hpp
   configuration/include/lumora/configuration/StartupPreferencesService.hpp
   configuration/src/ConfigurationCodec.cpp
+  configuration/include/lumora/configuration/CameraProfileCodec.hpp
+  configuration/src/CameraProfileCodec.cpp
   configuration/src/ConfigurationStore.cpp
   configuration/src/PresetCodec.cpp
   configuration/src/PipelineDefinitionCodec.hpp
   configuration/src/PipelineDefinitionCodec.cpp
   configuration/src/StartupPreferencesService.cpp
+  configuration/include/lumora/configuration/InstallationProfileStore.hpp
+  configuration/include/lumora/configuration/InstallationProfileCodec.hpp
+  configuration/include/lumora/configuration/InstallationProfilesService.hpp
+  configuration/src/InstallationProfileCodec.cpp
+  configuration/src/InstallationProfileStore.cpp
+  configuration/src/InstallationProfilesService.cpp
   configuration/resources/default-presets.qrc
 )
 
@@ -239,6 +251,9 @@ target_link_libraries(
     Qt6::Core
 )
 lumora_enable_warnings(lumora_configuration)
+if(WIN32)
+  target_link_libraries(lumora_configuration PRIVATE shell32 ole32 advapi32)
+endif()
 
 add_library(
   lumora_ui
@@ -246,6 +261,7 @@ add_library(
   ui/include/lumora/ui/FramePresenter.hpp
   ui/include/lumora/ui/DisplayMode.hpp
   ui/include/lumora/ui/CameraSettingsDialog.hpp
+  ui/include/lumora/ui/InstallationSettingsDialog.hpp
   ui/include/lumora/ui/CameraStartupPanel.hpp
   ui/include/lumora/ui/ImageViewport.hpp
   ui/include/lumora/ui/MainWindow.hpp
@@ -254,6 +270,7 @@ add_library(
   ui/include/lumora/ui/WorkstationView.hpp
   ui/src/ImageViewport.cpp
   ui/src/CameraSettingsDialog.cpp
+  ui/src/InstallationSettingsDialog.cpp
   ui/src/CameraStartupPanel.cpp
   ui/include/lumora/ui/WorkstationController.hpp
   ui/include/lumora/ui/ProcessingControlsModel.hpp
@@ -265,6 +282,8 @@ add_library(
   ui/src/MainWindow.cpp
   ui/src/ViewportTransform.cpp
   ui/src/WorkstationView.cpp
+  ui/include/lumora/ui/OrientationPresentation.hpp
+  ui/src/OrientationPresentation.cpp
   ui/resources/lumora.qrc
 )
 

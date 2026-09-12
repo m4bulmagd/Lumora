@@ -1,4 +1,5 @@
 #include <lumora/ui/WorkstationView.hpp>
+#include <lumora/ui/OrientationPresentation.hpp>
 
 #include <lumora/ui/ImageViewport.hpp>
 
@@ -195,6 +196,14 @@ WorkstationView::WorkstationView(QWidget* parent)
     auto* footerLayout = new QHBoxLayout(footer);
     footerLayout->setContentsMargins(0, 0, 0, 0);
     footerLayout->setSpacing(6);
+    auto* orientation = new QLabel(footer);
+    orientation->setObjectName(QStringLiteral("orientationStatusLabel"));
+    orientation->setAccessibleName(tr("Image orientation"));
+    orientation->setTextFormat(Qt::PlainText);
+    orientation->setWordWrap(true);
+    orientation->setMinimumWidth(0);
+    orientation->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    footerLayout->addWidget(orientation, 1);
     footerLayout->addStretch(1);
 
     auto* fitAction = makeViewerAction(tr("Fit"), "fitAction", this);
@@ -347,7 +356,24 @@ void WorkstationView::setStatus(WorkstationStatus status) {
     updateStatusPresentation();
 }
 
+void WorkstationView::setInstallationOrientation(
+    std::optional<core::Orientation> orientation) {
+    if (installationOrientation_ == orientation) return;
+    installationOrientation_ = orientation;
+    updateStatusPresentation();
+}
+
 void WorkstationView::updateStatusPresentation() {
+    auto* orientation = findChild<QLabel*>(QStringLiteral("orientationStatusLabel"));
+    if (status_.presentationOrientation) {
+        orientation->setText(tr("Image orientation: %1")
+            .arg(orientationDescription(*status_.presentationOrientation)));
+    } else if (installationOrientation_) {
+        orientation->setText(tr("Installation orientation: %1")
+            .arg(orientationDescription(*installationOrientation_)));
+    } else {
+        orientation->setText(tr("Orientation: unavailable"));
+    }
     auto* pauseLiveButton =
         findChild<QPushButton*>(QStringLiteral("pauseLiveButton"));
     auto* frameStateOverlay =

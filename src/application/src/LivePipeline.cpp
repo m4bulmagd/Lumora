@@ -62,6 +62,18 @@ struct LivePipeline::Impl {
     core::IClock& clock;
     camera::CameraConfiguration fixed;
     ProcessorFactory factory;
+    IInstallationProfiles* installationProfiles;
+    std::optional<InstallationProfileCommand> installationIntent;
+    std::optional<std::uint64_t> installationSaveRequest;
+    std::uint64_t latestInstallationRequest{0};
+    struct InstallationBinding final {
+        std::optional<InstallationProfileReference> reference;
+        core::Orientation orientation{false,false,core::Rotation::Degrees0};
+    };
+    bool installationBound{false};
+    core::Orientation resourceOrientation{false,false,core::Rotation::Degrees0};
+    std::optional<InstallationBinding> applyingInstallation;
+
     std::optional<detail::LiveResourcePreparation> resources;
     processing::ProcessingPreparationOptions preparationOptions;
     std::optional<std::uint64_t> retryIntent;
@@ -73,6 +85,7 @@ struct LivePipeline::Impl {
         camera::CameraConfiguration mode;
         detail::LiveResourcePreparation resources;
         std::unique_ptr<detail::PreparedLiveSession> session;
+        InstallationBinding installation;
     };
     std::optional<Reconfiguration> staged;
     // Guarded by mutex. Closes processing admission before preparation starts.
@@ -97,8 +110,120 @@ struct LivePipeline::Impl {
     bool started{false};
     bool terminal{false};
 
-    Impl(camera::ICameraProvider& p,core::IClock& c,camera::CameraConfiguration request,ProcessorFactory f,processing::ProcessingPreparationOptions options)
-        :provider(p),clock(c),fixed(std::move(request)),factory(std::move(f)),preparationOptions(options) {}
+    Impl(camera::ICameraProvider& p,core::IClock& c,camera::CameraConfiguration request,ProcessorFactory f,processing::ProcessingPreparationOptions options,IInstallationProfiles* profiles)
+        :provider(p),clock(c),fixed(std::move(request)),factory(std::move(f)),installationProfiles(profiles),preparationOptions(options) {
+        if(installationProfiles) preparationOptions.orientation={false,false,core::Rotation::Degrees0};
+        resourceOrientation=preparationOptions.orientation;
+        state.activeOrientation=resourceOrientation;
+    }
+    const core::CameraIdentity* currentCameraIdentity() const {
+        if(!state.camera || !state.camera->actualIdentity) return nullptr;
+        for(const auto& descriptor:state.camera->discoveredDescriptors)
+            if(descriptor.id==*state.camera->actualIdentity) return &descriptor.identity;
+        return nullptr;
+    }
+    core::Result<InstallationBinding> resolveInstallation() const {
+        using BindingResult=core::Result<InstallationBinding>;
+        if(!installationProfiles) return BindingResult::success({std::nullopt,resourceOrientation});
+        if(state.installationProfilePending || (state.installationProfiles && state.installationProfiles->savePending))
+            return BindingResult::failure(failure("installation_save_pending","Wait for the installation save outcome before Apply, Confirm, or Start."));
+        const auto* identity=currentCameraIdentity();
+        if(!identity || !state.camera->capabilities)
+            return BindingResult::failure(failure("installation_camera_identity_required","Discover and connect the current camera before resolving its installation."));
+        if(!state.installationProfiles)
+            return BindingResult::failure(failure("installation_load_pending","Wait for installation profiles to load."));
+        auto resolved=resolveInstallationProfile(*state.installationProfiles,*identity,*state.camera->capabilities);
+        if(!resolved.hasValue()) return BindingResult::failure(resolved.error());
+        InstallationBinding binding;
+        if(resolved.value()) {
+            binding.reference=installationProfileReference(*resolved.value());
+            binding.orientation=resolved.value()->orientation;
+        }
+        return BindingResult::success(binding);
+    }
+    void commitInstallation(const InstallationBinding& binding) {
+        if(!installationProfiles) return;
+        installationBound=true;
+        state.activeInstallationProfile=binding.reference;
+        state.activeOrientation=binding.orientation;
+        state.installationProfileError.reset();
+    }
+    void observeInstallation() {
+        if(!installationProfiles) return;
+        auto latest=installationProfiles->latestStatus();
+        std::lock_guard lock(mutex);
+        state.installationProfiles=std::move(latest);
+        if(installationSaveRequest && state.installationProfiles && state.installationProfiles->latestSaveOutcome
+            && state.installationProfiles->latestSaveOutcome->requestId==*installationSaveRequest) {
+            state.installationProfileOutcome=state.installationProfiles->latestSaveOutcome;
+            state.installationProfileError=state.installationProfileOutcome->error;
+            state.installationProfilePending=false;
+            installationSaveRequest.reset();
+        }
+    }
+    void finishInstallation(const InstallationProfileCommand& command,core::Error error) {
+        std::lock_guard lock(mutex);
+        state.installationProfileOutcome=InstallationSaveOutcome{command.requestId,std::nullopt,error};
+        state.installationProfileError=std::move(error);
+        state.installationProfilePending=false;
+    }
+    void cancelInstallationIntent() {
+        std::optional<InstallationProfileCommand> command;
+        { std::lock_guard lock(mutex);command=std::exchange(installationIntent,std::nullopt); }
+        if(command) finishInstallation(*command,failure("cancelled","Lifecycle intent superseded the installation edit.",core::ErrorCategory::Cancelled));
+    }
+    void dispatchInstallation() {
+        std::optional<InstallationProfileCommand> command;
+        std::optional<core::Error> error;
+        InstallationCameraProfile profile;
+        {
+            std::lock_guard lock(mutex);
+            command=std::exchange(installationIntent,std::nullopt);
+            if(!command) return;
+            const auto* identity=currentCameraIdentity();
+            const auto repository=state.installationProfiles;
+            if(!repository || !repository->loadCompleted)
+                error=failure("installation_load_pending","Wait for installation profiles to load.");
+            else if(!repository->administratorMode)
+                error=failure("installation_authority_required","Installation editing requires administrator installation mode.");
+            else if(!state.camera || state.camera->sessionGeneration!=command->sessionGeneration)
+                error=failure("stale_camera_session","Installation edit belongs to a retired camera session.");
+            else if(state.camera->state!=CameraSessionState::ConnectedIdle)
+                error=failure("invalid_camera_state","Stop the connected camera before saving its installation.");
+            else if(!identity || state.camera->actualIdentity!=command->cameraId || !state.camera->capabilities)
+                error=failure("installation_camera_mismatch","Installation edit must identify the current discovered camera.");
+            else if(!command->confirmed)
+                error=failure("installation_confirmation_required","Explicitly confirm the asymmetric Original and Enhanced previews before Save.");
+            else if(repository->savePending)
+                error=failure("installation_save_pending","An installation save is already pending.");
+            else if(repository->loadError && !command->repairInvalid)
+                error=*repository->loadError;
+            else {
+                const auto* previous=repository->loadError ? nullptr : findInstallationProfile(repository->profiles,*identity);
+                if(previous && previous->revision==std::numeric_limits<std::uint64_t>::max())
+                    error=failure("installation_revision_exhausted","The installation revision cannot advance.");
+                else {
+                    profile.revision=previous ? previous->revision+1U : 1U;
+                    profile.identity=*identity;profile.capabilities=*state.camera->capabilities;
+                    profile.orientation=command->orientation;profile.confirmed=true;
+                    auto valid=validateInstallationProfile(profile);
+                    if(!valid.hasValue()) error=valid.error();
+                }
+            }
+        }
+        if(error) { finishInstallation(*command,std::move(*error));return; }
+        // Recheck lifecycle admission immediately before the asynchronous write.
+        if(auto priorityCommand=incoming.tryPopPriority()) {
+            finishInstallation(*command,failure("cancelled","Lifecycle intent superseded the installation edit.",core::ErrorCategory::Cancelled));
+            send(std::move(*priorityCommand),true);return;
+        }
+        if(cancellation.stop_requested()) {
+            finishInstallation(*command,failure("cancelled","The installation edit was cancelled.",core::ErrorCategory::Cancelled));return;
+        }
+        auto posted=installationProfiles->postSave(command->requestId,std::move(profile),command->repairInvalid);
+        if(!posted.hasValue()) { finishInstallation(*command,posted.error());return; }
+        installationSaveRequest=command->requestId;
+    }
     void stopWorkers() noexcept {
         { std::lock_guard lock(mutex);
             state.processingAvailable=false;state.processingRetryPending=false;retryIntent.reset();state.processing={};
@@ -166,6 +291,7 @@ struct LivePipeline::Impl {
         const bool completedReconfiguration=completion && staged
             && completion->outcome.requestId==staged->requestId;
         std::optional<ProcessingWorkerSnapshot> committedProcessing;
+        std::optional<InstallationBinding> committedInstallation;
         if(completedReconfiguration) {
             if(statusRevision<completion->publicationRevision) {
                 observed=completion->camera;
@@ -182,6 +308,8 @@ struct LivePipeline::Impl {
                 processingWorker=std::move(staged->session->worker);
                 fixed=std::move(staged->mode);
                 resources=std::move(staged->resources);
+                resourceOrientation=staged->installation.orientation;
+                committedInstallation=staged->installation;
                 committedProcessing=processingWorker->snapshot();
                 committedProcessing->processorStatus=processor->status();
             }
@@ -194,6 +322,7 @@ struct LivePipeline::Impl {
             if(completion->activated) {
                 state.context=context;
                 state.contextBound=false;
+                if(committedInstallation) commitInstallation(*committedInstallation);
                 state.resources=resources->resources;
                 state.processing=std::move(*committedProcessing);
                 state.processingRetryPending=false;retryIntent.reset();
@@ -201,6 +330,7 @@ struct LivePipeline::Impl {
                 latestProcessingConfigurationRevision=0;
             }
             reconfigurationPending=false;
+            applyingInstallation.reset();
             if(active && active->requestId==completion->outcome.requestId) {
                 state.ordinaryOutcome=completion->outcome;
                 active.reset();
@@ -213,7 +343,14 @@ struct LivePipeline::Impl {
         }
         if(outcome && active && outcome->requestId==active->requestId) {
             state.ordinaryOutcome=outcome;
+            if(applyingInstallation && !outcome->error) commitInstallation(*applyingInstallation);
+            applyingInstallation.reset();
             active.reset();
+        }
+        if(installationProfiles && state.camera && (state.camera->state==CameraSessionState::Disconnected
+            || state.camera->sourceReplacementRequired)) {
+            installationBound=false;state.activeInstallationProfile.reset();
+            state.activeOrientation={false,false,core::Rotation::Degrees0};
         }
     }
     void dispatchProcessingRetry() {
@@ -262,7 +399,7 @@ struct LivePipeline::Impl {
             state.processingConfigurationPending=false;
         }
     }
-    Result prepareReconfiguration(const CameraCommand& command) {
+    Result prepareReconfiguration(const CameraCommand& command,const InstallationBinding& installation) {
         const auto& apply=std::get<ApplyConfiguration>(command.payload);
         {
             std::lock_guard lock(mutex);
@@ -283,7 +420,8 @@ struct LivePipeline::Impl {
         // Already-admitted processing work completes on the old generation;
         // concurrent submissions now get the existing retriable unavailable code.
         dispatchProcessingConfiguration();
-        auto plan=detail::prepareLiveResources(apply.configuration,preparationOptions,
+        auto options=preparationOptions;options.orientation=installation.orientation;
+        auto plan=detail::prepareLiveResources(apply.configuration,options,
             static_cast<bool>(factory),acceptedDefinition.value_or(processing::defaultPipeline()));
         if(plan.error) return Result::failure(*plan.error);
         // Each context keeps its existing per-session admission budget. The
@@ -296,7 +434,7 @@ struct LivePipeline::Impl {
             "The active and candidate resources exceed the two-session transition bound.",core::ErrorCategory::ResourceExhaustion));
         auto prepared=detail::prepareLiveSession(plan,apply.sessionGeneration+1U,factory,acceptedDefinition);
         if(!prepared.hasValue()) return Result::failure(prepared.error());
-        staged.emplace(Reconfiguration{command.requestId,apply.configuration,std::move(plan),std::move(prepared.value())});
+        staged.emplace(Reconfiguration{command.requestId,apply.configuration,std::move(plan),std::move(prepared.value()),installation});
         return Result::success();
     }
     void discardReconfiguration() {
@@ -344,9 +482,31 @@ struct LivePipeline::Impl {
             }
         }
         const auto* apply=std::get_if<ApplyConfiguration>(&command.payload);
-        const bool rebind=!isPriority && apply && !isCameraSettingsCompatible(apply->configuration,fixed);
+        InstallationBinding installation{std::nullopt,resourceOrientation};
+        if(!isPriority && installationProfiles && (apply || std::holds_alternative<ConfirmConfiguration>(command.payload)
+            || std::holds_alternative<StartStream>(command.payload))) {
+            observeInstallation();
+            std::lock_guard lock(mutex);
+            auto resolved=resolveInstallation();
+            std::optional<core::Error> error;
+            if(!resolved.hasValue()) error=resolved.error();
+            else {
+                installation=resolved.value();
+                if(!apply && (!installationBound || state.activeInstallationProfile!=installation.reference
+                    || state.activeOrientation!=installation.orientation))
+                    error=failure("installation_binding_stale","Apply the saved installation, review both previews, then Confirm before Start.");
+                if(apply && state.camera->state!=CameraSessionState::ConnectedIdle)
+                    error=failure("invalid_camera_state","Stop the connected camera before applying its installation.");
+            }
+            if(error) {
+                state.installationProfileError=error;
+                state.ordinaryOutcome=CameraCommandOutcome{command.requestId,std::move(error)};return;
+            }
+        }
+        const bool rebind=!isPriority && apply && (!isCameraSettingsCompatible(apply->configuration,fixed)
+            || installation.orientation!=resourceOrientation);
         if(rebind) {
-            auto prepared=prepareReconfiguration(command);
+            auto prepared=prepareReconfiguration(command,installation);
             if(!prepared.hasValue()) {
                 discardReconfiguration();
                 std::lock_guard lock(mutex);
@@ -379,7 +539,10 @@ struct LivePipeline::Impl {
             return;
         }
         if(isPriority) priority=std::move(command);
-        else active=std::move(command);
+        else {
+            if(apply) applyingInstallation=installation;
+            active=std::move(command);
+        }
     }
     void run(std::stop_token stop) noexcept {
         try {
@@ -389,6 +552,7 @@ struct LivePipeline::Impl {
             while(ready.hasValue() && !stop.stop_requested()) {
                 dispatchProcessingRetry();
                 observe();
+                observeInstallation();
                 bool bound=false;
                 { std::lock_guard lock(mutex);bound=state.contextBound; }
                 if(bound) retiringContext.reset();
@@ -398,11 +562,13 @@ struct LivePipeline::Impl {
                 bool dispatchedPriority=false;
                 if(auto priorityCommand=incoming.tryPopPriority()) {
                     dispatchedPriority=true;
+                    cancelInstallationIntent();
                     if(active) {
                         std::lock_guard lock(mutex);
                         state.ordinaryOutcome=CameraCommandOutcome{active->requestId,
                             failure("cancelled","Superseded by lifecycle command.",core::ErrorCategory::Cancelled)};
                         active.reset();
+                        applyingInstallation.reset();
                     }
                     send(std::move(*priorityCommand),true);
                 } else if(!active && !priority) {
@@ -415,6 +581,7 @@ struct LivePipeline::Impl {
                     }
                 }
                 if(!dispatchedPriority && !priority && !staged) dispatchProcessingConfiguration();
+                if(!dispatchedPriority && !priority && !active && !staged) dispatchInstallation();
                 std::unique_lock lock(mutex);
                 changed.wait_for(lock,stop,std::chrono::milliseconds{2},[&]{return terminal;});
             }
@@ -424,6 +591,7 @@ struct LivePipeline::Impl {
             try { std::lock_guard lock(mutex);state.error=failure("pipeline_exception","Unknown control exception.",core::ErrorCategory::Internal); } catch(...) {}
         }
         accepting.store(false);
+        cancelInstallationIntent();
         stopWorkers();
         context.reset();
         retiringContext.reset();
@@ -435,8 +603,24 @@ struct LivePipeline::Impl {
     }
 };
 LivePipeline::LivePipeline(camera::ICameraProvider& provider,core::IClock& clock,
-    camera::CameraConfiguration request,ProcessorFactory factory,processing::ProcessingPreparationOptions options)
-    :impl_(std::make_unique<Impl>(provider,clock,std::move(request),std::move(factory),options)) {}
+    camera::CameraConfiguration request,ProcessorFactory factory,processing::ProcessingPreparationOptions options,
+    IInstallationProfiles* installationProfiles)
+    :impl_(std::make_unique<Impl>(provider,clock,std::move(request),std::move(factory),options,installationProfiles)) {}
+Result LivePipeline::saveInstallationProfile(InstallationProfileCommand command) {
+    std::lock_guard lock(impl_->mutex);
+    if(!impl_->installationProfiles || !impl_->accepting.load() || impl_->terminal || impl_->state.error)
+        return Result::failure(failure("installation_unavailable","Installation editing is unavailable."));
+    if(impl_->state.installationProfilePending)
+        return Result::failure(failure("installation_save_pending","An installation save is already pending."));
+    if(command.requestId==0 || command.requestId<=impl_->latestInstallationRequest)
+        return Result::failure(failure("installation_request_not_increasing","Installation request IDs must increase."));
+    impl_->latestInstallationRequest=command.requestId;
+    impl_->installationIntent=std::move(command);
+    impl_->state.installationProfilePending=true;
+    impl_->state.installationProfileError.reset();
+    impl_->changed.notify_all();
+    return Result::success();
+}
 LivePipeline::~LivePipeline() { shutdown(); }
 Result LivePipeline::start() {
     std::lock_guard lock(impl_->mutex);

@@ -13,11 +13,12 @@
 namespace lumora::configuration {
 
 struct ApplicationConfiguration final {
-    static constexpr int CurrentSchemaVersion = 3;
+    static constexpr int CurrentSchemaVersion = 4;
 
     int schemaVersion{CurrentSchemaVersion};
     QJsonObject application;
-    QJsonObject cameraProfiles;
+    application::CameraPreferences cameraProfiles;
+    QJsonObject legacyCameraProfiles;
     QJsonObject processing;
     application::PresetState presets;
     QJsonObject legacyPresets;

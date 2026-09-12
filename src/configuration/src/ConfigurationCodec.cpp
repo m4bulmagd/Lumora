@@ -1,4 +1,5 @@
 #include <lumora/configuration/ConfigurationCodec.hpp>
+#include <lumora/configuration/CameraProfileCodec.hpp>
 #include <lumora/configuration/PresetCodec.hpp>
 
 #include <lumora/application/StartupPreferences.hpp>
@@ -12,6 +13,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <string>
@@ -59,17 +61,6 @@ template<typename T>
         static_cast<std::uint32_t>(value.toDouble()));
 }
 
-[[nodiscard]] core::Result<double> readFiniteDouble(
-    const QJsonObject& object,
-    const char* key) {
-    const auto value = object.value(QLatin1String(key));
-    if (!value.isDouble() || !std::isfinite(value.toDouble())) {
-        return invalidStartup<double>(
-            std::string{"The startup field '"} + key + "' must be finite.");
-    }
-    return core::Result<double>::success(value.toDouble());
-}
-
 [[nodiscard]] core::Result<std::optional<double>> readOptionalDouble(
     const QJsonObject& object,
     const char* key) {
@@ -104,17 +95,6 @@ template<typename T>
             std::string{"The startup field '"} + key + "' must be an object.");
     }
     return core::Result<QJsonObject>::success(value.toObject());
-}
-
-[[nodiscard]] core::Result<QJsonArray> readArray(
-    const QJsonObject& object,
-    const char* key) {
-    const auto value = object.value(QLatin1String(key));
-    if (!value.isArray()) {
-        return invalidStartup<QJsonArray>(
-            std::string{"The startup field '"} + key + "' must be an array.");
-    }
-    return core::Result<QJsonArray>::success(value.toArray());
 }
 
 template<typename Enum>
@@ -230,27 +210,6 @@ template<typename Enum>
         {x.value(), y.value(), width.value(), height.value()});
 }
 
-[[nodiscard]] QJsonObject encodeNumeric(const camera::NumericCapability& value) {
-    return {{"minimum", value.minimum}, {"maximum", value.maximum},
-        {"increment", value.increment},
-        {"writableWhileStreaming", value.writableWhileStreaming}};
-}
-
-[[nodiscard]] core::Result<camera::NumericCapability> decodeNumeric(
-    const QJsonObject& object) {
-    auto minimum = readFiniteDouble(object, "minimum");
-    auto maximum = readFiniteDouble(object, "maximum");
-    auto increment = readFiniteDouble(object, "increment");
-    const auto writable = object.value("writableWhileStreaming");
-    if (!minimum.hasValue() || !maximum.hasValue() || !increment.hasValue()
-        || !writable.isBool()) {
-        return invalidStartup<camera::NumericCapability>(
-            "A startup numeric capability is invalid.");
-    }
-    return core::Result<camera::NumericCapability>::success(
-        {minimum.value(), maximum.value(), increment.value(), writable.toBool()});
-}
-
 [[nodiscard]] QString exposureModeName(camera::ExposureMode value) {
     return value == camera::ExposureMode::Manual ? QStringLiteral("Manual")
                                                   : QStringLiteral("Auto");
@@ -300,109 +259,6 @@ template<typename Enum>
     return invalidEnum<camera::AcquisitionMode>("acquisitionMode");
 }
 
-[[nodiscard]] QJsonObject encodeCapabilities(camera::CameraCapabilities value) {
-    std::sort(value.pixelFormats.begin(), value.pixelFormats.end(), [](const auto& left, const auto& right) {
-        return std::tie(left.canonicalName, left.canonicalEncoding, left.validBits,
-                   left.sampleMaximum, left.packing, left.alignment, left.applicationStorage)
-            < std::tie(right.canonicalName, right.canonicalEncoding, right.validBits,
-                right.sampleMaximum, right.packing, right.alignment, right.applicationStorage);
-    });
-    std::sort(value.exposureModes.begin(), value.exposureModes.end());
-    std::sort(value.gainModes.begin(), value.gainModes.end());
-
-    QJsonArray formats;
-    for (const auto& format : value.pixelFormats) {
-        formats.append(encodePixelFormat(format));
-    }
-    QJsonArray exposureModes;
-    for (const auto mode : value.exposureModes) {
-        exposureModes.append(exposureModeName(mode));
-    }
-    QJsonArray gainModes;
-    for (const auto mode : value.gainModes) {
-        gainModes.append(gainModeName(mode));
-    }
-    return {{"pixelFormats", formats},
-        {"roi", QJsonObject{{"minimum", encodeRegion(value.roi.minimum)},
-                    {"maximum", encodeRegion(value.roi.maximum)},
-                    {"increment", encodeRegion(value.roi.increment)}}},
-        {"frameRate", encodeNumeric(value.frameRate)},
-        {"exposure", encodeNumeric(value.exposure)},
-        {"exposureModes", exposureModes}, {"gain", encodeNumeric(value.gain)},
-        {"gainModes", gainModes}};
-}
-
-[[nodiscard]] core::Result<camera::CameraCapabilities> decodeCapabilities(
-    const QJsonObject& object) {
-    auto formatsJson = readArray(object, "pixelFormats");
-    auto roiJson = readObject(object, "roi");
-    auto frameRateJson = readObject(object, "frameRate");
-    auto exposureJson = readObject(object, "exposure");
-    auto exposureModesJson = readArray(object, "exposureModes");
-    auto gainJson = readObject(object, "gain");
-    auto gainModesJson = readArray(object, "gainModes");
-    if (!formatsJson.hasValue() || !roiJson.hasValue() || !frameRateJson.hasValue()
-        || !exposureJson.hasValue() || !exposureModesJson.hasValue()
-        || !gainJson.hasValue() || !gainModesJson.hasValue()) {
-        return invalidStartup<camera::CameraCapabilities>(
-            "The startup capability snapshot is incomplete.");
-    }
-
-    std::vector<core::SourcePixelFormat> formats;
-    for (const auto& value : formatsJson.value()) {
-        if (!value.isObject()) {
-            return invalidStartup<camera::CameraCapabilities>(
-                "A startup pixel-format descriptor is not an object.");
-        }
-        auto format = decodePixelFormat(value.toObject());
-        if (!format.hasValue()) {
-            return invalidStartup<camera::CameraCapabilities>(format.error().diagnosticDetail);
-        }
-        formats.push_back(std::move(format).value());
-    }
-
-    auto roiMinimumJson = readObject(roiJson.value(), "minimum");
-    auto roiMaximumJson = readObject(roiJson.value(), "maximum");
-    auto roiIncrementJson = readObject(roiJson.value(), "increment");
-    if (!roiMinimumJson.hasValue() || !roiMaximumJson.hasValue()
-        || !roiIncrementJson.hasValue()) {
-        return invalidStartup<camera::CameraCapabilities>(
-            "The startup ROI capability is incomplete.");
-    }
-    auto roiMinimum = decodeRegion(roiMinimumJson.value());
-    auto roiMaximum = decodeRegion(roiMaximumJson.value());
-    auto roiIncrement = decodeRegion(roiIncrementJson.value());
-    auto frameRate = decodeNumeric(frameRateJson.value());
-    auto exposure = decodeNumeric(exposureJson.value());
-    auto gain = decodeNumeric(gainJson.value());
-    if (!roiMinimum.hasValue() || !roiMaximum.hasValue() || !roiIncrement.hasValue()
-        || !frameRate.hasValue() || !exposure.hasValue() || !gain.hasValue()) {
-        return invalidStartup<camera::CameraCapabilities>(
-            "A startup capability value is invalid.");
-    }
-
-    std::vector<camera::ExposureMode> exposureModes;
-    for (const auto& value : exposureModesJson.value()) {
-        auto mode = parseExposureMode(value);
-        if (!mode.hasValue()) {
-            return invalidStartup<camera::CameraCapabilities>(mode.error().diagnosticDetail);
-        }
-        exposureModes.push_back(mode.value());
-    }
-    std::vector<camera::GainMode> gainModes;
-    for (const auto& value : gainModesJson.value()) {
-        auto mode = parseGainMode(value);
-        if (!mode.hasValue()) {
-            return invalidStartup<camera::CameraCapabilities>(mode.error().diagnosticDetail);
-        }
-        gainModes.push_back(mode.value());
-    }
-
-    return core::Result<camera::CameraCapabilities>::success({std::move(formats),
-        {roiMinimum.value(), roiMaximum.value(), roiIncrement.value()}, frameRate.value(),
-        exposure.value(), std::move(exposureModes), gain.value(), std::move(gainModes)});
-}
-
 [[nodiscard]] QJsonObject encodeConfiguration(const camera::CameraConfiguration& value) {
     return {{"pixelFormat", encodePixelFormat(value.pixelFormat)},
         {"roi", encodeRegion(value.roi)},
@@ -448,21 +304,101 @@ template<typename Enum>
         {gainMode.value(), gainValue.value()}, acquisitionMode.value()});
 }
 
+[[nodiscard]] QString rotationName(core::Rotation rotation) {
+    switch (rotation) {
+    case core::Rotation::Degrees0: return QStringLiteral("Degrees0");
+    case core::Rotation::Degrees90: return QStringLiteral("Degrees90");
+    case core::Rotation::Degrees180: return QStringLiteral("Degrees180");
+    case core::Rotation::Degrees270: return QStringLiteral("Degrees270");
+    }
+    return {};
+}
+
+[[nodiscard]] core::Result<core::Rotation> decodeRotation(const QJsonValue& value) {
+    if (value == QLatin1String("Degrees0")) {
+        return core::Result<core::Rotation>::success(core::Rotation::Degrees0);
+    }
+    if (value == QLatin1String("Degrees90")) {
+        return core::Result<core::Rotation>::success(core::Rotation::Degrees90);
+    }
+    if (value == QLatin1String("Degrees180")) {
+        return core::Result<core::Rotation>::success(core::Rotation::Degrees180);
+    }
+    if (value == QLatin1String("Degrees270")) {
+        return core::Result<core::Rotation>::success(core::Rotation::Degrees270);
+    }
+    return invalidStartup<core::Rotation>(
+        "The installation profile rotation is invalid.");
+}
+
+[[nodiscard]] core::Result<std::uint64_t> readUint64String(
+    const QJsonObject& object, const char* key) {
+    const auto value = object.value(QLatin1String(key));
+    if (!value.isString()) {
+        return invalidStartup<std::uint64_t>(
+            "The installation profile revision must be a decimal string.");
+    }
+    const auto text = value.toString();
+    bool valid = false;
+    const auto number = text.toULongLong(&valid);
+    if (!valid || number == 0U
+        || QString::number(static_cast<qulonglong>(number)) != text) {
+        return invalidStartup<std::uint64_t>(
+            "The installation profile revision must be a canonical positive uint64 string.");
+    }
+    return core::Result<std::uint64_t>::success(
+        static_cast<std::uint64_t>(number));
+}
+
+[[nodiscard]] QJsonObject encodeInstallationReference(
+    const application::InstallationProfileReference& value) {
+    return {{"recordVersion", static_cast<double>(value.recordVersion)},
+        {"revision", QString::number(static_cast<qulonglong>(value.revision))},
+        {"orientation", QJsonObject{{"flipHorizontal", value.orientation.flipHorizontal},
+                            {"flipVertical", value.orientation.flipVertical},
+                            {"rotation", rotationName(value.orientation.rotation)}}}};
+}
+
+[[nodiscard]] core::Result<application::InstallationProfileReference>
+decodeInstallationReference(const QJsonObject& object) {
+    auto version = readUint32(object, "recordVersion");
+    auto revision = readUint64String(object, "revision");
+    auto orientationJson = readObject(object, "orientation");
+    if (!version.hasValue() || !revision.hasValue() || !orientationJson.hasValue()) {
+        return invalidStartup<application::InstallationProfileReference>(
+            "The installation profile reference is incomplete.");
+    }
+    const auto horizontal = orientationJson.value().value("flipHorizontal");
+    const auto vertical = orientationJson.value().value("flipVertical");
+    auto rotation = decodeRotation(orientationJson.value().value("rotation"));
+    if (!horizontal.isBool() || !vertical.isBool() || !rotation.hasValue()) {
+        return invalidStartup<application::InstallationProfileReference>(
+            "The installation profile orientation is invalid.");
+    }
+    application::InstallationProfileReference result{version.value(), revision.value(),
+        {horizontal.toBool(), vertical.toBool(), rotation.value()}};
+    if (result.recordVersion != 1U) {
+        return invalidStartup<application::InstallationProfileReference>(
+            "Only installation profile reference version 1 is supported.");
+    }
+    return core::Result<application::InstallationProfileReference>::success(
+        std::move(result));
+}
+
 [[nodiscard]] QJsonObject encodeStartup(const application::StartupPreferences& value) {
-    QJsonObject identity{{"manufacturer", QString::fromStdString(value.identity.manufacturer)},
-        {"model", QString::fromStdString(value.identity.model)},
-        {"serial", QString::fromStdString(value.identity.serial)},
-        {"transport", QString::fromStdString(value.identity.transport)},
-        {"firmware", value.identity.firmware
-                ? QJsonValue{QString::fromStdString(*value.identity.firmware)}
-                : QJsonValue{}}};
     return {{"recordVersion", static_cast<double>(value.recordVersion)},
         {"cameraId", QString::fromStdString(value.cameraId.value)},
-        {"identity", identity},
-        {"confirmedCapabilities", encodeCapabilities(value.confirmedCapabilities)},
+        {"identity", encodeCameraIdentity(value.identity)},
+        {"capabilityFingerprintVersion",
+            static_cast<double>(value.capabilityFingerprintVersion)},
+        {"confirmedCapabilities",
+            encodeCameraCapabilities(value.confirmedCapabilities)},
         {"requested", encodeConfiguration(value.requested)},
         {"lastApplied", encodeConfiguration(value.lastApplied)},
-        {"confirmed", value.confirmed}};
+        {"confirmed", value.confirmed},
+        {"installationProfile", value.installationProfile
+                ? QJsonValue{encodeInstallationReference(*value.installationProfile)}
+                : QJsonValue{}}};
 }
 
 [[nodiscard]] core::Result<application::StartupPreferences> decodeStartup(
@@ -470,33 +406,36 @@ template<typename Enum>
     auto version = readUint32(object, "recordVersion");
     auto cameraId = readString(object, "cameraId");
     auto identityJson = readObject(object, "identity");
+    auto fingerprintVersion = readUint32(object, "capabilityFingerprintVersion");
     auto capabilitiesJson = readObject(object, "confirmedCapabilities");
     auto requestedJson = readObject(object, "requested");
     auto lastAppliedJson = readObject(object, "lastApplied");
     const auto confirmed = object.value("confirmed");
     if (!version.hasValue() || !cameraId.hasValue() || !identityJson.hasValue()
+        || !fingerprintVersion.hasValue()
         || !capabilitiesJson.hasValue() || !requestedJson.hasValue()
         || !lastAppliedJson.hasValue() || !confirmed.isBool()) {
         return invalidStartup<application::StartupPreferences>(
             "The startup record is incomplete.");
     }
-    auto manufacturer = readString(identityJson.value(), "manufacturer");
-    auto model = readString(identityJson.value(), "model");
-    auto serial = readString(identityJson.value(), "serial");
-    auto transport = readString(identityJson.value(), "transport");
-    std::optional<std::string> firmware;
-    const auto firmwareJson = identityJson.value().value("firmware");
-    if (firmwareJson.isString()) {
-        firmware = firmwareJson.toString().toStdString();
-    } else if (!firmwareJson.isNull()) {
-        return invalidStartup<application::StartupPreferences>(
-            "The startup firmware field must be a string or null.");
-    }
-    auto capabilities = decodeCapabilities(capabilitiesJson.value());
+    auto identity = decodeCameraIdentity(identityJson.value());
+    auto capabilities = decodeCameraCapabilities(capabilitiesJson.value());
     auto requested = decodeConfiguration(requestedJson.value());
     auto lastApplied = decodeConfiguration(lastAppliedJson.value());
-    if (!manufacturer.hasValue() || !model.hasValue() || !serial.hasValue()
-        || !transport.hasValue() || !capabilities.hasValue() || !requested.hasValue()
+    std::optional<application::InstallationProfileReference> installationProfile;
+    const auto installationJson = object.value("installationProfile");
+    if (installationJson.isObject()) {
+        auto decoded = decodeInstallationReference(installationJson.toObject());
+        if (!decoded.hasValue()) {
+            return invalidStartup<application::StartupPreferences>(
+                decoded.error().diagnosticDetail);
+        }
+        installationProfile = std::move(decoded).value();
+    } else if (!installationJson.isNull()) {
+        return invalidStartup<application::StartupPreferences>(
+            "The installation profile reference must be an object or null.");
+    }
+    if (!identity.hasValue() || !capabilities.hasValue() || !requested.hasValue()
         || !lastApplied.hasValue()) {
         return invalidStartup<application::StartupPreferences>(
             "A startup record value is invalid.");
@@ -504,16 +443,124 @@ template<typename Enum>
 
     application::StartupPreferences startup{version.value(),
         {std::move(cameraId).value()},
-        {std::move(manufacturer).value(), std::move(model).value(),
-            std::move(serial).value(), std::move(transport).value(), std::move(firmware)},
+        std::move(identity).value(),
         std::move(capabilities).value(), std::move(requested).value(),
-        std::move(lastApplied).value(), confirmed.toBool()};
+        std::move(lastApplied).value(), confirmed.toBool(), fingerprintVersion.value(),
+        std::move(installationProfile)};
     const auto validated = application::validateStartupPreferences(startup);
     if (!validated.hasValue()) {
         return invalidStartup<application::StartupPreferences>(
             validated.error().diagnosticDetail);
     }
     return core::Result<application::StartupPreferences>::success(std::move(startup));
+}
+
+[[nodiscard]] core::Result<void> validateCameraPreferences(
+    const application::CameraPreferences& preferences) {
+    if (preferences.profiles.size() > application::CameraPreferences::MaximumProfiles) {
+        return core::Result<void>::failure(configurationError(
+            "configuration_camera_profile_capacity",
+            "Too many camera profiles are saved.",
+            "At most 64 distinct camera identities may be saved."));
+    }
+    if (preferences.lastSelectedCameraId
+        && preferences.lastSelectedCameraId->value.empty()) {
+        return core::Result<void>::failure(configurationError(
+            "configuration_invalid_camera_profiles",
+            "Saved camera preferences are invalid.",
+            "The selected logical camera ID must not be empty."));
+    }
+    for (auto current = preferences.profiles.begin();
+         current != preferences.profiles.end(); ++current) {
+        const auto validated = application::validateStartupPreferences(*current);
+        if (!validated.hasValue()) {
+            return core::Result<void>::failure(configurationError(
+                "configuration_invalid_camera_profiles",
+                "Saved camera preferences are invalid.",
+                validated.error().diagnosticDetail));
+        }
+        if (std::any_of(std::next(current), preferences.profiles.end(),
+                [&](const auto& candidate) {
+                    return application::cameraIdentityKeysEqual(
+                        current->identity, candidate.identity);
+                })) {
+            return core::Result<void>::failure(configurationError(
+                "configuration_duplicate_camera_profile",
+                "Saved camera preferences are invalid.",
+                "Only one preference record is allowed for each manufacturer/model/serial identity."));
+        }
+    }
+    return core::Result<void>::success();
+}
+
+[[nodiscard]] QJsonObject encodeCameraPreferences(
+    application::CameraPreferences preferences) {
+    QJsonArray profiles;
+    for (const auto& profile : preferences.profiles) {
+        profiles.append(encodeStartup(profile));
+    }
+    return {{"lastSelectedCameraId", preferences.lastSelectedCameraId
+                ? QJsonValue{QString::fromStdString(
+                      preferences.lastSelectedCameraId->value)}
+                : QJsonValue{}},
+        {"profiles", profiles}};
+}
+
+[[nodiscard]] core::Result<application::CameraPreferences> decodeCameraPreferences(
+    const QJsonObject& object) {
+    const auto selectedJson = object.value("lastSelectedCameraId");
+    std::optional<camera::CameraId> selected;
+    if (selectedJson.isString()) {
+        selected = camera::CameraId{selectedJson.toString().toStdString()};
+    } else if (!selectedJson.isNull()) {
+        return core::Result<application::CameraPreferences>::failure(configurationError(
+            "configuration_invalid_camera_profiles",
+            "Saved camera preferences are invalid.",
+            "lastSelectedCameraId must be a string or null."));
+    }
+    const auto profilesJson = object.value("profiles");
+    if (!profilesJson.isArray()) {
+        return core::Result<application::CameraPreferences>::failure(configurationError(
+            "configuration_invalid_camera_profiles",
+            "Saved camera preferences are invalid.",
+            "The camera profile collection must be an array."));
+    }
+    application::CameraPreferences result;
+    result.lastSelectedCameraId = std::move(selected);
+    for (const auto& value : profilesJson.toArray()) {
+        if (!value.isObject()) {
+            return core::Result<application::CameraPreferences>::failure(
+                configurationError("configuration_invalid_camera_profiles",
+                    "Saved camera preferences are invalid.",
+                    "Each camera profile must be an object."));
+        }
+        auto decoded = decodeStartup(value.toObject());
+        if (!decoded.hasValue()) {
+            return core::Result<application::CameraPreferences>::failure(
+                configurationError("configuration_invalid_camera_profiles",
+                    "Saved camera preferences are invalid.",
+                    decoded.error().diagnosticDetail));
+        }
+        result.profiles.push_back(std::move(decoded).value());
+    }
+    const auto validated = validateCameraPreferences(result);
+    if (!validated.hasValue()) {
+        return core::Result<application::CameraPreferences>::failure(
+            validated.error());
+    }
+    return core::Result<application::CameraPreferences>::success(std::move(result));
+}
+
+[[nodiscard]] std::optional<application::StartupPreferences> deriveStartup(
+    const application::CameraPreferences& preferences) {
+    if (!preferences.lastSelectedCameraId) return std::nullopt;
+    const auto found = std::find_if(preferences.profiles.rbegin(),
+        preferences.profiles.rend(), [&](const auto& profile) {
+            return profile.cameraId == *preferences.lastSelectedCameraId;
+        });
+    return found == preferences.profiles.rend()
+        ? std::nullopt
+        : std::optional<application::StartupPreferences>{*found};
 }
 
 [[nodiscard]] QJsonObject migrateOneToTwo(QJsonObject root) {
@@ -529,6 +576,34 @@ template<typename Enum>
     if (!presets.hasValue()) return core::Result<QJsonObject>::failure(presets.error());
     root.insert("schemaVersion", 3);
     root.insert("presets", presets.value());
+    return core::Result<QJsonObject>::success(std::move(root));
+}
+
+[[nodiscard]] core::Result<QJsonObject> migrateThreeToFour(QJsonObject root) {
+    const auto legacyProfiles = root.value("cameraProfiles").toObject();
+    if (!root.contains("startup")
+        || (!root.value("startup").isNull()
+            && !root.value("startup").isObject())) {
+        return core::Result<QJsonObject>::failure(configurationError(
+            "configuration_invalid_startup",
+            "Saved startup preferences are invalid.",
+            "The schema 2/3 startup field must be present and contain an object or null."));
+    }
+    const auto startup = root.value("startup");
+    QJsonArray profiles;
+    QJsonValue selected;
+    if (startup.isObject()) {
+        auto migratedStartup = startup.toObject();
+        migratedStartup.insert("capabilityFingerprintVersion", 1);
+        migratedStartup.insert("installationProfile", QJsonValue{});
+        profiles.append(migratedStartup);
+        selected = migratedStartup.value("cameraId");
+    }
+    root.insert("schemaVersion", 4);
+    root.insert("legacyCameraProfiles", legacyProfiles);
+    root.insert("cameraProfiles", QJsonObject{{"lastSelectedCameraId", selected},
+                                      {"profiles", profiles}});
+    root.remove("startup");
     return core::Result<QJsonObject>::success(std::move(root));
 }
 
@@ -582,13 +657,35 @@ template<typename Enum>
         if (!migrated.hasValue()) return core::Result<ApplicationConfiguration>::failure(migrated.error());
         root = std::move(migrated).value();
     }
+    if (root.value("schemaVersion").toInt() == 3) {
+        auto migrated = migrateThreeToFour(std::move(root));
+        if (!migrated.hasValue()) {
+            return core::Result<ApplicationConfiguration>::failure(
+                migrated.error());
+        }
+        root = std::move(migrated).value();
+    }
+    if (!root.value("legacyCameraProfiles").isObject()) {
+        return core::Result<ApplicationConfiguration>::failure(configurationError(
+            "configuration_invalid_section",
+            "A configuration section is missing or invalid.",
+            "The 'legacyCameraProfiles' section must be a JSON object."));
+    }
     auto presets = PresetCodec::decode(root.value("presets").toObject());
     if (!presets.hasValue()) return core::Result<ApplicationConfiguration>::failure(presets.error());
 
     ApplicationConfiguration configuration;
     configuration.schemaVersion = ApplicationConfiguration::CurrentSchemaVersion;
     configuration.application = root.value("application").toObject();
-    configuration.cameraProfiles = root.value("cameraProfiles").toObject();
+    auto cameraPreferences =
+        decodeCameraPreferences(root.value("cameraProfiles").toObject());
+    if (!cameraPreferences.hasValue()) {
+        return core::Result<ApplicationConfiguration>::failure(
+            cameraPreferences.error());
+    }
+    configuration.cameraProfiles = std::move(cameraPreferences).value();
+    configuration.legacyCameraProfiles =
+        root.value("legacyCameraProfiles").toObject();
     configuration.processing = root.value("processing").toObject();
     configuration.presets = std::move(presets.value().state);
     configuration.legacyPresets = std::move(presets.value().legacy);
@@ -607,20 +704,7 @@ template<typename Enum>
                 + " preset issue(s) were recorded; valid settings remain available for saving.");
     }
 
-    const auto startupJson = root.value("startup");
-    if (startupJson.isNull()) {
-        return core::Result<ApplicationConfiguration>::success(std::move(configuration));
-    }
-    if (!startupJson.isObject()) {
-        return core::Result<ApplicationConfiguration>::failure(configurationError(
-            "configuration_invalid_startup", "Saved startup preferences are invalid.",
-            "The startup field must be an object or null."));
-    }
-    auto startup = decodeStartup(startupJson.toObject());
-    if (!startup.hasValue()) {
-        return core::Result<ApplicationConfiguration>::failure(startup.error());
-    }
-    configuration.startup = std::move(startup).value();
+    configuration.startup = deriveStartup(configuration.cameraProfiles);
     return core::Result<ApplicationConfiguration>::success(std::move(configuration));
 }
 
@@ -653,23 +737,25 @@ core::Result<QByteArray> ConfigurationCodec::encode(
             "The configuration version is invalid.",
             "Only the current schema can be encoded."));
     }
-    if (configuration.startup) {
-        const auto validated = application::validateStartupPreferences(*configuration.startup);
-        if (!validated.hasValue()) {
-            return core::Result<QByteArray>::failure(configurationError(
-                "configuration_invalid_startup", "Saved startup preferences are invalid.",
-                validated.error().diagnosticDetail));
+    auto cameraPreferences = configuration.cameraProfiles;
+    if (cameraPreferences.profiles.empty() && configuration.startup) {
+        cameraPreferences.profiles.push_back(*configuration.startup);
+        if (!cameraPreferences.lastSelectedCameraId) {
+            cameraPreferences.lastSelectedCameraId = configuration.startup->cameraId;
         }
+    }
+    const auto cameraValidated = validateCameraPreferences(cameraPreferences);
+    if (!cameraValidated.hasValue()) {
+        return core::Result<QByteArray>::failure(cameraValidated.error());
     }
     const auto presets = PresetCodec::encode(configuration.presets, configuration.legacyPresets);
     if (!presets.hasValue()) return core::Result<QByteArray>::failure(presets.error());
     QJsonObject root{{"schemaVersion", configuration.schemaVersion},
         {"application", configuration.application},
-        {"cameraProfiles", configuration.cameraProfiles},
+        {"cameraProfiles", encodeCameraPreferences(cameraPreferences)},
+        {"legacyCameraProfiles", configuration.legacyCameraProfiles},
         {"processing", configuration.processing}, {"presets", presets.value()},
-        {"capture", configuration.capture}, {"ui", configuration.ui},
-        {"startup", configuration.startup ? QJsonValue{encodeStartup(*configuration.startup)}
-                                            : QJsonValue{}}};
+        {"capture", configuration.capture}, {"ui", configuration.ui}};
 
     const auto validated = decodeObject(root);
     if (!validated.hasValue()) {

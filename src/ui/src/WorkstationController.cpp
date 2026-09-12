@@ -32,6 +32,7 @@ struct WorkstationController::Impl {
     std::optional<camera::CameraId> desiredCameraId;
     bool requestChosen{false};
     bool initialRequestConsidered{false};
+    bool savedRequestReconciliationPending{true};
     QTimer timer;
     std::unique_ptr<ProcessingControlsModel> processingModel;
     std::unique_ptr<ProcessingPanel> processingPanel;
@@ -105,6 +106,7 @@ struct WorkstationController::Impl {
     std::uint64_t nextRequest{0};
     std::uint64_t revision{0};
     std::uint64_t saveRevision{0};
+    std::uint64_t installationRequest{0};
     std::optional<std::pair<std::uint64_t,std::uint64_t>> submittedConfirmation;
     std::optional<std::pair<std::uint64_t,std::uint64_t>> rejectedConfirmation;
     bool stopped{false};
@@ -113,8 +115,58 @@ struct WorkstationController::Impl {
     std::optional<Intent> resumePhase;
     std::uint64_t resumeGeneration{0};
     std::uint64_t resumeApplyRevision{0};
+    application::CameraPreferences initialProfiles;
+    std::vector<application::StartupPreferences> currentProfiles;
     std::optional<application::StartupPreferences> loaded;
-    void captureConfirmation(const std::shared_ptr<const application::CameraStatusSnapshot>& camera) {
+    std::optional<application::StartupPreferences> profileFor(const camera::CameraId& id,
+        const std::shared_ptr<const application::CameraStatusSnapshot>& camera) const {
+        const camera::CameraDescriptor* descriptor=nullptr;
+        if(camera) {
+            const auto found=std::find_if(camera->discoveredDescriptors.begin(),camera->discoveredDescriptors.end(),
+                [&](const auto& value){return value.id==id;});
+            if(found!=camera->discoveredDescriptors.end()) descriptor=&*found;
+        }
+        const auto matches=[&](const auto& record) {
+            return descriptor?application::cameraIdentityKeysEqual(record.identity,descriptor->identity):record.cameraId==id;
+        };
+        for(const auto* records:{&currentProfiles,&initialProfiles.profiles}) {
+            const auto found=std::find_if(records->begin(),records->end(),matches);
+            if(found!=records->end()) return *found;
+        }
+        return std::nullopt;
+    }
+    void refreshSelectedProfile() {
+        loaded=presentation.selectedCameraId?profileFor(*presentation.selectedCameraId,presentation.cameraStatus):std::nullopt;
+    }
+    void reconcileSavedRequest() {
+        const auto& camera=presentation.cameraStatus;
+        if(!savedRequestReconciliationPending || !initialRequestConsidered ||
+            !presentation.selectedCameraId || !camera) return;
+        const auto descriptor=std::find_if(camera->discoveredDescriptors.begin(),camera->discoveredDescriptors.end(),
+            [&](const auto& value){return value.id==*presentation.selectedCameraId;});
+        if(descriptor==camera->discoveredDescriptors.end()) return;
+        // Both initial provenance and the selected stable identity are now
+        // known. An accepted Apply consumes this opportunity before late data
+        // can replace an operator's submitted request.
+        savedRequestReconciliationPending=false;
+        desired=fixed;
+        if(loaded && loaded->confirmed && application::validateStartupPreferences(*loaded).hasValue() &&
+            application::isSupportedLiveCameraConfiguration(loaded->requested) &&
+            (!camera->actualIdentity || camera->actualIdentity!=presentation.selectedCameraId || !camera->capabilities ||
+                application::cameraCapabilitiesEqual(loaded->confirmedCapabilities,*camera->capabilities)))
+            desired=loaded->requested;
+        desiredCameraId=presentation.selectedCameraId;
+        presentation.requestedConfiguration=desired;
+    }
+    void remember(const application::StartupPreferences& record) {
+        const auto found=std::find_if(currentProfiles.begin(),currentProfiles.end(),[&](const auto& value) {
+            return application::cameraIdentityKeysEqual(value.identity,record.identity);
+        });
+        if(found!=currentProfiles.end()) *found=record;
+        else if(currentProfiles.size()<application::CameraPreferences::MaximumProfiles) currentProfiles.push_back(record);
+    }
+    void captureConfirmation(const application::LivePipelineSnapshot& snapshot) {
+        const auto& camera=snapshot.camera;
         if(!camera || !camera->confirmedRevision || !camera->actualIdentity || !camera->capabilities ||
             !camera->requestedConfiguration || !camera->appliedConfiguration ||
             camera->requestedRevision!=camera->appliedRevision ||
@@ -126,7 +178,12 @@ struct WorkstationController::Impl {
         if(descriptor==camera->discoveredDescriptors.end()) return;
         application::StartupPreferences record{1,*camera->actualIdentity,descriptor->identity,*camera->capabilities,
             *camera->requestedConfiguration,camera->appliedConfiguration->actual,true};
-        auto saved=preferences.postSave(++saveRevision,std::move(record));
+        record.installationProfile=snapshot.activeInstallationProfile;
+        if(saveRevision==std::numeric_limits<std::uint64_t>::max()) {
+            rejectedConfirmation=confirmation;presentation.startupWarning=rejected().error();return;
+        }
+        auto saved=preferences.postSave(++saveRevision,record,false);
+        if(saved.hasValue()) remember(record);
         if(saved.hasValue()) submittedConfirmation=confirmation;
         else {
             // Permanent admission failure is not a submission or a polling retry.
@@ -141,8 +198,30 @@ struct WorkstationController::Impl {
             presentation.selectedCameraId!=camera.actualIdentity) return false;
         const auto descriptor=std::find_if(camera.discoveredDescriptors.begin(),camera.discoveredDescriptors.end(),
             [&](const auto& value){return value.id==*camera.actualIdentity;});
-        return descriptor!=camera.discoveredDescriptors.end() &&
-            application::isStartupResumeEligible(*loaded,*camera.actualIdentity,descriptor->identity,*camera.capabilities);
+        if(descriptor==camera.discoveredDescriptors.end() ||
+            !application::isStartupResumeEligible(*loaded,*camera.actualIdentity,descriptor->identity,*camera.capabilities)) return false;
+        const auto snapshot=pipeline.snapshot();
+        if(snapshot.installationProfilePending) return false;
+        if(!snapshot.installationProfiles) return !loaded->installationProfile;
+        const auto resolved=application::resolveInstallationProfile(*snapshot.installationProfiles,descriptor->identity,*camera.capabilities);
+        if(!resolved.hasValue()) return false;
+        const auto reference=resolved.value()?std::optional{application::installationProfileReference(*resolved.value())}:std::nullopt;
+        return reference==loaded->installationProfile;
+    }
+    bool installationBindingCurrent(const application::LivePipelineSnapshot& snapshot) const {
+        if(!snapshot.installationProfiles) return true;
+        if(snapshot.installationProfilePending || !snapshot.camera || !snapshot.camera->actualIdentity || !snapshot.camera->capabilities) return false;
+        const auto& camera=*snapshot.camera;
+        const auto descriptor=std::find_if(camera.discoveredDescriptors.begin(),camera.discoveredDescriptors.end(),
+            [&](const auto& value){return value.id==*camera.actualIdentity;});
+        if(descriptor==camera.discoveredDescriptors.end()) return false;
+        const auto resolved=application::resolveInstallationProfile(*snapshot.installationProfiles,descriptor->identity,*camera.capabilities);
+        if(!resolved.hasValue()) return false;
+        const auto reference=resolved.value()?std::optional{application::installationProfileReference(*resolved.value())}:std::nullopt;
+        return reference==snapshot.activeInstallationProfile;
+    }
+    bool installationBusy(const application::LivePipelineSnapshot& snapshot) const {
+        return snapshot.installationProfilePending || (snapshot.installationProfiles && snapshot.installationProfiles->savePending);
     }
     bool hasSuccessfulDesiredRequest(const application::CameraStatusSnapshot& camera) const {
         return camera.requestedConfiguration && camera.appliedConfiguration &&
@@ -169,6 +248,7 @@ struct WorkstationController::Impl {
                 pending.reset(); resumePhase.reset(); barrier=command.requestId; barrierIntent=intent;
                 if(intent==Intent::Disconnect) { manuallyDisconnected=true; probeAttempted=true; }
             } else pending=command.requestId;
+            if(intent==Intent::Apply || intent==Intent::ResumeLive) savedRequestReconciliationPending=false;
             if(intent==Intent::ResumeLive) resumePhase=Intent::Apply;
         } else presentation.startupWarning=result.error();
         presentation.ordinaryOperationPending=pending.has_value() || barrier.has_value();
@@ -191,6 +271,41 @@ WorkstationController::WorkstationController(application::LivePipeline& pipeline
     :impl_(std::make_unique<Impl>(pipeline,preferences,view,panel,clock,std::move(fixed))) {
     connect(&impl_->timer,&QTimer::timeout,this,[this]{poll();});
     connect(&panel,&CameraStartupPanel::selectionRequested,this,[this](camera::CameraId id){selectCamera(std::move(id));});
+    connect(&panel,&CameraStartupPanel::installationSaveRequested,this,
+        [this](std::uint64_t generation,camera::CameraId id,core::Orientation orientation,bool confirmed,bool repair) {
+            auto& d=*impl_;
+            const auto snapshot=d.pipeline.snapshot();
+            if(d.installationBusy(snapshot) || d.presentation.installationProfilePending ||
+                d.installationRequest==std::numeric_limits<std::uint64_t>::max()) return;
+            const auto requestId=++d.installationRequest;
+            const auto& camera=snapshot.camera;
+            auto result=rejected();
+            if(!d.stopped && d.presentation.controlsEnabled && !d.pending && !d.barrier && !d.installationBusy(snapshot) &&
+                camera && camera->state==application::CameraSessionState::ConnectedIdle && camera->sessionGeneration==generation &&
+                camera->actualIdentity==id && d.presentation.selectedCameraId==id &&
+                snapshot.installationProfiles && snapshot.installationProfiles->administratorMode && confirmed) {
+                result=d.pipeline.saveInstallationProfile({requestId,generation,std::move(id),orientation,confirmed,repair});
+            }
+            d.resumePhase.reset();d.presentation.resumeLiveAvailable=false;
+            d.presentation.installationProfilePending=result.hasValue() || d.installationBusy(snapshot);
+            d.presentation.ordinaryOperationPending=d.pending.has_value() || d.barrier.has_value() || d.presentation.installationProfilePending;
+            if(!result.hasValue()) {
+                d.presentation.installationProfileOutcome=application::InstallationSaveOutcome{requestId,{},result.error()};
+                d.presentation.installationProfileError=result.error();
+            }
+            d.panel.setPresentation(d.presentation);
+        });
+    connect(&panel,&CameraStartupPanel::settingsEditingStarted,this,
+        [this](std::uint64_t generation,camera::CameraId id) {
+            auto& d=*impl_;
+            const auto snapshot=d.pipeline.snapshot();
+            const auto& camera=snapshot.camera;
+            if(d.stopped || !d.presentation.controlsEnabled || d.pending || d.barrier || d.installationBusy(snapshot) ||
+                !camera || camera->state!=application::CameraSessionState::ConnectedIdle ||
+                camera->sessionGeneration!=generation || camera->actualIdentity!=id || d.presentation.selectedCameraId!=id) return;
+            d.savedRequestReconciliationPending=false;
+            d.requestChosen=true;
+        });
     connect(&panel,&CameraStartupPanel::settingsApplyRequested,this,
         [this](std::uint64_t generation,camera::CameraId id,camera::CameraConfiguration request) {
             (void)applyCameraSettings(generation,std::move(id),std::move(request));
@@ -233,8 +348,20 @@ void WorkstationController::poll() {
     }
     if(d.presenter) d.presenter->refresh();
     d.view.setProcessingStatus(snapshot.processing.processorStatus,snapshot.processingRetryPending);
+    d.presentation.installationProfiles=snapshot.installationProfiles;
+    d.presentation.activeInstallationProfile=snapshot.activeInstallationProfile;
+    d.presentation.activeOrientation=snapshot.context && snapshot.camera && snapshot.camera->actualIdentity
+        ?std::optional{snapshot.activeOrientation}:std::nullopt;
+    d.view.setInstallationOrientation(d.presentation.activeOrientation);
+    d.presentation.installationProfilePending=d.installationBusy(snapshot);
+    d.presentation.installationBindingCurrent=d.installationBindingCurrent(snapshot);
+    if(snapshot.installationProfileOutcome && (!d.presentation.installationProfileOutcome ||
+        snapshot.installationProfileOutcome->requestId>=d.presentation.installationProfileOutcome->requestId)) {
+        d.presentation.installationProfileOutcome=snapshot.installationProfileOutcome;
+    }
+    d.presentation.installationProfileError=snapshot.installationProfileError;
     const bool ownResumeReconfiguration=d.isOwnResumeReconfiguration(snapshot);
-    d.presentation.cameraStatus=std::move(snapshot.camera);
+    d.presentation.cameraStatus=snapshot.camera;
     const auto& currentCamera=d.presentation.cameraStatus;
     if(d.resumePhase && currentCamera && currentCamera->sessionGeneration!=d.resumeGeneration &&
         !ownResumeReconfiguration) {
@@ -264,16 +391,22 @@ void WorkstationController::poll() {
     if(preferences) {
         d.loadPresets(*this,*preferences);
         d.presentation.preferencesLoadCompleted=preferences->loadCompleted;
-        d.loaded=preferences->warning ? std::nullopt : preferences->loadedPreferences;
         if(preferences->warning) d.presentation.startupWarning=preferences->warning;
         if(preferences->loadCompleted && !d.initialRequestConsidered) {
             d.initialRequestConsidered=true;
-            if(!d.requestChosen && d.loaded && d.loaded->confirmed &&
-                application::validateStartupPreferences(*d.loaded).hasValue() &&
-                application::isSupportedLiveCameraConfiguration(d.loaded->requested)) {
-                d.desired=d.loaded->requested;
-                d.desiredCameraId=d.loaded->cameraId;
-                d.presentation.requestedConfiguration=d.desired;
+            if(preferences->loadedCameraPreferences) d.initialProfiles=*preferences->loadedCameraPreferences;
+            else if(preferences->loadedPreferences) {
+                d.initialProfiles.lastSelectedCameraId=preferences->loadedPreferences->cameraId;
+                d.initialProfiles.profiles.push_back(*preferences->loadedPreferences);
+            }
+            if(!d.requestChosen) {
+                d.presentation.selectedCameraId=d.initialProfiles.lastSelectedCameraId;
+                d.refreshSelectedProfile();
+                if(d.loaded && d.loaded->confirmed && application::validateStartupPreferences(*d.loaded).hasValue() &&
+                    application::isSupportedLiveCameraConfiguration(d.loaded->requested)) {
+                    d.desired=d.loaded->requested;d.desiredCameraId=d.presentation.selectedCameraId;
+                    d.presentation.requestedConfiguration=d.desired;
+                }
             }
         }
     }
@@ -283,8 +416,10 @@ void WorkstationController::poll() {
         d.presentation.controlsEnabled=false;
     }
     const auto& camera=d.presentation.cameraStatus;
-    d.captureConfirmation(camera);
-    d.presentation.ordinaryOperationPending=d.pending.has_value() || d.barrier.has_value();
+    d.captureConfirmation(snapshot);
+    d.refreshSelectedProfile();
+    d.reconcileSavedRequest();
+    d.presentation.ordinaryOperationPending=d.pending.has_value() || d.barrier.has_value() || d.installationBusy(snapshot);
     d.presentation.resumeLiveAvailable=camera && d.eligible(*camera) && !d.presentation.startupWarning;
     d.panel.setPresentation(d.presentation);
     if(continueResume) {
@@ -299,7 +434,7 @@ void WorkstationController::poll() {
             [&](const auto& value){return value.id==d.loaded->cameraId && value.available;});
         if(descriptor!=camera->discoveredDescriptors.end() && descriptor->identity.manufacturer==d.loaded->identity.manufacturer &&
             descriptor->identity.model==d.loaded->identity.model && descriptor->identity.serial==d.loaded->identity.serial) {
-            d.probeAttempted=true;d.presentation.selectedCameraId=d.loaded->cameraId;(void)dispatch(Intent::Connect);
+            d.probeAttempted=true;(void)dispatch(Intent::Connect);
         }
     }
 }
@@ -310,12 +445,23 @@ void WorkstationController::selectCamera(camera::CameraId id) {
     const bool desiredUnsupported=camera && camera->actualIdentity==id && camera->capabilities &&
         !camera::validateCameraConfiguration(d.desired,*camera->capabilities).hasValue();
     if(!d.desiredCameraId || *d.desiredCameraId!=id || desiredUnsupported) {
+        d.savedRequestReconciliationPending=true;
         d.desired=d.fixed;
+        const auto record=d.profileFor(id,camera);
+        if(record && record->confirmed && application::validateStartupPreferences(*record).hasValue() &&
+            application::isSupportedLiveCameraConfiguration(record->requested) &&
+            (!camera || camera->actualIdentity!=id || !camera->capabilities ||
+                application::cameraCapabilitiesEqual(record->confirmedCapabilities,*camera->capabilities)))
+            d.desired=record->requested;
         d.presentation.requestedConfiguration=d.desired;
     }
     d.desiredCameraId=id;
     d.requestChosen=true; d.probeAttempted=true; d.resumePhase.reset();
-    d.presentation.selectedCameraId=std::move(id); poll();
+    d.presentation.selectedCameraId=id;
+    if(d.saveRevision==std::numeric_limits<std::uint64_t>::max()) d.presentation.startupWarning=rejected().error();
+    else if(auto saved=d.preferences.postSelection(++d.saveRevision,std::move(id));!saved.hasValue())
+        d.presentation.startupWarning=saved.error();
+    poll();
 }
 Result WorkstationController::applyCameraSettings(
     std::uint64_t generation, camera::CameraId id, camera::CameraConfiguration requested) {
@@ -328,8 +474,9 @@ Result WorkstationController::applyCameraSettings(
     };
     if(d.stopped || !d.presentation.controlsEnabled || d.pending || d.barrier)
         return fail(rejected().error());
-    const auto camera=d.pipeline.snapshot().camera;
-    if(!camera || camera->state!=application::CameraSessionState::ConnectedIdle ||
+    const auto snapshot=d.pipeline.snapshot();
+    const auto camera=snapshot.camera;
+    if(d.installationBusy(snapshot) || !camera || camera->state!=application::CameraSessionState::ConnectedIdle ||
         camera->sessionGeneration!=generation || !camera->actualIdentity ||
         *camera->actualIdentity!=id || d.presentation.selectedCameraId!=camera->actualIdentity ||
         !camera->capabilities || !application::isSupportedLiveCameraConfiguration(requested))
@@ -357,12 +504,14 @@ Result WorkstationController::dispatch(Intent intent) {
     const bool priority=intent==Intent::Stop || intent==Intent::Disconnect;
     if(priority && d.barrier && (d.barrierIntent==intent || d.barrierIntent==Intent::Disconnect)) return Result::success();
     if(!priority && (d.pending || d.barrier)) return rejected();
-    auto camera=d.pipeline.snapshot().camera;
+    const auto snapshot=d.pipeline.snapshot();
+    if(!priority && d.installationBusy(snapshot)) return rejected();
+    auto camera=snapshot.camera;
     const bool settingsIntent=intent==Intent::Apply || intent==Intent::Confirm || intent==Intent::Start;
     if(settingsIntent && (!camera || !camera->actualIdentity ||
         d.presentation.selectedCameraId!=camera->actualIdentity)) return rejected();
     if((intent==Intent::Confirm || intent==Intent::Start) &&
-        !d.hasSuccessfulDesiredRequest(*camera)) return rejected();
+        (!d.hasSuccessfulDesiredRequest(*camera) || !d.installationBindingCurrent(snapshot))) return rejected();
     if(intent==Intent::Start && (!camera->confirmedRevision ||
         *camera->confirmedRevision!=camera->appliedRevision)) return rejected();
     if(d.nextRequest==std::numeric_limits<std::uint64_t>::max() ||
@@ -406,7 +555,7 @@ void WorkstationController::shutdown() noexcept {
         // Capture only already-confirmed facts, without advancing poll's startup
         // or Resume continuations, before camera shutdown clears those facts.
         const auto snapshot=d.pipeline.snapshot();
-        d.captureConfirmation(snapshot.camera);
+        d.captureConfirmation(snapshot);
         d.captureProcessing(snapshot);
     } catch(...) {
         try {

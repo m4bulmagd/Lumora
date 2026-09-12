@@ -85,6 +85,52 @@ TEST(FramePresenter, EnhancedPixelsAndBundleAreAcknowledgedOnlyAfterPaint) {
     EXPECT_EQ(view.imageViewport()->accessibleName(), QStringLiteral("Enhanced image viewport"));
 }
 
+// Replacing completed-frame metadata with the newest pending frame would make
+// the orientation label lie while a retained image is paused.
+TEST(FramePresenter, OrientationFollowsPaintedFrameAndRemainsWithPausedImage) {
+    LatestValueSlot<FrameBundle> slot;
+    WorkstationView view;
+    ManualClock clock;
+    view.resize(900, 600);
+    view.show();
+    QCoreApplication::processEvents();
+    FramePresenter presenter(slot, view, clock);
+    const auto native = lumora::test::makeBundle(64U, 32U, 1U, clock);
+    const auto& source = native->originalDisplay;
+    const auto oriented = lumora::core::DisplayFrame::create(
+        1U, source->layout, source->pixels, lumora::core::DisplayStorage::Gray8,
+        source->mapping, {true, false, lumora::core::Rotation::Degrees180}).value();
+    const auto bundle = FrameBundle::create(native->raw, oriented, {}, {}).value();
+    (void)slot.publish(bundle);
+    presenter.refresh();
+    paint(view);
+    const auto* label = view.findChild<QLabel*>(QStringLiteral("orientationStatusLabel"));
+    ASSERT_NE(label, nullptr);
+    EXPECT_TRUE(label->text().contains(QStringLiteral("180°")));
+    EXPECT_TRUE(label->text().contains(QStringLiteral("H flip")));
+    const auto paintedText = label->text();
+    view.setInstallationOrientation(
+        lumora::core::Orientation{false, true, lumora::core::Rotation::Degrees270});
+    EXPECT_EQ(label->text(), paintedText);
+
+    (void)slot.publish(lumora::test::makeBundle(64U, 32U, 2U, clock));
+    presenter.refresh();
+    EXPECT_EQ(label->text(), paintedText);
+    presenter.pause();
+    paint(view);
+    EXPECT_EQ(label->text(), paintedText);
+    presenter.resume();
+    paint(view);
+    EXPECT_TRUE(label->text().contains(QStringLiteral("0°")));
+    EXPECT_FALSE(label->text().contains(QStringLiteral("H flip")));
+    LatestValueSlot<FrameBundle> replacement;
+    presenter.resetSource(replacement);
+    EXPECT_TRUE(label->text().contains(QStringLiteral("270°")));
+    EXPECT_TRUE(label->text().contains(QStringLiteral("V flip")));
+    view.setInstallationOrientation(std::nullopt);
+    EXPECT_FALSE(label->text().contains(QStringLiteral("270°")));
+}
+
 TEST(FramePresenter, FallbackLabelChangesOnlyWhenOriginalIsPainted) {
     LatestValueSlot<FrameBundle> slot;
     LatestValueSlot<FrameBundle> replacement;

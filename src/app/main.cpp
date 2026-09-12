@@ -3,6 +3,8 @@
 #include <lumora/application/LivePipeline.hpp>
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
+#include <lumora/configuration/InstallationProfilesService.hpp>
+#include <QCommandLineParser>
 #include <lumora/ui/WorkstationController.hpp>
 #include <lumora/ui/MainWindow.hpp>
 
@@ -44,6 +46,12 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName(QStringLiteral("Lumora"));
     QCoreApplication::setApplicationName(QStringLiteral("Lumora"));
 
+    QCommandLineParser parser;
+    parser.setApplicationDescription(QStringLiteral("Lumora live workstation"));
+    parser.addHelpOption();
+    parser.addOption({QStringLiteral("installation"), QStringLiteral("Request administrator installation editing (requires OS authority).")});
+    parser.process(application);
+
     const auto loggingResult =
         lumora::diagnostics::Logging::start(applicationLogDirectory());
     if (!loggingResult.hasValue()) {
@@ -56,7 +64,9 @@ int main(int argc, char* argv[]) {
     {
         lumora::core::SystemClock clock;
         lumora::camera::sim::SimulatedCameraProvider provider(lumora::app::simulatorOptions(),clock);
-        lumora::application::LivePipeline pipeline(provider,clock,lumora::app::simulatorConfiguration());
+        lumora::configuration::InstallationProfilesService installations({parser.isSet(QStringLiteral("installation")),
+            lumora::application::InstallationProfilePolicy::SimulatorIdentityFallback});
+        lumora::application::LivePipeline pipeline(provider,clock,lumora::app::simulatorConfiguration(),{},{},&installations);
         lumora::configuration::StartupPreferencesService preferences{lumora::configuration::ConfigurationStore{}};
         lumora::ui::MainWindow window;
         lumora::ui::WorkstationController controller(pipeline,preferences,window.workstationView(),
@@ -66,11 +76,12 @@ int main(int argc, char* argv[]) {
             qCritical().noquote()<<QString::fromStdString(result.error().diagnosticDetail);
             return true;
         };
-        if(reportFailure(preferences.start()) || reportFailure(pipeline.start()) || reportFailure(controller.start()))
+        if(reportFailure(installations.start()) || reportFailure(preferences.start()) || reportFailure(pipeline.start()) || reportFailure(controller.start()))
             exitCode=EXIT_FAILURE;
         else { window.show();exitCode=application.exec(); }
         controller.shutdown();
         preferences.requestStop();preferences.join();
+        installations.requestStop();installations.join();
         if(const auto status=preferences.latestStatus();status && status->warning)
             qWarning().noquote()<<QString::fromStdString(status->warning->operatorSummary);
     }

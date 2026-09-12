@@ -4,6 +4,8 @@
 #include <QCoreApplication>
 #include <QDoubleSpinBox>
 #include <QLabel>
+#include <QKeyEvent>
+#include <QLineEdit>
 #include <QLocale>
 #include <QPushButton>
 #include <QPixmap>
@@ -863,3 +865,32 @@ TEST(CameraSettingsDialog, RejectedIntentCannotAuthorizeALaterExternalRevision) 
 
 }  // namespace
 }  // namespace lumora::ui
+
+namespace lumora::ui {
+namespace {
+TEST(CameraSettingsDialog, EditingIntentIsSourceTaggedAndIncludesUncommittedNumericText) {
+    for(const bool commitValue : {false,true}) {
+        SCOPED_TRACE(commitValue);
+        CameraSettingsDialog dialog;int edits=0;
+        QObject::connect(&dialog,&CameraSettingsDialog::settingsEditingStarted,
+            [&](std::uint64_t generation,camera::CameraId id) {
+                ++edits;EXPECT_EQ(generation,17U);EXPECT_EQ(id.value,"camera-settings-1");
+            });
+        const auto presentation=settingsPresentation();dialog.setPresentation(presentation);dialog.setPresentation(presentation);
+        EXPECT_EQ(edits,0);
+        auto* exposure=dialog.findChild<QDoubleSpinBox*>("cameraExposureValue");ASSERT_NE(exposure,nullptr);
+        if(commitValue) exposure->setValue(2345);
+        else {
+            auto* input=exposure->findChild<QLineEdit*>();ASSERT_NE(input,nullptr);
+            input->selectAll();QKeyEvent event(QEvent::KeyPress,Qt::Key_2,Qt::NoModifier,QStringLiteral("2345"));
+            QCoreApplication::sendEvent(input,&event);
+            ASSERT_EQ(input->text(),QStringLiteral("2345"));
+            EXPECT_NE(exposure->value(),2345);
+        }
+        EXPECT_EQ(edits,1);
+        exposure->setValue(3456);dialog.setPresentation(presentation);
+        EXPECT_EQ(edits,1);
+    }
+}
+}
+}

@@ -452,7 +452,7 @@ TEST(LivePipeline, ConfirmationDuringSlowLoadSurvivesImagingAndDisconnect) {
     EXPECT_FALSE(f.preferences.latestStatus()->latestAttemptedSaveRevision.has_value());
     gate.release();
     ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedRevision.has_value();}));
-    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,1U);
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,2U);
     EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::Disconnected);
 }
 TEST(LivePipeline, CloseDuringSlowLoadDrainsTheAlreadyConfirmedPreferences) {
@@ -465,7 +465,7 @@ TEST(LivePipeline, CloseDuringSlowLoadDrainsTheAlreadyConfirmedPreferences) {
     f.preferences.requestStop();
     EXPECT_FALSE(f.preferences.latestStatus()->loadCompleted);
     gate.release();f.preferences.join();
-    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,1U);
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,2U);
     EXPECT_EQ(f.controller.presenter(),nullptr);
     EXPECT_FALSE(f.pipeline.snapshot().context);
 }
@@ -486,7 +486,7 @@ TEST(LivePipeline, PermanentSaveAdmissionRejectionIsNotRetriedByOrdinaryPolling)
     EXPECT_FALSE(f.preferences.latestStatus()->latestAttemptedSaveRevision.has_value());
     ASSERT_TRUE(f.act(Intent::Apply));ASSERT_TRUE(f.act(Intent::Confirm));
     ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedRevision.has_value();}));
-    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,2U);
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,3U);
 }
 TEST(LivePipeline, DuplicatePendingDisconnectRetainsItsCompletionCorrelation) {
     Gate gate;
@@ -524,7 +524,7 @@ TEST(LivePipeline, ShutdownCapturesConfirmationCompletedSinceTheLastUiPoll) {
     EXPECT_FALSE(f.preferences.latestStatus()->latestAttemptedSaveRevision.has_value());
     EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
     f.controller.shutdown();f.preferences.requestStop();gate.release();f.preferences.join();
-    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,1U);
+    EXPECT_EQ(f.preferences.latestStatus()->latestSavedRevision,2U);
     ASSERT_TRUE(observer->saved.has_value());
     EXPECT_TRUE(observer->saved->confirmed);
     EXPECT_TRUE(application::cameraConfigurationsEqual(observer->saved->lastApplied,request()));
@@ -1579,7 +1579,7 @@ TEST(LivePipeline, LatePreferencesCannotOverwriteSubmittedCameraSettings) {
     ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->loadCompleted;}));
     EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->exposure.requestedMicroseconds,200.0);
     EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->requestedFps,1.25);
-    EXPECT_FALSE(f.panel.presentation().resumeLiveAvailable);
+    EXPECT_TRUE(f.panel.presentation().resumeLiveAvailable);
     ASSERT_TRUE(f.act(Intent::Apply));
     EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->exposure.requestedMicroseconds,200.0);
     EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->requestedFps,1.25);
@@ -1606,27 +1606,32 @@ TEST(LivePipeline, SelectedOtherCameraAndFailedApplyCannotConfirmOrStartOldReadb
     EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
 }
 
-TEST(LivePipeline, ReturningToEditedCameraRequiresApplyingTheDisplayedDefaults) {
-    for(const auto intent : {Intent::Confirm,Intent::Start}) {
-        SCOPED_TRACE(static_cast<int>(intent));
+TEST(LivePipeline, ReturningToCameraRestoresConfirmedPreferencesAndDiscardsUnconfirmedEdits) {
+    for(const bool confirmedEdit : {false,true}) {
+        SCOPED_TRACE(confirmedEdit);
         Fixture f; ASSERT_TRUE(f.begin()); ASSERT_TRUE(f.act(Intent::Stop));
         const auto camera=f.pipeline.snapshot().camera;
         auto edited=request(); edited.exposure.requestedMicroseconds=250.0;
         ASSERT_TRUE(f.controller.applyCameraSettings(camera->sessionGeneration,{"SIM-LIVE"},edited).hasValue());
         ASSERT_TRUE(f.wait([&]{return !f.panel.presentation().ordinaryOperationPending;}));
-        if(intent==Intent::Start) { ASSERT_TRUE(f.act(Intent::Confirm)); }
+        if(confirmedEdit) { ASSERT_TRUE(f.act(Intent::Confirm)); }
         f.controller.selectCamera({"another-camera"}); f.controller.selectCamera({"SIM-LIVE"});
-        EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->exposure.requestedMicroseconds,100.0);
+        EXPECT_DOUBLE_EQ(*f.panel.presentation().requestedConfiguration->exposure.requestedMicroseconds,confirmedEdit?250.0:100.0);
         EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->exposure.requestedMicroseconds,250.0);
-        EXPECT_FALSE(f.panel.findChild<QPushButton*>("confirmCameraButton")->isEnabled());
-        EXPECT_FALSE(f.panel.findChild<QPushButton*>("startCameraButton")->isEnabled());
-        EXPECT_TRUE(f.panel.findChild<QPushButton*>("applyCameraButton")->isEnabled());
-        ASSERT_FALSE(f.controller.dispatch(intent).hasValue());
-        ASSERT_TRUE(f.act(Intent::Apply));
-        EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->exposure.requestedMicroseconds,100.0);
-        EXPECT_FALSE(f.pipeline.snapshot().camera->confirmedRevision);
-        ASSERT_FALSE(f.controller.dispatch(Intent::Start).hasValue());
-        ASSERT_TRUE(f.act(Intent::Confirm)); ASSERT_TRUE(f.act(Intent::Start));
+        if(confirmedEdit) {
+            EXPECT_TRUE(f.panel.presentation().resumeLiveAvailable);
+            ASSERT_TRUE(f.act(Intent::ResumeLive));
+        } else {
+            EXPECT_FALSE(f.panel.findChild<QPushButton*>("confirmCameraButton")->isEnabled());
+            EXPECT_FALSE(f.panel.findChild<QPushButton*>("startCameraButton")->isEnabled());
+            EXPECT_TRUE(f.panel.findChild<QPushButton*>("applyCameraButton")->isEnabled());
+            EXPECT_FALSE(f.controller.dispatch(Intent::Confirm).hasValue());
+            EXPECT_FALSE(f.controller.dispatch(Intent::Start).hasValue());
+            ASSERT_TRUE(f.act(Intent::Apply));
+            EXPECT_DOUBLE_EQ(*f.pipeline.snapshot().camera->requestedConfiguration->exposure.requestedMicroseconds,100.0);
+            EXPECT_FALSE(f.pipeline.snapshot().camera->confirmedRevision);
+            ASSERT_TRUE(f.act(Intent::Confirm)); ASSERT_TRUE(f.act(Intent::Start));
+        }
     }
 }
 

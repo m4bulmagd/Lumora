@@ -74,6 +74,7 @@ public:
             now - completed->raw->metadata.hostReceiptTime,
             std::chrono::steady_clock::duration::zero());
         status.frameUtc = completed->raw->metadata.acquisitionUtcTime;
+        status.presentationOrientation = completed->originalDisplay->presentationOrientation;
         status.frameAge = std::chrono::duration_cast<std::chrono::milliseconds>(hostAge);
         if (paused) {
             status.freshness = FrameFreshness::Current;

@@ -39,6 +39,10 @@ LiveResourcePreparation prepareLiveResources(const camera::CameraConfiguration& 
         result.error=std::move(assessment.error);
         return result;
     }
+    if(options.orientation!=core::Orientation{false,false,core::Rotation::Degrees0})
+        return fail({core::ErrorCategory::Processing,"custom_processor_orientation_unsupported",
+            "The custom processor cannot activate installation orientation.",
+            "Use the built-in processing engine for nonidentity installation orientation.",false});
     // Legacy factories have no storage-planning contract. Admit the known pools,
     // preserve factory compatibility, and explicitly leave private storage unknown.
     auto processingPool=core::BufferPool::plan(9,result.canonicalBytes);

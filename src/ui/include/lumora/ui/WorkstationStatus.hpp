@@ -1,5 +1,7 @@
 #pragma once
 
+#include <lumora/core/Frame.hpp>
+
 #include <chrono>
 #include <optional>
 
@@ -21,6 +23,7 @@ struct WorkstationStatus final {
     FrameFreshness freshness{FrameFreshness::WaitingForFrame};
     std::optional<std::chrono::system_clock::time_point> frameUtc;
     std::chrono::milliseconds frameAge{0};
+    std::optional<core::Orientation> presentationOrientation{std::nullopt};
 };
 
 }  // namespace lumora::ui

@@ -28,6 +28,8 @@ public:
     void setDisplayModeAvailability(bool hasImage, bool hasEnhanced);
     void setPresentedDisplayMode(DisplayMode mode);
     void setStatus(WorkstationStatus status);
+    // Used before an image is painted. Completed-frame metadata takes priority.
+    void setInstallationOrientation(std::optional<core::Orientation> orientation);
     void setProcessingStatus(processing::ProcessorStatus status, bool retryPending = false);
 
 signals:
@@ -45,6 +47,7 @@ private:
     DisplayMode presentedMode_{DisplayMode::Enhanced};
     bool enhancedImageAvailable_{false};
     WorkstationStatus status_;
+    std::optional<core::Orientation> installationOrientation_;
     processing::ProcessorStatus processingStatus_;
 };
 

@@ -17,6 +17,7 @@ public:
     void setPresentation(CameraStartupPanelPresentation presentation);
 
 signals:
+    void settingsEditingStarted(std::uint64_t sessionGeneration, camera::CameraId cameraId);
     void settingsApplyRequested(std::uint64_t sessionGeneration,
         camera::CameraId cameraId, camera::CameraConfiguration requested);
 

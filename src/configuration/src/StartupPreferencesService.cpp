@@ -1,6 +1,7 @@
 #include <lumora/configuration/StartupPreferencesService.hpp>
 #include <lumora/configuration/PresetCodec.hpp>
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstdint>
 #include <exception>
@@ -10,6 +11,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace lumora::configuration {
 namespace {
@@ -46,6 +48,12 @@ public:
     struct SaveSubmission final {
         std::uint64_t revision;
         application::StartupPreferences preferences;
+    };
+
+    struct SelectionSubmission final {
+        std::uint64_t revision;
+        camera::CameraId cameraId;
+        std::optional<core::CameraIdentity> requiredProfileIdentity;
     };
 
     struct PresetSaveSubmission final {
@@ -99,7 +107,8 @@ public:
 
     [[nodiscard]] core::Result<void> postSave(
         std::uint64_t revision,
-        application::StartupPreferences preferences) {
+        application::StartupPreferences preferences,
+        bool selectCamera) {
         const auto validated = application::validateStartupPreferences(preferences);
         if (!validated.hasValue() || !preferences.confirmed) {
             return core::Result<void>::failure(serviceError(
@@ -120,8 +129,55 @@ public:
                 "Startup preferences were not saved.",
                 "Save submission revisions must increase monotonically."));
         }
+        const auto existingPending = std::find_if(pending_.begin(), pending_.end(),
+            [&](const auto& submission) {
+                return application::cameraIdentityKeysEqual(
+                    submission.preferences.identity, preferences.identity);
+            });
+        if (existingPending == pending_.end()
+            && !profileIdentityKnown(preferences.identity)
+            && knownProfileCount() >= application::CameraPreferences::MaximumProfiles) {
+            return core::Result<void>::failure(serviceError(
+                "startup_save_capacity_reached",
+                "Startup preferences were not saved.",
+                "The maximum of 64 distinct camera identities has been reached."));
+        }
         latestAcceptedRevision_ = revision;
-        pending_ = SaveSubmission{revision, std::move(preferences)};
+        const auto selectedId = preferences.cameraId;
+        const auto selectedIdentity = preferences.identity;
+        if (existingPending == pending_.end()) {
+            pending_.push_back(SaveSubmission{revision, std::move(preferences)});
+        } else {
+            pending_.erase(existingPending);
+            pending_.push_back(SaveSubmission{revision, std::move(preferences)});
+        }
+        if (selectCamera) {
+            pendingSelection_ = SelectionSubmission{
+                revision, selectedId, selectedIdentity};
+        }
+        changed_.notify_all();
+        return core::Result<void>::success();
+    }
+
+    [[nodiscard]] core::Result<void> postSelection(
+        std::uint64_t revision, camera::CameraId cameraId) {
+        if (cameraId.value.empty()) {
+            return core::Result<void>::failure(serviceError(
+                "startup_selection_invalid", "Camera selection was not saved.",
+                "The selected logical camera ID must not be empty."));
+        }
+        std::lock_guard lock(mutex_);
+        const auto available = checkSaveAvailability();
+        if (!available.hasValue()) return available;
+        if (revision == 0U || revision <= latestAcceptedRevision_) {
+            return core::Result<void>::failure(serviceError(
+                "startup_save_revision_not_increasing",
+                "Camera selection was not saved.",
+                "Camera profile and selection revisions must increase monotonically."));
+        }
+        latestAcceptedRevision_ = revision;
+        pendingSelection_ = SelectionSubmission{
+            revision, std::move(cameraId), std::nullopt};
         changed_.notify_all();
         return core::Result<void>::success();
     }
@@ -179,6 +235,67 @@ public:
     }
 
 private:
+    [[nodiscard]] bool profileIdentityKnown(
+        const core::CameraIdentity& identity) const {
+        if (std::any_of(knownIdentities_.begin(), knownIdentities_.end(),
+                [&](const auto& known) {
+                    return application::cameraIdentityKeysEqual(known, identity);
+                })) {
+            return true;
+        }
+        if (std::any_of(inFlightIdentities_.begin(), inFlightIdentities_.end(),
+                [&](const auto& admitted) {
+                    return application::cameraIdentityKeysEqual(admitted, identity);
+                })) {
+            return true;
+        }
+        return std::any_of(pending_.begin(), pending_.end(), [&](const auto& submission) {
+            return application::cameraIdentityKeysEqual(
+                submission.preferences.identity, identity);
+        });
+    }
+
+    [[nodiscard]] std::size_t knownProfileCount() const {
+        std::vector<core::CameraIdentity> identities;
+        identities = knownIdentities_;
+        for (const auto& admitted : inFlightIdentities_) {
+            if (std::none_of(identities.begin(), identities.end(),
+                    [&](const auto& identity) {
+                        return application::cameraIdentityKeysEqual(
+                            identity, admitted);
+                    })) {
+                identities.push_back(admitted);
+            }
+        }
+        for (const auto& submission : pending_) {
+            if (std::none_of(identities.begin(), identities.end(), [&](const auto& identity) {
+                    return application::cameraIdentityKeysEqual(
+                        identity, submission.preferences.identity);
+                })) {
+                identities.push_back(submission.preferences.identity);
+            }
+        }
+        return identities.size();
+    }
+
+    static void normalizeCameraPreferences(ApplicationConfiguration& document) {
+        if (document.cameraProfiles.profiles.empty() && document.startup) {
+            document.cameraProfiles.profiles.push_back(*document.startup);
+            if (!document.cameraProfiles.lastSelectedCameraId) {
+                document.cameraProfiles.lastSelectedCameraId = document.startup->cameraId;
+            }
+        }
+        document.startup.reset();
+        if (!document.cameraProfiles.lastSelectedCameraId) return;
+        const auto selected = std::find_if(document.cameraProfiles.profiles.rbegin(),
+            document.cameraProfiles.profiles.rend(), [&](const auto& profile) {
+                return profile.cameraId == *document.cameraProfiles.lastSelectedCameraId;
+            });
+        if (selected != document.cameraProfiles.profiles.rend()) {
+            document.startup = *selected;
+        }
+    }
+
     // Caller holds mutex_; both sections share admission and source safety.
     [[nodiscard]] core::Result<void> checkSaveAvailability() const {
         if (!started_) {
@@ -203,18 +320,33 @@ private:
         auto next = application::StartupPreferencesStatus{};
         next.loadCompleted = true;
         if (loaded.hasValue()) {
-            document_ = std::move(loaded).value();
-            next.loadedPreferences = document_->startup;
-            next.loadedPresets = document_->presets;
-            next.warning = document_->loadWarning;
-            initialWarning_ = document_->loadWarning;
-            safeToSave_ = !(document_->usedDefaults && document_->loadWarning
-                && !document_->preservedInvalidFile.has_value());
+            auto document = std::move(loaded).value();
+            normalizeCameraPreferences(document);
+            std::vector<core::CameraIdentity> knownIdentities;
+            knownIdentities.reserve(document.cameraProfiles.profiles.size());
+            for (const auto& profile : document.cameraProfiles.profiles) {
+                knownIdentities.push_back(profile.identity);
+            }
+            next.loadedPreferences = document.startup;
+            next.loadedCameraPreferences = document.cameraProfiles;
+            next.loadedPresets = document.presets;
+            next.warning = document.loadWarning;
+            const auto initialWarning = document.loadWarning;
+            const auto safeToSave = !(document.usedDefaults && document.loadWarning
+                && !document.preservedInvalidFile.has_value());
+            std::lock_guard lock(mutex_);
+            document_ = std::move(document);
+            knownIdentities_ = std::move(knownIdentities);
+            initialWarning_ = initialWarning;
+            safeToSave_ = safeToSave;
+            status_ = std::make_shared<const application::StartupPreferencesStatus>(
+                std::move(next));
+            return;
         } else {
             next.warning = loaded.error();
-            safeToSave_ = false;
         }
         std::lock_guard lock(mutex_);
+        safeToSave_ = false;
         status_ = std::make_shared<const application::StartupPreferencesStatus>(
             std::move(next));
     }
@@ -226,10 +358,17 @@ private:
             next.loadCompleted = true;
             next.warning = serviceError("startup_service_worker_exception",
                 "Startup preferences are unavailable.", detail);
-            if (pending_) {
-                next.latestAttemptedSaveRevision = pending_->revision;
-                pending_.reset();
+            if (!pending_.empty() || pendingSelection_) {
+                std::uint64_t revision = pendingSelection_
+                    ? pendingSelection_->revision : 0U;
+                for (const auto& submission : pending_) {
+                    revision = std::max(revision, submission.revision);
+                }
+                next.latestAttemptedSaveRevision = revision;
+                pending_.clear();
+                pendingSelection_.reset();
             }
+            inFlightIdentities_.clear();
             if (pendingPresets_) {
                 next.latestAttemptedPresetSaveRevision = pendingPresets_->revision;
                 pendingPresets_.reset();
@@ -246,23 +385,35 @@ private:
         try {
             publishLoadResult(io_->load());
             while (true) {
-                std::optional<SaveSubmission> submission;
+                std::vector<SaveSubmission> submissions;
+                std::optional<SelectionSubmission> selection;
                 std::optional<PresetSaveSubmission> presetSubmission;
                 {
                     std::unique_lock lock(mutex_);
                     changed_.wait(lock, stopSource_.get_token(), [&] {
-                        return pending_.has_value() || pendingPresets_.has_value();
+                        return !pending_.empty() || pendingSelection_.has_value()
+                            || pendingPresets_.has_value();
                     });
-                    if (!pending_ && !pendingPresets_ && stopSource_.stop_requested()) {
+                    if (pending_.empty() && !pendingSelection_ && !pendingPresets_
+                        && stopSource_.stop_requested()) {
                         break;
                     }
-                    submission = std::move(pending_);
+                    submissions = std::move(pending_);
+                    inFlightIdentities_.clear();
+                    inFlightIdentities_.reserve(submissions.size());
+                    for (const auto& submission : submissions) {
+                        inFlightIdentities_.push_back(
+                            submission.preferences.identity);
+                    }
+                    selection = std::move(pendingSelection_);
                     presetSubmission = std::move(pendingPresets_);
-                    pending_.reset();
+                    pending_.clear();
+                    pendingSelection_.reset();
                     pendingPresets_.reset();
                 }
-                if (submission || presetSubmission) {
-                    save(std::move(submission), std::move(presetSubmission));
+                if (!submissions.empty() || selection || presetSubmission) {
+                    save(std::move(submissions), std::move(selection),
+                        std::move(presetSubmission));
                 }
             }
         } catch (const std::exception&) {
@@ -274,13 +425,18 @@ private:
         }
     }
 
-    void save(std::optional<SaveSubmission> submission,
+    void save(std::vector<SaveSubmission> submissions,
+        std::optional<SelectionSubmission> selection,
         std::optional<PresetSaveSubmission> presetSubmission) {
+        std::uint64_t cameraRevision = selection ? selection->revision : 0U;
+        for (const auto& submission : submissions) {
+            cameraRevision = std::max(cameraRevision, submission.revision);
+        }
         {
             std::lock_guard lock(mutex_);
             auto next = *status_;
-            if (submission) {
-                next.latestAttemptedSaveRevision = submission->revision;
+            if (cameraRevision != 0U) {
+                next.latestAttemptedSaveRevision = cameraRevision;
             }
             if (presetSubmission) {
                 next.latestAttemptedPresetSaveRevision = presetSubmission->revision;
@@ -291,29 +447,118 @@ private:
                     "The source configuration could not be read or preserved safely.");
                 status_ = std::make_shared<const application::StartupPreferencesStatus>(
                     std::move(next));
+                inFlightIdentities_.clear();
                 return;
             }
             status_ = std::make_shared<const application::StartupPreferencesStatus>(
                 std::move(next));
         }
 
-        if (submission) {
-            document_->startup = std::move(submission->preferences);
-            documentCameraRevision_ = submission->revision;
+        std::sort(submissions.begin(), submissions.end(),
+            [](const auto& left, const auto& right) {
+                return left.revision < right.revision;
+            });
+        bool cameraChanged = false;
+        std::vector<std::uint64_t> appliedCameraRevisions;
+        std::vector<core::CameraIdentity> failedIdentities;
+        std::optional<core::Error> mergeWarning;
+        std::optional<std::uint64_t> mergeFailureRevision;
+        for (auto& submission : submissions) {
+            auto existing = std::find_if(document_->cameraProfiles.profiles.begin(),
+                document_->cameraProfiles.profiles.end(), [&](const auto& profile) {
+                    return application::cameraIdentityKeysEqual(
+                        profile.identity, submission.preferences.identity);
+                });
+            if (existing != document_->cameraProfiles.profiles.end()) {
+                document_->cameraProfiles.profiles.erase(existing);
+                document_->cameraProfiles.profiles.push_back(
+                    std::move(submission.preferences));
+                cameraChanged = true;
+                appliedCameraRevisions.push_back(submission.revision);
+                continue;
+            }
+            if (document_->cameraProfiles.profiles.size()
+                >= application::CameraPreferences::MaximumProfiles) {
+                mergeWarning = serviceError("startup_save_capacity_reached",
+                    "Some startup preferences were not saved.",
+                    "The maximum of 64 distinct camera identities was reached after loading the source document.");
+                failedIdentities.push_back(submission.preferences.identity);
+                mergeFailureRevision = mergeFailureRevision
+                    ? std::min(*mergeFailureRevision, submission.revision)
+                    : std::optional<std::uint64_t>{submission.revision};
+                continue;
+            }
+            document_->cameraProfiles.profiles.push_back(
+                std::move(submission.preferences));
+            cameraChanged = true;
+            appliedCameraRevisions.push_back(submission.revision);
+        }
+        const auto selectionDependsOnFailedProfile = selection
+            && selection->requiredProfileIdentity
+            && std::any_of(failedIdentities.begin(), failedIdentities.end(),
+                [&](const auto& failed) {
+                    return application::cameraIdentityKeysEqual(failed,
+                        *selection->requiredProfileIdentity);
+                });
+        if (selectionDependsOnFailedProfile) {
+            mergeFailureRevision = mergeFailureRevision
+                ? std::min(*mergeFailureRevision, selection->revision)
+                : std::optional<std::uint64_t>{selection->revision};
+        }
+        if (selection && !selectionDependsOnFailedProfile) {
+            document_->cameraProfiles.lastSelectedCameraId =
+                std::move(selection->cameraId);
+            appliedCameraRevisions.push_back(selection->revision);
+            cameraChanged = true;
+        }
+        if (mergeFailureRevision
+            && (!unresolvedCameraFailureRevision_
+                || *mergeFailureRevision < *unresolvedCameraFailureRevision_)) {
+            unresolvedCameraFailureRevision_ = mergeFailureRevision;
+            unresolvedCameraFailure_ = mergeWarning;
+        }
+        for (const auto revision : appliedCameraRevisions) {
+            if (!unresolvedCameraFailureRevision_
+                || revision < *unresolvedCameraFailureRevision_) {
+                documentCameraRevision_ = documentCameraRevision_
+                    ? std::max(*documentCameraRevision_, revision)
+                    : std::optional<std::uint64_t>{revision};
+            }
+        }
+        if (cameraChanged) {
+            normalizeCameraPreferences(*document_);
         }
         if (presetSubmission) {
             document_->presets = std::move(presetSubmission->presets);
             documentPresetRevision_ = presetSubmission->revision;
         }
+        if (!cameraChanged && !presetSubmission) {
+            std::lock_guard lock(mutex_);
+            auto next = *status_;
+            next.warning = unresolvedCameraFailure_
+                ? unresolvedCameraFailure_ : initialWarning_;
+            status_ = std::make_shared<const application::StartupPreferencesStatus>(
+                std::move(next));
+            inFlightIdentities_.clear();
+            return;
+        }
+        std::vector<core::CameraIdentity> knownIdentities;
+        knownIdentities.reserve(document_->cameraProfiles.profiles.size());
+        for (const auto& profile : document_->cameraProfiles.profiles) {
+            knownIdentities.push_back(profile.identity);
+        }
         const auto saved = io_->save(*document_);
         std::lock_guard lock(mutex_);
+        inFlightIdentities_.clear();
+        knownIdentities_ = std::move(knownIdentities);
         auto next = *status_;
         if (saved.hasValue()) {
             // A later whole-document write can also persist a section whose
             // earlier write failed. Report exactly the revisions now on disk.
             next.latestSavedRevision = documentCameraRevision_;
             next.latestSavedPresetRevision = documentPresetRevision_;
-            next.warning = initialWarning_;
+            next.warning = unresolvedCameraFailure_
+                ? unresolvedCameraFailure_ : initialWarning_;
         } else {
             next.warning = saved.error();
         }
@@ -328,10 +573,15 @@ private:
     std::jthread worker_;
     std::shared_ptr<const application::StartupPreferencesStatus> status_;
     std::optional<ApplicationConfiguration> document_;
-    std::optional<SaveSubmission> pending_;
+    std::vector<core::CameraIdentity> knownIdentities_;
+    std::vector<core::CameraIdentity> inFlightIdentities_;
+    std::vector<SaveSubmission> pending_;
+    std::optional<SelectionSubmission> pendingSelection_;
     std::optional<PresetSaveSubmission> pendingPresets_;
     std::optional<std::uint64_t> documentCameraRevision_;
     std::optional<std::uint64_t> documentPresetRevision_;
+    std::optional<std::uint64_t> unresolvedCameraFailureRevision_;
+    std::optional<core::Error> unresolvedCameraFailure_;
     std::optional<core::Error> initialWarning_;
     std::uint64_t latestAcceptedRevision_{0U};
     std::uint64_t latestAcceptedPresetRevision_{0U};
@@ -356,8 +606,15 @@ core::Result<void> StartupPreferencesService::start() {
 
 core::Result<void> StartupPreferencesService::postSave(
     std::uint64_t revision,
-    application::StartupPreferences preferences) {
-    return impl_->postSave(revision, std::move(preferences));
+    application::StartupPreferences preferences,
+    bool selectCamera) {
+    return impl_->postSave(revision, std::move(preferences), selectCamera);
+}
+
+core::Result<void> StartupPreferencesService::postSelection(
+    std::uint64_t revision,
+    camera::CameraId cameraId) {
+    return impl_->postSelection(revision, std::move(cameraId));
 }
 
 core::Result<void> StartupPreferencesService::postPresetSave(

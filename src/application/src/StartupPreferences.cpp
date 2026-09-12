@@ -73,43 +73,6 @@ template<typename T>
         [](const auto& first, const auto& second) { return first == second; });
 }
 
-[[nodiscard]] bool hasDuplicatePixelFormats(
-    const std::vector<core::SourcePixelFormat>& formats) {
-    for (auto current = formats.begin(); current != formats.end(); ++current) {
-        if (std::any_of(std::next(current), formats.end(),
-                [&](const auto& candidate) {
-                    return pixelFormatsEqual(*current, candidate);
-                })) {
-            return true;
-        }
-    }
-    return false;
-}
-
-template<typename T>
-[[nodiscard]] bool hasDuplicates(const std::vector<T>& values) {
-    for (auto current = values.begin(); current != values.end(); ++current) {
-        if (std::find(std::next(current), values.end(), *current) != values.end()) {
-            return true;
-        }
-    }
-    return false;
-}
-
-[[nodiscard]] bool numericCapabilityIsFinite(
-    const camera::NumericCapability& capability) {
-    return std::isfinite(capability.minimum)
-        && std::isfinite(capability.maximum)
-        && std::isfinite(capability.increment);
-}
-
-[[nodiscard]] bool identityKeysEqual(
-    const core::CameraIdentity& left,
-    const core::CameraIdentity& right) {
-    return std::tie(left.manufacturer, left.model, left.serial)
-        == std::tie(right.manufacturer, right.model, right.serial);
-}
-
 [[nodiscard]] bool validExposureMode(camera::ExposureMode mode) {
     return mode == camera::ExposureMode::Manual || mode == camera::ExposureMode::Auto;
 }
@@ -139,26 +102,35 @@ core::Result<void> validateStartupPreferences(
             "The stable camera ID and manufacturer/model/serial identity must be present."));
     }
 
-    const auto& capabilities = preferences.confirmedCapabilities;
-    if (hasDuplicatePixelFormats(capabilities.pixelFormats)
-        || hasDuplicates(capabilities.exposureModes)
-        || hasDuplicates(capabilities.gainModes)) {
+    if (preferences.capabilityFingerprintVersion != 1U) {
         return core::Result<void>::failure(preferenceError(
-            "startup_capabilities_duplicate",
-            "Capability sets must not contain duplicates."));
+            "startup_capability_fingerprint_version_unsupported",
+            "Only capability fingerprint version 1 is supported."));
     }
-    if (!numericCapabilityIsFinite(capabilities.frameRate)
-        || !numericCapabilityIsFinite(capabilities.exposure)
-        || !numericCapabilityIsFinite(capabilities.gain)
-        || !std::all_of(capabilities.exposureModes.begin(),
-            capabilities.exposureModes.end(), validExposureMode)
-        || !std::all_of(capabilities.gainModes.begin(),
-            capabilities.gainModes.end(), validGainMode)) {
+    const auto capabilitiesResult =
+        validateCameraCapabilities(preferences.confirmedCapabilities);
+    if (!capabilitiesResult.hasValue()) {
         return core::Result<void>::failure(preferenceError(
-            "startup_capabilities_invalid",
-            "Capability numeric values and mode enumerators must be valid."));
+            capabilitiesResult.error().code == "camera_capabilities_duplicate"
+                ? "startup_capabilities_duplicate"
+                : "startup_capabilities_invalid",
+            capabilitiesResult.error().diagnosticDetail));
+    }
+    if (preferences.installationProfile) {
+        const auto& reference = *preferences.installationProfile;
+        const auto validRotation = reference.orientation.rotation == core::Rotation::Degrees0
+            || reference.orientation.rotation == core::Rotation::Degrees90
+            || reference.orientation.rotation == core::Rotation::Degrees180
+            || reference.orientation.rotation == core::Rotation::Degrees270;
+        if (reference.recordVersion != 1U || reference.revision == 0U
+            || !validRotation) {
+            return core::Result<void>::failure(preferenceError(
+                "startup_installation_reference_invalid",
+                "The installation profile reference version, revision or orientation is invalid."));
+        }
     }
 
+    const auto& capabilities = preferences.confirmedCapabilities;
     if (!validExposureMode(preferences.requested.exposure.mode)
         || !validGainMode(preferences.requested.gain.mode)
         || !validAcquisitionMode(preferences.requested.acquisitionMode)
@@ -224,7 +196,7 @@ bool isStartupResumeEligible(
     return preferences.confirmed
         && validateStartupPreferences(preferences).hasValue()
         && preferences.cameraId == cameraId
-        && identityKeysEqual(preferences.identity, identity)
+        && cameraIdentityKeysEqual(preferences.identity, identity)
         && cameraCapabilitiesEqual(preferences.confirmedCapabilities, capabilities)
         && camera::validateCameraConfiguration(preferences.requested, capabilities).hasValue();
 }

@@ -10,6 +10,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QLocale>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -17,6 +18,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <array>
 #include <climits>
 #include <cmath>
 #include <cstdint>
@@ -145,6 +147,7 @@ struct CameraSettingsDialog::Impl final {
     std::optional<camera::CameraConfiguration> submitted;
     std::uint64_t observedRevision{0};
     bool initialized{false};
+    bool editingIntentReported{false};
     bool submissionAdmitted{false};
     bool invalidated{false};
     bool rebindCompleted{false};
@@ -227,12 +230,14 @@ struct CameraSettingsDialog::Impl final {
                 || static_cast<std::size_t>(index) >= source->capabilities->pixelFormats.size()) {
                 return;
             }
+            reportEditingIntent();
             draft->pixelFormat = source->capabilities->pixelFormats[static_cast<std::size_t>(index)];
             refresh();
         });
         const auto bindRoi = [this](QSpinBox* entry, std::uint32_t core::RegionOfInterest::* field) {
             QObject::connect(entry, &QSpinBox::valueChanged, &dialog, [this, field](int value) {
                 if (!draft || value < 0) return;
+                reportEditingIntent();
                 draft->roi.*field = static_cast<std::uint32_t>(value);
                 refresh();
             });
@@ -243,24 +248,28 @@ struct CameraSettingsDialog::Impl final {
         bindRoi(roiHeight, &core::RegionOfInterest::height);
         QObject::connect(frameRateValue, &QDoubleSpinBox::valueChanged, &dialog, [this](double value) {
             if (draft) {
+                reportEditingIntent();
                 draft->requestedFps = value;
                 refresh();
             }
         });
         QObject::connect(exposureValue, &QDoubleSpinBox::valueChanged, &dialog, [this](double value) {
             if (draft && draft->exposure.mode == camera::ExposureMode::Manual) {
+                reportEditingIntent();
                 draft->exposure.requestedMicroseconds = value;
                 refresh();
             }
         });
         QObject::connect(gainValue, &QDoubleSpinBox::valueChanged, &dialog, [this](double value) {
             if (draft && draft->gain.mode == camera::GainMode::Manual) {
+                reportEditingIntent();
                 draft->gain.requestedDb = value;
                 refresh();
             }
         });
         QObject::connect(exposureMode, &QComboBox::currentIndexChanged, &dialog, [this](int index) {
             if (!draft || index < 0) return;
+            reportEditingIntent();
             draft->exposure.mode = static_cast<camera::ExposureMode>(exposureMode->currentData().toInt());
             draft->exposure.requestedMicroseconds = draft->exposure.mode == camera::ExposureMode::Manual
                 ? std::optional<double>{exposureValue->value()} : std::nullopt;
@@ -268,12 +277,32 @@ struct CameraSettingsDialog::Impl final {
         });
         QObject::connect(gainMode, &QComboBox::currentIndexChanged, &dialog, [this](int index) {
             if (!draft || index < 0) return;
+            reportEditingIntent();
             draft->gain.mode = static_cast<camera::GainMode>(gainMode->currentData().toInt());
             draft->gain.requestedDb = draft->gain.mode == camera::GainMode::Manual
                 ? std::optional<double>{gainValue->value()} : std::nullopt;
             refresh();
         });
+        // Numeric entries commit on Enter/focus change. Protect their draft
+        // as soon as typing starts, including temporarily incomplete values.
+        for(auto* entry : std::array<QAbstractSpinBox*,7>{roiX,roiY,roiWidth,roiHeight,
+            frameRateValue,exposureValue,gainValue}) {
+            if(auto* input=entry->findChild<QLineEdit*>())
+                QObject::connect(input,&QLineEdit::textEdited,&dialog,[this]{reportEditingIntent();});
+        }
         refresh();
+    }
+
+    void reportEditingIntent() {
+        const auto& current=presentation.cameraStatus;
+        if(editingIntentReported || !initialized || invalidated || rebindCompleted || !draft ||
+            !source || !source->actualIdentity || !current ||
+            current->state!=application::CameraSessionState::ConnectedIdle ||
+            current->sessionGeneration!=source->sessionGeneration || current->actualIdentity!=source->actualIdentity ||
+            presentation.selectedCameraId!=source->actualIdentity || !presentation.controlsEnabled ||
+            presentation.ordinaryOperationPending) return;
+        editingIntentReported=true;
+        emit dialog.settingsEditingStarted(source->sessionGeneration,*source->actualIdentity);
     }
 
     QLabel* label(const char* name, const QString& accessibleName) {

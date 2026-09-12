@@ -1,5 +1,7 @@
 #include <lumora/ui/CameraStartupPanel.hpp>
 #include <lumora/ui/CameraSettingsDialog.hpp>
+#include <lumora/ui/InstallationSettingsDialog.hpp>
+#include <lumora/ui/OrientationPresentation.hpp>
 #include <lumora/application/StartupPreferences.hpp>
 
 #include <QComboBox>
@@ -78,6 +80,12 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
     layout->addWidget(actual);
     auto* settings = makeButton(tr("Camera settings…"), "cameraSettingsButton", this);
     layout->addWidget(settings);
+    auto* installationStatus = new QLabel(this);
+    installationStatus->setObjectName("installationProfileStatusLabel");
+    installationStatus->setTextFormat(Qt::PlainText); installationStatus->setWordWrap(true);
+    layout->addWidget(installationStatus);
+    auto* installation = makeButton(tr("Installation settings…"), "installationSettingsButton", this);
+    layout->addWidget(installation);
     auto* apply = makeButton(tr("Apply"), "applyCameraButton", this);
     auto* confirm = makeButton(tr("Confirm"), "confirmCameraButton", this);
     auto* start = makeButton(tr("Start"), "startCameraButton", this);
@@ -112,12 +120,29 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
             next.selectedCameraId = selected;
             settingsDialog_->setPresentation(std::move(next));
         }
+        if (installationDialog_) {
+            auto next = presentation_; next.selectedCameraId = selected;
+            installationDialog_->setPresentation(std::move(next));
+        }
         emit selectionRequested(selected);
+    });
+    connect(installation, &QPushButton::clicked, this, [this] {
+        if (!installationDialog_) {
+            installationDialog_ = new InstallationSettingsDialog(this);
+            installationDialog_->setAttribute(Qt::WA_DeleteOnClose);
+            connect(installationDialog_, &InstallationSettingsDialog::installationSaveRequested,
+                this, &CameraStartupPanel::installationSaveRequested);
+            connect(installationDialog_, &QDialog::finished, this, [this] { installationDialog_ = nullptr; });
+            installationDialog_->setPresentation(presentation_);
+        }
+        installationDialog_->show(); installationDialog_->raise(); installationDialog_->activateWindow();
     });
     connect(settings, &QPushButton::clicked, this, [this] {
         if (!settingsDialog_) {
             settingsDialog_ = new CameraSettingsDialog(this);
             settingsDialog_->setAttribute(Qt::WA_DeleteOnClose);
+            connect(settingsDialog_, &CameraSettingsDialog::settingsEditingStarted,
+                this, &CameraStartupPanel::settingsEditingStarted);
             connect(settingsDialog_, &CameraSettingsDialog::settingsApplyRequested,
                 this, &CameraStartupPanel::settingsApplyRequested);
             connect(settingsDialog_, &QDialog::finished, this, [this] { settingsDialog_ = nullptr; });
@@ -148,6 +173,7 @@ void CameraStartupPanel::setPresentation(CameraStartupPanelPresentation presenta
     presentation_ = std::move(presentation);
     updatePresentation();
     if (settingsDialog_) settingsDialog_->setPresentation(presentation_);
+    if (installationDialog_) installationDialog_->setPresentation(presentation_);
 }
 
 void CameraStartupPanel::updatePresentation() {
@@ -296,8 +322,10 @@ void CameraStartupPanel::updatePresentation() {
         && status->requestedRevision != 0U
         && status->appliedRevision == status->requestedRevision;
     const bool globallyEnabled = presentation_.controlsEnabled;
+    const bool installationPending = presentation_.installationProfilePending
+        || (presentation_.installationProfiles && presentation_.installationProfiles->savePending);
     const bool ordinaryEnabled = globallyEnabled
-        && !presentation_.ordinaryOperationPending;
+        && !presentation_.ordinaryOperationPending && !installationPending;
     const bool connectedIdle = status
         && cameraState == application::CameraSessionState::ConnectedIdle;
     const bool sourceMatches = !status || !status->actualIdentity
@@ -308,6 +336,23 @@ void CameraStartupPanel::updatePresentation() {
                 return descriptor.available
                     && descriptor.id == *presentation_.selectedCameraId;
             });
+
+    auto* installation = findChild<QPushButton*>("installationSettingsButton");
+    installation->setVisible(presentation_.installationProfiles != nullptr);
+    installation->setEnabled(globallyEnabled && status && status->actualIdentity && sourceMatches);
+    auto* installationStatus = findChild<QLabel*>("installationProfileStatusLabel");
+    installationStatus->setVisible(presentation_.installationProfiles != nullptr);
+    QString installationText = presentation_.activeOrientation
+        ? tr("Active installation: %1").arg(orientationDescription(*presentation_.activeOrientation))
+        : tr("Installation: no active camera binding");
+    if (installationPending) installationText += tr("\nSaving installation settings…");
+    else if (presentation_.installationProfileError)
+        installationText += tr("\n%1").arg(QString::fromStdString(presentation_.installationProfileError->operatorSummary));
+    else if (!presentation_.installationBindingCurrent)
+        installationText += tr("\nReview installation settings, then Apply → review → Confirm → Start.");
+    else if (presentation_.installationProfileOutcome && presentation_.installationProfileOutcome->savedProfile)
+        installationText += tr("\nInstallation saved. Apply → review Original and Enhanced → Confirm → Start.");
+    installationStatus->setText(installationText);
 
     findChild<QPushButton*>(QStringLiteral("cameraSettingsButton"))
         ->setEnabled(globallyEnabled && status && status->actualIdentity
@@ -324,9 +369,8 @@ void CameraStartupPanel::updatePresentation() {
         ->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches
             && requestedConfiguration.has_value());
     findChild<QPushButton*>(QStringLiteral("confirmCameraButton"))
-        ->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches && applied && !confirmed);
-    start->setEnabled(presentation_.controlsEnabled
-        && !presentation_.ordinaryOperationPending && status
+        ->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches && applied && !confirmed && presentation_.installationBindingCurrent);
+    start->setEnabled(ordinaryEnabled && presentation_.installationBindingCurrent && status
         && status->state == application::CameraSessionState::ConnectedIdle
         && sourceMatches && confirmed && applied);
     findChild<QPushButton*>(QStringLiteral("stopCameraButton"))

@@ -148,5 +148,51 @@ TEST(StartupPreferences, ValidationRequiresPositiveFiniteAppliedFrameRate) {
     EXPECT_EQ(nonpositiveResult.error().code, "startup_applied_frame_rate_invalid");
 }
 
+TEST(CameraProfile, IdentityKeyComparisonIgnoresTransportAndFirmware) {
+    const core::CameraIdentity original{
+        "Lumora", "Simulator", "SIM-1", "usb:1", "1.0"};
+    const core::CameraIdentity rediscovered{
+        "Lumora", "Simulator", "SIM-1", "usb:9", "2.0"};
+    EXPECT_TRUE(cameraIdentityKeysEqual(original, rediscovered));
+    auto different = rediscovered;
+    different.serial = "SIM-2";
+    EXPECT_FALSE(cameraIdentityKeysEqual(original, different));
+}
+
+TEST(CameraProfile, CapabilityValidationRejectsInvalidRangesAndRoiIncrements) {
+    auto invalidRange = capabilities();
+    invalidRange.frameRate.minimum = 61.0;
+    ASSERT_FALSE(validateCameraCapabilities(invalidRange).hasValue());
+
+    auto invalidRoi = capabilities();
+    invalidRoi.roi.increment.width = 0U;
+    ASSERT_FALSE(validateCameraCapabilities(invalidRoi).hasValue());
+
+    auto invalidFormat = capabilities();
+    invalidFormat.pixelFormats.front().validBits = 0U;
+    ASSERT_FALSE(validateCameraCapabilities(invalidFormat).hasValue());
+}
+
+TEST(StartupPreferences, ValidationRejectsUnknownFingerprintAndInstallationReference) {
+    auto invalidFingerprint = preferences();
+    invalidFingerprint.capabilityFingerprintVersion = 2U;
+    const auto fingerprintResult = validateStartupPreferences(invalidFingerprint);
+    ASSERT_FALSE(fingerprintResult.hasValue());
+    EXPECT_EQ(fingerprintResult.error().code,
+        "startup_capability_fingerprint_version_unsupported");
+
+    auto invalidReference = preferences();
+    invalidReference.installationProfile = InstallationProfileReference{
+        1U, 0U, {false, false, core::Rotation::Degrees0}};
+    const auto referenceResult = validateStartupPreferences(invalidReference);
+    ASSERT_FALSE(referenceResult.hasValue());
+    EXPECT_EQ(referenceResult.error().code,
+        "startup_installation_reference_invalid");
+
+    invalidReference.installationProfile = InstallationProfileReference{
+        1U, 1U, {false, true, static_cast<core::Rotation>(99)}};
+    EXPECT_FALSE(validateStartupPreferences(invalidReference).hasValue());
+}
+
 }  // namespace
 }  // namespace lumora::application

@@ -2,6 +2,7 @@
 
 #include <lumora/application/AcquisitionWorker.hpp>
 #include <lumora/application/LiveSessionContext.hpp>
+#include <lumora/application/InstallationProfiles.hpp>
 #include <lumora/application/ProcessingWorker.hpp>
 
 #include <functional>
@@ -20,7 +21,22 @@ struct ProcessingConfigurationOutcome final {
     std::optional<processing::PipelineValidationError> error;
 };
 
+struct InstallationProfileCommand final {
+    std::uint64_t requestId;
+    std::uint64_t sessionGeneration;
+    camera::CameraId cameraId;
+    core::Orientation orientation;
+    bool confirmed;
+    bool repairInvalid{false};
+};
+
 struct LivePipelineSnapshot final {
+    std::shared_ptr<const InstallationProfilesSnapshot> installationProfiles;
+    std::optional<InstallationProfileReference> activeInstallationProfile;
+    core::Orientation activeOrientation{false, false, core::Rotation::Degrees0};
+    bool installationProfilePending{false};
+    std::optional<InstallationSaveOutcome> installationProfileOutcome;
+    std::optional<core::Error> installationProfileError;
     std::shared_ptr<const CameraStatusSnapshot> camera;
     std::shared_ptr<LiveSessionContext> context;
     bool contextBound{false};
@@ -56,13 +72,15 @@ public:
         const core::ImageLayout& sourceLayout)>;
     LivePipeline(camera::ICameraProvider& provider, core::IClock& clock,
                  camera::CameraConfiguration fixedRequest, ProcessorFactory factory = {},
-                 processing::ProcessingPreparationOptions options = {});
+                 processing::ProcessingPreparationOptions options = {},
+                 IInstallationProfiles* installationProfiles = nullptr);
     ~LivePipeline();
     LivePipeline(const LivePipeline&) = delete;
     LivePipeline& operator=(const LivePipeline&) = delete;
     [[nodiscard]] core::Result<void> start();
     [[nodiscard]] core::Result<void> post(CameraCommand command);
     [[nodiscard]] LivePipelineSnapshot snapshot() const;
+    [[nodiscard]] core::Result<void> saveInstallationProfile(InstallationProfileCommand command);
     [[nodiscard]] core::Result<void> requestProcessingRetry(std::uint64_t sessionGeneration);
     [[nodiscard]] core::Result<void> setProcessingConfiguration(
         ProcessingConfigurationCommand command);

@@ -66,6 +66,7 @@ add_executable(
   lumora_ui_tests
   support/QtTestMain.cpp
   unit/ui/CameraSettingsDialogTests.cpp
+  unit/ui/InstallationSettingsDialogTests.cpp
   unit/ui/CameraStartupPanelTests.cpp
   unit/ui/ProcessingPanelTests.cpp
   unit/ui/ProcessingControlsModelTests.cpp
@@ -125,11 +126,12 @@ add_test(NAME ProcessingControls COMMAND lumora_ui_tests --gtest_filter=Controls
 add_test(NAME WorkstationController COMMAND lumora_ui_tests --gtest_filter=WorkstationController.*)
 # Surface stalled Qt startup promptly on unattended CI runners.
 add_test(NAME CameraSettingsDialog COMMAND lumora_ui_tests --gtest_filter=CameraSettingsDialog.*)
+add_test(NAME InstallationSettingsDialog COMMAND lumora_ui_tests --gtest_filter=InstallationSettingsDialog.*)
 
 # Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
 # does not make the installed Qt platform plugins discoverable by itself.
 set_tests_properties(
-  MainWindowSmoke ViewportTransform ImageViewport ComparisonViewport CompareWorkstation WorkstationView FramePresenter CameraSettingsDialog CameraStartupPanel WorkstationController ProcessingControls
+  MainWindowSmoke ViewportTransform ImageViewport ComparisonViewport CompareWorkstation WorkstationView FramePresenter CameraSettingsDialog InstallationSettingsDialog CameraStartupPanel WorkstationController ProcessingControls
   PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
@@ -141,6 +143,8 @@ add_executable(
   integration/SimulatedViewerTests.cpp
   integration/ProcessingConfigurationTests.cpp
   integration/LivePipelineTests.cpp
+  integration/InstallationPipelineTests.cpp
+  integration/InstallationControllerTests.cpp
   integration/CameraReconfigurationTests.cpp
   "${PROJECT_SOURCE_DIR}/src/app/SimulatorComposition.cpp"
 )
@@ -161,6 +165,12 @@ add_test(NAME ProcessingConfiguration COMMAND lumora_integration_tests --gtest_f
 set_tests_properties(ProcessingConfiguration PROPERTIES TIMEOUT 180
   ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
 add_test(NAME LivePipeline COMMAND lumora_integration_tests --gtest_filter=LivePipeline.*)
+add_test(NAME InstallationPipeline COMMAND lumora_integration_tests --gtest_filter=InstallationPipeline.*)
+add_test(NAME InstallationController COMMAND lumora_integration_tests --gtest_filter=InstallationController.*)
+set_tests_properties(InstallationController PROPERTIES TIMEOUT 180
+  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+set_tests_properties(InstallationPipeline PROPERTIES TIMEOUT 180
+  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
 set_tests_properties(LivePipeline PROPERTIES TIMEOUT 180
   ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
 add_test(NAME CameraReconfiguration COMMAND lumora_integration_tests --gtest_filter=CameraReconfiguration.*)
@@ -330,6 +340,7 @@ add_executable(
   unit/configuration/ConfigurationStoreTests.cpp
   unit/configuration/PresetCodecTests.cpp
   unit/configuration/StartupPreferencesTests.cpp
+  unit/configuration/InstallationProfilesTests.cpp
 )
 
 target_link_libraries(
@@ -343,6 +354,9 @@ add_test(NAME ConfigurationStore
   COMMAND lumora_configuration_tests --gtest_filter=ConfigurationStore.*:*/InvalidConfigurationTest.*)
 add_test(NAME Configuration.StartupPreferences
   COMMAND lumora_configuration_tests --gtest_filter=StartupPreferencesTest.*:StartupPreferencesService.*)
+add_test(NAME Configuration.InstallationProfiles
+  COMMAND lumora_configuration_tests --gtest_filter=InstallationProfiles*)
+set_tests_properties(Configuration.InstallationProfiles PROPERTIES TIMEOUT 60)
 add_test(NAME Configuration.PresetCodec
   COMMAND lumora_configuration_tests --gtest_filter=PresetCodec.*)
 set_tests_properties(Configuration.PresetCodec PROPERTIES TIMEOUT 60)

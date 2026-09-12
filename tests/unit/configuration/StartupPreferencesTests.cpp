@@ -1,4 +1,5 @@
 #include <lumora/configuration/ApplicationConfiguration.hpp>
+#include <lumora/configuration/CameraProfileCodec.hpp>
 #include <lumora/configuration/ConfigurationCodec.hpp>
 #include <lumora/configuration/ConfigurationStore.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
@@ -48,6 +49,20 @@ application::StartupPreferences preferences() {
         capabilities(), cameraConfiguration(), cameraConfiguration(), true};
 }
 
+ApplicationConfiguration profileDocument(std::size_t count) {
+    ApplicationConfiguration document;
+    for (std::size_t index = 0U; index < count; ++index) {
+        auto profile = preferences();
+        profile.identity.serial = "LOADED-" + std::to_string(index);
+        profile.cameraId = {"loaded-logical-" + std::to_string(index)};
+        document.cameraProfiles.profiles.push_back(std::move(profile));
+    }
+    if (count > 0U) {
+        document.cameraProfiles.lastSelectedCameraId = {"loaded-logical-0"};
+    }
+    return document;
+}
+
 [[nodiscard]] std::filesystem::path pathFromQString(const QString& path) {
 #ifdef _WIN32
     return std::filesystem::path(path.toStdWString());
@@ -92,7 +107,7 @@ protected:
     [[nodiscard]] core::Result<ApplicationConfiguration> roundTripConfirmed() const {
         ApplicationConfiguration configuration;
         configuration.application.insert("theme", "dark");
-        configuration.cameraProfiles.insert("profile", "legacy");
+        configuration.legacyCameraProfiles.insert("profile", "legacy");
         configuration.processing.insert("pipeline", "standard");
         configuration.presets.selectedId = {"standard"};
         configuration.presets.activePipeline = processing::standardPipeline();
@@ -116,12 +131,13 @@ TEST_F(StartupPreferencesTest, Schema1DoesNotInferConfirmation) {
     const auto loaded = loadSchema1();
     ASSERT_TRUE(loaded.hasValue());
     EXPECT_FALSE(loaded.value().usedDefaults);
-    EXPECT_EQ(loaded.value().schemaVersion, 3);
+    EXPECT_EQ(loaded.value().schemaVersion, 4);
     EXPECT_EQ(loaded.value().presets.selectedId.value, "original");
     EXPECT_EQ(loaded.value().legacyPresets.value("selected"), "Standard");
     EXPECT_FALSE(loaded.value().startup.has_value());
     EXPECT_EQ(loaded.value().application.value("theme"), "dark");
-    EXPECT_EQ(loaded.value().cameraProfiles.value("legacy"), true);
+    EXPECT_EQ(loaded.value().legacyCameraProfiles.value("legacy"), true);
+    EXPECT_TRUE(loaded.value().cameraProfiles.profiles.empty());
 }
 
 TEST_F(StartupPreferencesTest, ConfirmedRecordRoundTrips) {
@@ -138,7 +154,10 @@ TEST_F(StartupPreferencesTest, ConfirmedRecordRoundTrips) {
     EXPECT_TRUE(application::cameraConfigurationsEqual(
         loaded.value().startup->lastApplied, cameraConfiguration()));
     EXPECT_EQ(loaded.value().application.value("theme"), "dark");
-    EXPECT_EQ(loaded.value().cameraProfiles.value("profile"), "legacy");
+    EXPECT_EQ(loaded.value().legacyCameraProfiles.value("profile"), "legacy");
+    ASSERT_EQ(loaded.value().cameraProfiles.profiles.size(), 1U);
+    ASSERT_TRUE(loaded.value().cameraProfiles.lastSelectedCameraId.has_value());
+    EXPECT_EQ(loaded.value().cameraProfiles.lastSelectedCameraId->value, "camera-1");
     EXPECT_EQ(loaded.value().processing.value("pipeline"), "standard");
     EXPECT_EQ(loaded.value().presets.selectedId.value, "standard");
     EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
@@ -171,18 +190,22 @@ TEST_F(StartupPreferencesTest, DuplicateCapabilityRecordIsRejected) {
     const auto encoded = ConfigurationCodec::encode(configuration);
     ASSERT_TRUE(encoded.hasValue());
     auto root = QJsonDocument::fromJson(encoded.value()).object();
-    auto startup = root.value("startup").toObject();
+    auto cameraProfiles = root.value("cameraProfiles").toObject();
+    auto profileArray = cameraProfiles.value("profiles").toArray();
+    auto startup = profileArray.at(0).toObject();
     auto capabilityObject = startup.value("confirmedCapabilities").toObject();
     auto formats = capabilityObject.value("pixelFormats").toArray();
     formats.append(formats.at(0));
     capabilityObject.insert("pixelFormats", formats);
     startup.insert("confirmedCapabilities", capabilityObject);
-    root.insert("startup", startup);
+    profileArray.replace(0, startup);
+    cameraProfiles.insert("profiles", profileArray);
+    root.insert("cameraProfiles", cameraProfiles);
 
     const auto decoded = ConfigurationCodec::decode(QJsonDocument(root).toJson());
 
     ASSERT_FALSE(decoded.hasValue());
-    EXPECT_EQ(decoded.error().code, "configuration_invalid_startup");
+    EXPECT_EQ(decoded.error().code, "configuration_invalid_camera_profiles");
 }
 
 TEST_F(StartupPreferencesTest, FutureStartupRecordVersionIsRejected) {
@@ -191,14 +214,196 @@ TEST_F(StartupPreferencesTest, FutureStartupRecordVersionIsRejected) {
     const auto encoded = ConfigurationCodec::encode(configuration);
     ASSERT_TRUE(encoded.hasValue());
     auto root = QJsonDocument::fromJson(encoded.value()).object();
-    auto startup = root.value("startup").toObject();
+    auto cameraProfiles = root.value("cameraProfiles").toObject();
+    auto profileArray = cameraProfiles.value("profiles").toArray();
+    auto startup = profileArray.at(0).toObject();
     startup.insert("recordVersion", 2);
-    root.insert("startup", startup);
+    profileArray.replace(0, startup);
+    cameraProfiles.insert("profiles", profileArray);
+    root.insert("cameraProfiles", cameraProfiles);
 
     const auto decoded = ConfigurationCodec::decode(QJsonDocument(root).toJson());
 
     ASSERT_FALSE(decoded.hasValue());
-    EXPECT_EQ(decoded.error().code, "configuration_invalid_startup");
+    EXPECT_EQ(decoded.error().code, "configuration_invalid_camera_profiles");
+}
+
+TEST_F(StartupPreferencesTest, Schema3MigratesStartupAndOpaqueCameraProfilesToSchema4) {
+    ApplicationConfiguration current;
+    current.startup = preferences();
+    current.legacyCameraProfiles.insert("opaque", 17);
+    const auto encoded = ConfigurationCodec::encode(current);
+    ASSERT_TRUE(encoded.hasValue());
+    auto root = QJsonDocument::fromJson(encoded.value()).object();
+    const auto typedProfiles = root.value("cameraProfiles").toObject();
+    const auto migratedStartup = typedProfiles.value("profiles").toArray().at(0);
+    root.insert("schemaVersion", 3);
+    root.insert("cameraProfiles", QJsonObject{{"opaque", 17}});
+    root.insert("startup", migratedStartup);
+    root.remove("legacyCameraProfiles");
+    auto oldStartup = root.value("startup").toObject();
+    oldStartup.remove("capabilityFingerprintVersion");
+    oldStartup.remove("installationProfile");
+    root.insert("startup", oldStartup);
+
+    const auto decoded = ConfigurationCodec::decode(QJsonDocument(root).toJson());
+
+    ASSERT_TRUE(decoded.hasValue()) << decoded.error().diagnosticDetail;
+    EXPECT_EQ(decoded.value().schemaVersion, 4);
+    EXPECT_EQ(decoded.value().legacyCameraProfiles.value("opaque"), 17);
+    ASSERT_EQ(decoded.value().cameraProfiles.profiles.size(), 1U);
+    EXPECT_EQ(decoded.value().cameraProfiles.profiles.front().identity.serial, "SIM-1");
+    EXPECT_EQ(decoded.value().cameraProfiles.profiles.front().capabilityFingerprintVersion, 1U);
+    EXPECT_FALSE(decoded.value().cameraProfiles.profiles.front().installationProfile.has_value());
+}
+
+TEST_F(StartupPreferencesTest, Schema2And3RejectMissingOrWrongTypedStartup) {
+    ApplicationConfiguration current;
+    current.startup = preferences();
+    const auto encoded = ConfigurationCodec::encode(current);
+    ASSERT_TRUE(encoded.hasValue());
+    const auto schema4 = QJsonDocument::fromJson(encoded.value()).object();
+    const auto profiles = schema4.value("cameraProfiles").toObject()
+        .value("profiles").toArray();
+    ASSERT_EQ(profiles.size(), 1);
+    auto legacyStartup = profiles.at(0).toObject();
+    legacyStartup.remove("capabilityFingerprintVersion");
+    legacyStartup.remove("installationProfile");
+
+    const std::vector<QJsonValue> malformed{
+        QJsonArray{}, QStringLiteral("invalid"), true, 7.0};
+    for (const int version : {2, 3}) {
+        auto base = schema4;
+        base.insert("schemaVersion", version);
+        base.insert("cameraProfiles", QJsonObject{{"opaque", true}});
+        base.remove("legacyCameraProfiles");
+        for (const auto& value : malformed) {
+            auto root = base;
+            root.insert("startup", value);
+            const auto decoded =
+                ConfigurationCodec::decode(QJsonDocument(root).toJson());
+            ASSERT_FALSE(decoded.hasValue()) << "schema " << version;
+            EXPECT_EQ(decoded.error().code, "configuration_invalid_startup");
+        }
+        auto missing = base;
+        missing.remove("startup");
+        const auto missingResult =
+            ConfigurationCodec::decode(QJsonDocument(missing).toJson());
+        ASSERT_FALSE(missingResult.hasValue()) << "schema " << version;
+        EXPECT_EQ(missingResult.error().code, "configuration_invalid_startup");
+
+        auto valid = base;
+        valid.insert("startup", legacyStartup);
+        EXPECT_TRUE(ConfigurationCodec::decode(
+            QJsonDocument(valid).toJson()).hasValue());
+        valid.insert("startup", QJsonValue{});
+        EXPECT_TRUE(ConfigurationCodec::decode(
+            QJsonDocument(valid).toJson()).hasValue());
+    }
+}
+
+TEST_F(StartupPreferencesTest, StorePreservesMalformedSchema3Startup) {
+    ApplicationConfiguration current;
+    const auto encoded = ConfigurationCodec::encode(current);
+    ASSERT_TRUE(encoded.hasValue());
+    auto root = QJsonDocument::fromJson(encoded.value()).object();
+    root.insert("schemaVersion", 3);
+    root.insert("cameraProfiles", QJsonObject{});
+    root.insert("startup", QJsonArray{});
+    root.remove("legacyCameraProfiles");
+    const auto original = QJsonDocument(root).toJson();
+#ifdef _WIN32
+    QFile file(QString::fromStdWString(path_.native()));
+#else
+    QFile file(QString::fromUtf8(path_.native()));
+#endif
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    ASSERT_EQ(file.write(original), original.size());
+    file.close();
+
+    const auto loaded = ConfigurationStore(path_).load();
+
+    ASSERT_TRUE(loaded.hasValue());
+    EXPECT_TRUE(loaded.value().usedDefaults);
+    ASSERT_TRUE(loaded.value().preservedInvalidFile.has_value());
+    EXPECT_TRUE(std::filesystem::exists(*loaded.value().preservedInvalidFile));
+}
+
+TEST_F(StartupPreferencesTest, Schema4RoundTripOmitsLegacyStartupAuthority) {
+    ApplicationConfiguration configuration;
+    auto cameraA = preferences();
+    cameraA.cameraId = {"logical-a"};
+    cameraA.identity.serial = "SERIAL-A";
+    cameraA.installationProfile = application::InstallationProfileReference{
+        1U, 9007199254740993ULL,
+        {true, false, core::Rotation::Degrees270}};
+    configuration.cameraProfiles.lastSelectedCameraId = cameraA.cameraId;
+    configuration.cameraProfiles.profiles.push_back(cameraA);
+    auto ignoredLegacyStartup = preferences();
+    ignoredLegacyStartup.identity.serial = "IGNORED";
+    configuration.startup = ignoredLegacyStartup;
+
+    const auto encoded = ConfigurationCodec::encode(configuration);
+    ASSERT_TRUE(encoded.hasValue()) << encoded.error().diagnosticDetail;
+    const auto root = QJsonDocument::fromJson(encoded.value()).object();
+    EXPECT_EQ(root.value("schemaVersion").toInt(), 4);
+    EXPECT_FALSE(root.contains("startup"));
+    const auto decoded = ConfigurationCodec::decode(encoded.value());
+    ASSERT_TRUE(decoded.hasValue()) << decoded.error().diagnosticDetail;
+    ASSERT_EQ(decoded.value().cameraProfiles.profiles.size(), 1U);
+    const auto& roundTripped = decoded.value().cameraProfiles.profiles.front();
+    EXPECT_EQ(roundTripped.identity.serial, "SERIAL-A");
+    ASSERT_TRUE(roundTripped.installationProfile.has_value());
+    EXPECT_EQ(roundTripped.installationProfile->revision, 9007199254740993ULL);
+    EXPECT_EQ(roundTripped.installationProfile->orientation,
+        (core::Orientation{true, false, core::Rotation::Degrees270}));
+}
+
+TEST_F(StartupPreferencesTest, FutureSchema5IsRejected) {
+    const auto encoded = ConfigurationCodec::encode(ApplicationConfiguration{});
+    ASSERT_TRUE(encoded.hasValue());
+    auto root = QJsonDocument::fromJson(encoded.value()).object();
+    root.insert("schemaVersion", 5);
+
+    const auto decoded = ConfigurationCodec::decode(QJsonDocument(root).toJson());
+
+    ASSERT_FALSE(decoded.hasValue());
+    EXPECT_EQ(decoded.error().code, "configuration_future_schema");
+}
+
+TEST_F(StartupPreferencesTest, DuplicateStableIdentitiesAreRejectedWithoutEviction) {
+    ApplicationConfiguration configuration;
+    auto original = preferences();
+    auto duplicate = original;
+    duplicate.cameraId = {"different-logical-id"};
+    duplicate.identity.transport = "different-transport";
+    duplicate.identity.firmware = "different-firmware";
+    configuration.cameraProfiles.profiles = {original, duplicate};
+
+    const auto encoded = ConfigurationCodec::encode(configuration);
+
+    ASSERT_FALSE(encoded.hasValue());
+    EXPECT_EQ(encoded.error().code, "configuration_duplicate_camera_profile");
+}
+
+TEST_F(StartupPreferencesTest, SharedIdentityAndCapabilityCodecsRoundTripStructuralData) {
+    const auto identity = preferences().identity;
+    const auto decodedIdentity = decodeCameraIdentity(encodeCameraIdentity(identity));
+    ASSERT_TRUE(decodedIdentity.hasValue());
+    EXPECT_TRUE(application::cameraIdentityKeysEqual(
+        decodedIdentity.value(), identity));
+    EXPECT_EQ(decodedIdentity.value().transport, "virtual");
+    EXPECT_EQ(decodedIdentity.value().firmware, "1.0");
+
+    auto reordered = capabilities();
+    std::reverse(reordered.exposureModes.begin(), reordered.exposureModes.end());
+    std::reverse(reordered.gainModes.begin(), reordered.gainModes.end());
+    const auto decodedCapabilities =
+        decodeCameraCapabilities(encodeCameraCapabilities(reordered));
+    ASSERT_TRUE(decodedCapabilities.hasValue())
+        << decodedCapabilities.error().diagnosticDetail;
+    EXPECT_TRUE(application::cameraCapabilitiesEqual(
+        decodedCapabilities.value(), capabilities()));
 }
 
 struct IoState final {
@@ -220,6 +425,7 @@ struct IoState final {
     std::vector<std::thread::id> saveThreads;
     std::optional<ApplicationConfiguration> savedDocument;
     std::vector<ApplicationConfiguration> savedDocuments;
+    std::optional<ApplicationConfiguration> loadedDocument;
 };
 
 class RecordingIo final : public IStartupPreferencesIo {
@@ -244,8 +450,9 @@ public:
             return core::Result<ApplicationConfiguration>::failure({core::ErrorCategory::Configuration,
                 "scripted_read_failure", "Source could not be read.", {}, true});
         }
-        ApplicationConfiguration configuration;
-        configuration.startup = preferences();
+        ApplicationConfiguration configuration = state_->loadedDocument.value_or(
+            ApplicationConfiguration{});
+        if (!state_->loadedDocument) configuration.startup = preferences();
         configuration.application.insert("theme", "retained-theme");
         if (state_->recoveredPresets) {
             application::Preset recipe{{"saved-user"}, "Retained user recipe", "", false, 1, 23, processing::standardPipeline()};
@@ -267,7 +474,8 @@ public:
 
     core::Result<void> save(const ApplicationConfiguration& configuration) override {
         std::unique_lock lock(state_->mutex);
-        state_->savedSerials.push_back(configuration.startup->identity.serial);
+        state_->savedSerials.push_back(configuration.startup
+                ? configuration.startup->identity.serial : std::string{});
         state_->saveThreads.push_back(std::this_thread::get_id());
         state_->savedDocument = configuration;
         state_->savedDocuments.push_back(configuration);
@@ -302,6 +510,152 @@ struct ReleaseLoadOnExit final {
     }
     ~ReleaseLoadOnExit() { release(); }
 };
+
+TEST(StartupPreferencesService, DistinctCameraSavesSurviveCoalescingWhileLoadIsBlocked) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(release.wait());
+
+    auto cameraA = preferences();
+    cameraA.cameraId = {"logical-a"};
+    cameraA.identity.serial = "SERIAL-A";
+    auto cameraB = preferences();
+    cameraB.cameraId = {"logical-b"};
+    cameraB.identity.serial = "SERIAL-B";
+    ASSERT_TRUE(service.postSave(1U, cameraA).hasValue());
+    ASSERT_TRUE(service.postSave(2U, cameraB).hasValue());
+
+    service.requestStop();
+    release.release();
+    service.join();
+
+    ASSERT_TRUE(state->savedDocument.has_value());
+    const auto& savedProfiles = state->savedDocument->cameraProfiles.profiles;
+    const auto hasSerial = [&](const std::string& serial) {
+        return std::any_of(savedProfiles.begin(), savedProfiles.end(),
+            [&](const auto& profile) { return profile.identity.serial == serial; });
+    };
+    EXPECT_TRUE(hasSerial("SERIAL-A"));
+    EXPECT_TRUE(hasSerial("SERIAL-B"));
+}
+
+TEST(StartupPreferencesService, CoalescedABAUsesRevisionOrderAfterBlockedLoad) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(release.wait());
+    auto cameraA = preferences();
+    cameraA.cameraId = {"shared-logical"};
+    cameraA.identity.serial = "SERIAL-A";
+    auto cameraB = preferences();
+    cameraB.cameraId = {"shared-logical"};
+    cameraB.identity.serial = "SERIAL-B";
+    ASSERT_TRUE(service.postSave(1U, cameraA).hasValue());
+    ASSERT_TRUE(service.postSave(2U, cameraB).hasValue());
+    cameraA.identity.transport = "newest-a-transport";
+    ASSERT_TRUE(service.postSave(3U, cameraA).hasValue());
+    service.requestStop();
+    release.release();
+    service.join();
+
+    ASSERT_TRUE(state->savedDocument.has_value());
+    const auto& saved = state->savedDocument->cameraProfiles.profiles;
+    const auto a = std::find_if(saved.begin(), saved.end(), [](const auto& profile) {
+        return profile.identity.serial == "SERIAL-A";
+    });
+    const auto b = std::find_if(saved.begin(), saved.end(), [](const auto& profile) {
+        return profile.identity.serial == "SERIAL-B";
+    });
+    ASSERT_NE(a, saved.end());
+    ASSERT_NE(b, saved.end());
+    EXPECT_LT(std::distance(saved.begin(), b), std::distance(saved.begin(), a));
+    EXPECT_EQ(a->identity.transport, "newest-a-transport");
+    const auto encoded = ConfigurationCodec::encode(*state->savedDocument);
+    ASSERT_TRUE(encoded.hasValue());
+    const auto decoded = ConfigurationCodec::decode(encoded.value());
+    ASSERT_TRUE(decoded.hasValue());
+    ASSERT_TRUE(decoded.value().startup.has_value());
+    EXPECT_EQ(decoded.value().startup->identity.serial, "SERIAL-A");
+    EXPECT_EQ(decoded.value().startup->identity.transport, "newest-a-transport");
+}
+
+TEST(StartupPreferencesService, SelectionIsIndependentAndDoesNotCreateConfirmation) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(release.wait());
+
+    auto cameraA = preferences();
+    cameraA.cameraId = {"logical-a"};
+    cameraA.identity.serial = "SERIAL-A";
+    ASSERT_TRUE(service.postSave(1U, cameraA, false).hasValue());
+    ASSERT_TRUE(service.postSelection(2U, {"logical-b"}).hasValue());
+    EXPECT_FALSE(service.postSave(2U, cameraA, false).hasValue());
+    service.requestStop();
+    release.release();
+    service.join();
+
+    ASSERT_TRUE(state->savedDocument.has_value());
+    ASSERT_TRUE(state->savedDocument->cameraProfiles.lastSelectedCameraId.has_value());
+    EXPECT_EQ(state->savedDocument->cameraProfiles.lastSelectedCameraId->value,
+        "logical-b");
+    EXPECT_TRUE(std::none_of(state->savedDocument->cameraProfiles.profiles.begin(),
+        state->savedDocument->cameraProfiles.profiles.end(), [](const auto& profile) {
+            return profile.cameraId.value == "logical-b";
+        }));
+    EXPECT_FALSE(state->savedDocument->startup.has_value());
+}
+
+TEST(StartupPreferencesService, CapacityRejectionRetainsAcceptedExistingUpdate) {
+    auto state = std::make_shared<IoState>();
+    ApplicationConfiguration loaded;
+    for (std::size_t index = 0U;
+         index < application::CameraPreferences::MaximumProfiles; ++index) {
+        auto profile = preferences();
+        profile.identity.serial = "SERIAL-" + std::to_string(index);
+        profile.cameraId = {"logical-" + std::to_string(index)};
+        loaded.cameraProfiles.profiles.push_back(std::move(profile));
+    }
+    loaded.cameraProfiles.lastSelectedCameraId = {"logical-0"};
+    state->loadedDocument = loaded;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ASSERT_TRUE(service.start().hasValue());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    while (!service.latestStatus()->loadCompleted
+        && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
+    }
+    ASSERT_TRUE(service.latestStatus()->loadCompleted);
+
+    auto updated = loaded.cameraProfiles.profiles.front();
+    updated.requested.requestedFps = 31.0;
+    ASSERT_TRUE(service.postSave(1U, updated, false).hasValue());
+    auto newIdentity = preferences();
+    newIdentity.identity.serial = "SERIAL-OVER-CAPACITY";
+    const auto rejected = service.postSave(2U, newIdentity, false);
+    ASSERT_FALSE(rejected.hasValue());
+    EXPECT_EQ(rejected.error().code, "startup_save_capacity_reached");
+    service.requestStop();
+    service.join();
+
+    ASSERT_TRUE(state->savedDocument.has_value());
+    const auto saved = std::find_if(
+        state->savedDocument->cameraProfiles.profiles.begin(),
+        state->savedDocument->cameraProfiles.profiles.end(), [](const auto& profile) {
+            return profile.identity.serial == "SERIAL-0";
+        });
+    ASSERT_NE(saved, state->savedDocument->cameraProfiles.profiles.end());
+    EXPECT_EQ(saved->requested.requestedFps, 31.0);
+    EXPECT_EQ(state->savedDocument->cameraProfiles.profiles.size(),
+        application::CameraPreferences::MaximumProfiles);
+}
 
 TEST(StartupPreferencesService, AcceptedSaveFailsWithoutWritingAfterUnpreservedLoad) {
     auto state = std::make_shared<IoState>();
@@ -360,8 +714,10 @@ TEST(StartupPreferencesService, SlowLoadCoalescesOnlyTheNewestValidIncreasingCon
     ASSERT_TRUE(service.start().hasValue());
     ASSERT_TRUE(release.wait());
     auto record = preferences();
+    record.identity.serial = "COALESCED-IDENTITY";
     for (std::uint64_t revision = 1U; revision <= 100U; ++revision) {
-        record.identity.serial = "CONFIRMED-" + std::to_string(revision);
+        record.cameraId.value = "camera-" + std::to_string(revision);
+        record.identity.transport = "virtual:" + std::to_string(revision);
         ASSERT_TRUE(service.postSave(revision, record).hasValue());
     }
     EXPECT_FALSE(service.postSave(100U, preferences()).hasValue());
@@ -371,7 +727,12 @@ TEST(StartupPreferencesService, SlowLoadCoalescesOnlyTheNewestValidIncreasingCon
     service.requestStop();
     release.release();
     service.join();
-    EXPECT_EQ(state->savedSerials, (std::vector<std::string>{"CONFIRMED-100"}));
+    EXPECT_EQ(state->savedSerials,
+        (std::vector<std::string>{"COALESCED-IDENTITY"}));
+    ASSERT_TRUE(state->savedDocument.has_value());
+    ASSERT_TRUE(state->savedDocument->startup.has_value());
+    EXPECT_EQ(state->savedDocument->startup->cameraId.value, "camera-100");
+    EXPECT_EQ(state->savedDocument->startup->identity.transport, "virtual:100");
     EXPECT_EQ(service.latestStatus()->latestAttemptedSaveRevision, 100U);
     EXPECT_EQ(service.latestStatus()->latestSavedRevision, 100U);
 }
@@ -696,6 +1057,219 @@ struct ReleaseSaveOnExit final {
     }
     ~ReleaseSaveOnExit() { release(); }
 };
+
+TEST(StartupPreferencesService, InFlightIdentityReservesFinalCapacitySlot) {
+    auto state = std::make_shared<IoState>();
+    state->loadedDocument = profileDocument(
+        application::CameraPreferences::MaximumProfiles - 1U);
+    state->blockFirstSave = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseSaveOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue());
+    const auto loadDeadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    while (!service.latestStatus()->loadCompleted
+        && std::chrono::steady_clock::now() < loadDeadline) {
+        std::this_thread::yield();
+    }
+    ASSERT_TRUE(service.latestStatus()->loadCompleted);
+    auto finalIdentity = preferences();
+    finalIdentity.identity.serial = "FINAL-CAPACITY-IDENTITY";
+    finalIdentity.cameraId = {"final-capacity-logical"};
+    ASSERT_TRUE(service.postSave(1U, finalIdentity, false).hasValue());
+    ASSERT_TRUE(release.wait());
+
+    auto overflow = preferences();
+    overflow.identity.serial = "OVERFLOW-IDENTITY";
+    overflow.cameraId = {"overflow-logical"};
+    const auto rejected = service.postSave(2U, overflow, false);
+    ASSERT_FALSE(rejected.hasValue());
+    EXPECT_EQ(rejected.error().code, "startup_save_capacity_reached");
+    auto existingUpdate = state->loadedDocument->cameraProfiles.profiles.front();
+    existingUpdate.requested.requestedFps = 31.0;
+    ASSERT_TRUE(service.postSave(2U, existingUpdate, false).hasValue());
+    service.requestStop();
+    release.release();
+    service.join();
+
+    ASSERT_EQ(state->savedDocuments.size(), 2U);
+    const auto& saved = state->savedDocuments.back().cameraProfiles.profiles;
+    EXPECT_EQ(saved.size(), application::CameraPreferences::MaximumProfiles);
+    EXPECT_TRUE(std::any_of(saved.begin(), saved.end(), [](const auto& profile) {
+        return profile.identity.serial == "FINAL-CAPACITY-IDENTITY";
+    }));
+    EXPECT_FALSE(std::any_of(saved.begin(), saved.end(), [](const auto& profile) {
+        return profile.identity.serial == "OVERFLOW-IDENTITY";
+    }));
+    const auto updated = std::find_if(saved.begin(), saved.end(), [](const auto& profile) {
+        return profile.identity.serial == "LOADED-0";
+    });
+    ASSERT_NE(updated, saved.end());
+    EXPECT_EQ(updated->requested.requestedFps, 31.0);
+    EXPECT_EQ(service.latestStatus()->latestSavedRevision, 2U);
+}
+
+TEST(StartupPreferencesService, OverflowAfterBlockedFullLoadStaysFailedAcrossPresetSave) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    state->loadedDocument =
+        profileDocument(application::CameraPreferences::MaximumProfiles);
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit releaseLoad{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(releaseLoad.wait());
+    auto existingUpdate = state->loadedDocument->cameraProfiles.profiles.front();
+    existingUpdate.requested.requestedFps = 31.0;
+    ASSERT_TRUE(service.postSave(6U, existingUpdate, false).hasValue());
+    auto overflow = preferences();
+    overflow.identity.serial = "OVERFLOW-IDENTITY";
+    overflow.cameraId = {"overflow-logical"};
+    ASSERT_TRUE(service.postSave(7U, overflow).hasValue());
+    releaseLoad.release();
+    const auto cameraDeadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    while ((!service.latestStatus()->warning
+            || service.latestStatus()->warning->code
+                != "startup_save_capacity_reached")
+        && std::chrono::steady_clock::now() < cameraDeadline) {
+        std::this_thread::yield();
+    }
+    ASSERT_TRUE(service.latestStatus()->warning.has_value());
+    ASSERT_TRUE(service.postPresetSave(1U, standardPresets()).hasValue());
+    const auto presetDeadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    while (service.latestStatus()->latestSavedPresetRevision != 1U
+        && std::chrono::steady_clock::now() < presetDeadline) {
+        std::this_thread::yield();
+    }
+    service.requestStop();
+    service.join();
+
+    ASSERT_TRUE(state->savedDocument.has_value());
+    const auto& saved = state->savedDocument->cameraProfiles;
+    EXPECT_EQ(saved.profiles.size(), application::CameraPreferences::MaximumProfiles);
+    EXPECT_FALSE(std::any_of(saved.profiles.begin(), saved.profiles.end(),
+        [](const auto& profile) {
+            return profile.identity.serial == "OVERFLOW-IDENTITY";
+        }));
+    const auto updated = std::find_if(saved.profiles.begin(), saved.profiles.end(),
+        [](const auto& profile) { return profile.identity.serial == "LOADED-0"; });
+    ASSERT_NE(updated, saved.profiles.end());
+    EXPECT_EQ(updated->requested.requestedFps, 31.0);
+    ASSERT_TRUE(saved.lastSelectedCameraId.has_value());
+    EXPECT_EQ(saved.lastSelectedCameraId->value, "loaded-logical-0");
+    const auto status = service.latestStatus();
+    EXPECT_EQ(status->latestSavedRevision, 6U);
+    EXPECT_EQ(status->latestSavedPresetRevision, 1U);
+    ASSERT_TRUE(status->warning.has_value());
+    EXPECT_EQ(status->warning->code, "startup_save_capacity_reached");
+}
+
+TEST(StartupPreferencesService,
+    SuppressedEarlierSelectionStopsDurabilityPrefixAcrossPresetSave) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    state->loadedDocument =
+        profileDocument(application::CameraPreferences::MaximumProfiles);
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit releaseLoad{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(releaseLoad.wait());
+
+    auto newCamera = preferences();
+    newCamera.identity.serial = "NEW-CAMERA";
+    newCamera.cameraId = {"new-logical"};
+    ASSERT_TRUE(service.postSave(1U, newCamera, true).hasValue());
+
+    auto existingUpdate = state->loadedDocument->cameraProfiles.profiles.at(1U);
+    existingUpdate.requested.requestedFps = 31.0;
+    ASSERT_TRUE(service.postSave(2U, existingUpdate, false).hasValue());
+
+    newCamera.requested.requestedFps = 32.0;
+    ASSERT_TRUE(service.postSave(3U, newCamera, false).hasValue());
+    releaseLoad.release();
+
+    const auto cameraDeadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    while ((!service.latestStatus()->warning
+            || service.latestStatus()->warning->code
+                != "startup_save_capacity_reached")
+        && std::chrono::steady_clock::now() < cameraDeadline) {
+        std::this_thread::yield();
+    }
+    ASSERT_TRUE(service.latestStatus()->warning.has_value());
+    ASSERT_TRUE(service.postPresetSave(1U, standardPresets()).hasValue());
+    const auto presetDeadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    while (service.latestStatus()->latestSavedPresetRevision != 1U
+        && std::chrono::steady_clock::now() < presetDeadline) {
+        std::this_thread::yield();
+    }
+    service.requestStop();
+    service.join();
+
+    ASSERT_TRUE(state->savedDocument.has_value());
+    const auto& saved = state->savedDocument->cameraProfiles;
+    EXPECT_FALSE(std::any_of(saved.profiles.begin(), saved.profiles.end(),
+        [](const auto& profile) {
+            return profile.identity.serial == "NEW-CAMERA";
+        }));
+    const auto updated = std::find_if(saved.profiles.begin(), saved.profiles.end(),
+        [](const auto& profile) { return profile.identity.serial == "LOADED-1"; });
+    ASSERT_NE(updated, saved.profiles.end());
+    EXPECT_EQ(updated->requested.requestedFps, 31.0);
+    ASSERT_TRUE(saved.lastSelectedCameraId.has_value());
+    EXPECT_EQ(saved.lastSelectedCameraId->value, "loaded-logical-0");
+
+    const auto status = service.latestStatus();
+    EXPECT_FALSE(status->latestSavedRevision.has_value());
+    EXPECT_EQ(status->latestSavedPresetRevision, 1U);
+    ASSERT_TRUE(status->warning.has_value());
+    EXPECT_EQ(status->warning->code, "startup_save_capacity_reached");
+}
+
+TEST(StartupPreferencesService, CoalescedABAUsesRevisionOrderBehindBlockedSave) {
+    auto state = std::make_shared<IoState>();
+    state->blockFirstSave = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseSaveOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue());
+    ASSERT_TRUE(service.postPresetSave(1U, standardPresets()).hasValue());
+    ASSERT_TRUE(release.wait());
+    auto cameraA = preferences();
+    cameraA.cameraId = {"shared-logical"};
+    cameraA.identity.serial = "SERIAL-A";
+    auto cameraB = preferences();
+    cameraB.cameraId = {"shared-logical"};
+    cameraB.identity.serial = "SERIAL-B";
+    ASSERT_TRUE(service.postSave(1U, cameraA).hasValue());
+    ASSERT_TRUE(service.postSave(2U, cameraB).hasValue());
+    cameraA.identity.transport = "newest-a-transport";
+    ASSERT_TRUE(service.postSave(3U, cameraA).hasValue());
+    service.requestStop();
+    release.release();
+    service.join();
+
+    ASSERT_EQ(state->savedDocuments.size(), 2U);
+    const auto& document = state->savedDocuments.back();
+    const auto& saved = document.cameraProfiles.profiles;
+    const auto a = std::find_if(saved.begin(), saved.end(), [](const auto& profile) {
+        return profile.identity.serial == "SERIAL-A";
+    });
+    const auto b = std::find_if(saved.begin(), saved.end(), [](const auto& profile) {
+        return profile.identity.serial == "SERIAL-B";
+    });
+    ASSERT_NE(a, saved.end());
+    ASSERT_NE(b, saved.end());
+    EXPECT_LT(std::distance(saved.begin(), b), std::distance(saved.begin(), a));
+    EXPECT_EQ(a->identity.transport, "newest-a-transport");
+    const auto encoded = ConfigurationCodec::encode(document);
+    ASSERT_TRUE(encoded.hasValue());
+    const auto decoded = ConfigurationCodec::decode(encoded.value());
+    ASSERT_TRUE(decoded.hasValue());
+    ASSERT_TRUE(decoded.value().startup.has_value());
+    EXPECT_EQ(decoded.value().startup->identity.serial, "SERIAL-A");
+}
 
 TEST(StartupPreferencesService, PublishesInitialPresetsWithoutAnySaveOrCameraIntent) {
     auto state = std::make_shared<IoState>();

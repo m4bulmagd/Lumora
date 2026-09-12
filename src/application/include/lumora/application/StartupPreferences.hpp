@@ -1,12 +1,15 @@
 #pragma once
 
+#include <lumora/application/CameraProfile.hpp>
 #include <lumora/application/Preset.hpp>
 #include <lumora/camera/CameraTypes.hpp>
 #include <lumora/core/Error.hpp>
 #include <lumora/core/Result.hpp>
 
 #include <cstdint>
+#include <cstddef>
 #include <optional>
+#include <vector>
 
 namespace lumora::application {
 
@@ -18,6 +21,15 @@ struct StartupPreferences final {
     camera::CameraConfiguration requested;
     camera::CameraConfiguration lastApplied;
     bool confirmed{false};
+    std::uint32_t capabilityFingerprintVersion{1};
+    std::optional<InstallationProfileReference> installationProfile{std::nullopt};
+};
+
+struct CameraPreferences final {
+    static constexpr std::size_t MaximumProfiles = 64U;
+
+    std::optional<camera::CameraId> lastSelectedCameraId;
+    std::vector<StartupPreferences> profiles;
 };
 
 struct StartupPreferencesStatus final {
@@ -25,6 +37,7 @@ struct StartupPreferencesStatus final {
     // These remain the initial loaded records. Successful saves are represented
     // by the section revisions below; they do not rewrite load provenance.
     std::optional<StartupPreferences> loadedPreferences;
+    std::optional<CameraPreferences> loadedCameraPreferences;
     std::optional<PresetState> loadedPresets;
     std::optional<std::uint64_t> latestAttemptedSaveRevision;
     std::optional<std::uint64_t> latestSavedRevision;

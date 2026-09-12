@@ -38,7 +38,11 @@ public:
     // submissions and drains the newest accepted value after load completes.
     [[nodiscard]] core::Result<void> postSave(
         std::uint64_t revision,
-        application::StartupPreferences preferences);
+        application::StartupPreferences preferences,
+        bool selectCamera = true);
+    [[nodiscard]] core::Result<void> postSelection(
+        std::uint64_t revision,
+        camera::CameraId cameraId);
     // Preset revisions increase independently from camera revisions. Each
     // section coalesces separately; one worker merges both into one document.
     // The same admission, source safety and shutdown rules apply.
