@@ -187,3 +187,11 @@ The local `codex/m09-format-roi` continuation adds **Pixel format** and **Image 
 Production SIM-LIVE advertises only Mono12, x/y zero and dimensions up to 640×480; smaller ROI requests are supported. Bounds, increments and containment come from capabilities. Unrepresentable unsigned editor ranges disable Apply with an explanation. Format changes are exercised with additional simulator fixtures; no physical-camera format support is implied.
 
 The camera remains open and frame IDs continue. Processing settings and display-mode selection survive; the old image, pause and viewport state reset before new frames arrive. Confirmed full settings use the existing saved Resume workflow. [Task 4C evidence](../architecture/milestones/m09-format-roi.md) records exact local verification, the temporary matching Qt runtime used for native X11 checks, and the remaining scope. This continuation has not yet been published or verified by hosted Windows CI.
+
+### Per-camera preferences and installation orientation (local continuation)
+
+The local `codex/m09-camera-profiles` branch includes the ROI/format continuation and remembers confirmed acquisition settings by manufacturer/model/serial. Selection is stored independently. Compatible requests return when the camera is discovered; changed identity, capabilities or installation binding require review before Resume.
+
+**Camera installation** shows orientation read-only during normal launch. Editing requires deliberate `--installation` launch plus actual OS administrator authority, a stopped current camera, matching Original/Enhanced previews and explicit consent. **Save installation** persists the machine profile; follow **Apply → review → Confirm → Start** to activate it. Saving does not restart acquisition. Native Original and intermediate pixels remain unchanged, and the status follows the displayed or paused frame.
+
+Linux machine data uses `/etc/lumora/installation-profiles.json`. Startup validates the existing path authority without creating or repairing it. Unsafe ownership/write permissions require administrator correction; invalid data requires explicit preserved-backup repair. The [Task 4D record](../architecture/milestones/m09-camera-profiles.md) details local verification and remaining Windows/platform gates.
