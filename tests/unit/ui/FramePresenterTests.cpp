@@ -113,9 +113,14 @@ TEST(FramePresenter, FallbackLabelChangesOnlyWhenOriginalIsPainted) {
     EXPECT_EQ(view.imageViewport()->accessibleName(), QStringLiteral("Original image viewport"));
 
     presenter.resetSource(replacement);
-    EXPECT_EQ(label->text(), QStringLiteral("Enhanced"));
+    EXPECT_EQ(label->text(), QStringLiteral("Original (fallback)"));
     EXPECT_EQ(presenter.presentedBundle(), nullptr);
     EXPECT_EQ(view.status().freshness, FrameFreshness::WaitingForFrame);
+    (void)replacement.publish(makeEnhancedBundle(1U,clock));
+    presenter.refresh();
+    paint(view);
+    EXPECT_EQ(presenter.displayMode(),lumora::ui::DisplayMode::Original);
+    EXPECT_EQ(label->text(),QStringLiteral("Original"));
 }
 
 TEST(FramePresenter, PauseKeepsPaintedEnhancedPixelsAndLabelAcrossPendingFallback) {
@@ -551,6 +556,39 @@ TEST(FramePresenter, ResetSourceAcceptsLowerIdAndResetsSessionState) {
     EXPECT_EQ(presenter.displayedFrameCount(), 1U);
 }
 
+TEST(FramePresenter, ResetSourcePreservesSelectedModeForReplacementFrames) {
+    for(const auto mode : {lumora::ui::DisplayMode::Original,
+            lumora::ui::DisplayMode::Enhanced,lumora::ui::DisplayMode::Compare}) {
+        SCOPED_TRACE(static_cast<int>(mode));
+        LatestValueSlot<FrameBundle> oldSlot;
+        LatestValueSlot<FrameBundle> freshSlot;
+        WorkstationView view;
+        ManualClock clock;
+        view.resize(900,600);
+        FramePresenter presenter(oldSlot,view,clock);
+        (void)oldSlot.publish(makeEnhancedBundle(100U,clock));
+        presenter.refresh();
+        paint(view);
+        presenter.setDisplayMode(mode);
+        paint(view);
+        ASSERT_EQ(presenter.displayMode(),mode);
+        presenter.resetSource(freshSlot);
+        EXPECT_EQ(presenter.presentedBundle(),nullptr);
+        EXPECT_EQ(presenter.displayMode(),mode);
+        (void)freshSlot.publish(makeEnhancedBundle(1U,clock));
+        presenter.refresh();
+        paint(view);
+        ASSERT_TRUE(presenter.presentedBundle());
+        EXPECT_EQ(presenter.presentedBundle()->sourceFrameId(),1U);
+        EXPECT_EQ(presenter.displayMode(),mode);
+        const auto* action=view.findChild<QAction*>(mode==lumora::ui::DisplayMode::Original
+            ? "originalModeAction" : mode==lumora::ui::DisplayMode::Compare
+            ? "compareModeAction" : "enhancedModeAction");
+        ASSERT_TRUE(action);
+        EXPECT_TRUE(action->isChecked());
+    }
+}
+
 TEST(FramePresenter, ResetSourceReleasesOldPresenterAndViewportOwnership) {
     auto oldSlot = std::make_unique<LatestValueSlot<FrameBundle>>();
     LatestValueSlot<FrameBundle> freshSlot;
@@ -761,7 +799,7 @@ TEST(FramePresenter, ResetDropsBothComparedPlanesAndPendingModeOwnership) {
     presenter.refresh();
     paint(view);
     EXPECT_EQ(presenter.presentedBundle()->sourceFrameId(), 1U);
-    EXPECT_EQ(presenter.displayMode(), lumora::ui::DisplayMode::Enhanced);
+    EXPECT_EQ(presenter.displayMode(), lumora::ui::DisplayMode::Original);
 }
 
 }  // namespace

@@ -141,6 +141,7 @@ add_executable(
   integration/SimulatedViewerTests.cpp
   integration/ProcessingConfigurationTests.cpp
   integration/LivePipelineTests.cpp
+  integration/CameraReconfigurationTests.cpp
   "${PROJECT_SOURCE_DIR}/src/app/SimulatorComposition.cpp"
 )
 target_include_directories(
@@ -161,6 +162,9 @@ set_tests_properties(ProcessingConfiguration PROPERTIES TIMEOUT 180
   ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
 add_test(NAME LivePipeline COMMAND lumora_integration_tests --gtest_filter=LivePipeline.*)
 set_tests_properties(LivePipeline PROPERTIES TIMEOUT 180
+  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+add_test(NAME CameraReconfiguration COMMAND lumora_integration_tests --gtest_filter=CameraReconfiguration.*)
+set_tests_properties(CameraReconfiguration PROPERTIES TIMEOUT 180
   ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
 
 add_test(

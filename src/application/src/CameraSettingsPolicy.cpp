@@ -4,6 +4,14 @@
 
 namespace lumora::application {
 
+bool isSupportedLiveCameraConfiguration(const camera::CameraConfiguration& requested) {
+    return core::validateSourcePixelFormat(requested.pixelFormat).hasValue()
+        && requested.roi.width > 0 && requested.roi.height > 0
+        && requested.requestedFps && std::isfinite(*requested.requestedFps)
+        && *requested.requestedFps > 0.0
+        && requested.acquisitionMode == camera::AcquisitionMode::Continuous;
+}
+
 bool isCameraSettingsCompatible(
     const camera::CameraConfiguration& requested,
     const camera::CameraConfiguration& prepared) {

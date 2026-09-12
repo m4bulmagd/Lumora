@@ -1,4 +1,5 @@
 #include <lumora/application/AcquisitionWorker.hpp>
+#include <lumora/application/LiveSessionContext.hpp>
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
 
 #include <gtest/gtest.h>
@@ -284,6 +285,39 @@ struct Fixture final {
         return await([&](const auto& s) { return count(s) > before; });
     }
 };
+
+TEST(AcquisitionWorker, CancelledReconfigurationDoesNotOverwriteItsPriorityCompletion) {
+    Fixture fixture;
+    fixture.script.blockedOperation = "discover";
+    auto prepared = configuration();
+    prepared.roi.width = 2U;
+    auto context = std::make_shared<LiveSessionContext>();
+    context->generation = 1U;
+    context->rawPool = core::BufferPool::create(10U, 12U).value();
+    std::weak_ptr<LiveSessionContext> candidate = context;
+    ASSERT_TRUE(fixture.worker.postReconfiguration({1U, ApplyConfiguration{0U, prepared, 1U}}, context, prepared).hasValue());
+    context.reset();
+    ASSERT_TRUE(fixture.worker.post({2U, StopStream{}}).hasValue());
+    ASSERT_TRUE(fixture.worker.post({3U, Discover{}}).hasValue());
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    // Discover is a FIFO sentinel after the preserved queued Apply. Blocking
+    // its provider proves that Apply has drained, without sleeps or races.
+    ASSERT_TRUE(fixture.script.waitFor("discover"));
+    auto status = fixture.status.consumeAfter(0U);
+    ASSERT_TRUE(status);
+    ASSERT_TRUE(status->value->latestOutcome);
+    EXPECT_EQ(status->value->latestOutcome->requestId, 2U);
+    auto completion = fixture.worker.takeReconfigurationCompletion();
+    ASSERT_TRUE(completion);
+    EXPECT_EQ(completion->outcome.requestId, 1U);
+    ASSERT_TRUE(completion->outcome.error);
+    EXPECT_EQ(completion->outcome.error->category, ErrorCategory::Cancelled);
+    EXPECT_FALSE(completion->activated);
+    ASSERT_TRUE(completion->camera->latestOutcome);
+    EXPECT_EQ(completion->camera->latestOutcome->requestId, 2U);
+    EXPECT_TRUE(candidate.expired());
+    EXPECT_EQ(fixture.script.count("apply"), 0U);
+}
 
 // Missing dispatch or off-thread ownership fails the command/status and thread assertions.
 TEST(AcquisitionWorker, AllDeviceCallsOccurOnWorkerThread) {

@@ -1,6 +1,8 @@
 #include <lumora/application/AcquisitionWorker.hpp>
 
 #include <lumora/application/CameraSessionStateMachine.hpp>
+#include <lumora/application/LiveSessionContext.hpp>
+#include <lumora/application/CameraSettingsPolicy.hpp>
 #include <lumora/camera/CameraConfigurationValidator.hpp>
 #include <lumora/core/CheckedMath.hpp>
 
@@ -52,8 +54,20 @@ bool sameMode(const camera::CameraConfiguration& a, const camera::CameraConfigur
 struct AcquisitionWorker::Impl final {
     camera::ICameraProvider& provider;
     CameraCommandMailbox& commands;
-    core::BufferPool& rawPool;
-    core::LatestValueSlot<core::RawFrame>& rawSlot;
+    core::BufferPool* rawPool;
+    core::LatestValueSlot<core::RawFrame>* rawSlot;
+    std::shared_ptr<LiveSessionContext> boundContext;
+    struct Reconfiguration final {
+        std::uint64_t requestId;
+        std::shared_ptr<LiveSessionContext> context;
+        camera::CameraConfiguration mode;
+    };
+    std::mutex reconfigurationMutex;
+    std::optional<Reconfiguration> staged;
+    std::optional<CameraReconfigurationCompletion> completion;
+    bool reconfigurationPending{false};
+    std::optional<std::uint64_t> cancelledReconfigurationRequest;
+    bool reconfigurationRequiresApply{false};
     core::IClock& clock;
     core::LatestValueSlot<CameraStatusSnapshot>& statusSlot;
     CameraStatusSnapshot status;
@@ -65,6 +79,12 @@ struct AcquisitionWorker::Impl final {
     std::stop_source cancellation;
     std::jthread thread;
     bool started{false};
+
+    Impl(camera::ICameraProvider& p, CameraCommandMailbox& c, core::BufferPool& pool,
+         core::LatestValueSlot<core::RawFrame>& slot, core::IClock& time,
+         core::LatestValueSlot<CameraStatusSnapshot>& snapshots, CameraStatusSnapshot seed)
+        : provider(p), commands(c), rawPool(&pool), rawSlot(&slot), clock(time),
+          statusSlot(snapshots), status(std::move(seed)) {}
 
     [[nodiscard]] bool stopping() const noexcept {
         return cancellation.stop_requested() || commands.closed() || machine.state() == S::ShuttingDown;
@@ -119,18 +139,20 @@ struct AcquisitionWorker::Impl final {
         increment(status.acquisitionCounters.terminalFailures);
         return Result::failure(std::move(error));
     }
-    Result validateMode(const camera::CameraConfiguration& configuration) const {
+    Result validateMode(const camera::CameraConfiguration& configuration,
+                        const camera::CameraConfiguration* prepared,
+                        const core::BufferPool& pool) const {
         if (!core::validateSourcePixelFormat(configuration.pixelFormat).hasValue()) {
             return rejected("camera_format_not_available", "The source format must describe valid native numeric storage.");
         }
-        if (fixedMode && !sameMode(configuration, *fixedMode)) {
+        if (prepared && !sameMode(configuration, *prepared)) {
             return rejected("camera_mode_change_requires_rebinding", "Changing the source mode requires new pipeline resources.");
         }
         const auto sampleBytes = configuration.pixelFormat.applicationStorage == core::StorageType::UInt8 ? 1U : 2U;
         const auto stride = core::checkedMultiply(configuration.roi.width, sampleBytes);
         if (!stride.hasValue()) return rejected("camera_raw_pool_layout", "Source row size overflows native storage.");
         const auto payload = core::checkedMultiply(stride.value(), configuration.roi.height);
-        if (!payload.hasValue() || payload.value() > rawPool.stats().bytesPerBuffer) {
+        if (!payload.hasValue() || payload.value() > pool.stats().bytesPerBuffer) {
             return rejected("camera_raw_pool_layout", "The selected mode does not fit the raw buffer pool.");
         }
         const auto layout = core::ImageLayout::create(configuration.roi.width, configuration.roi.height,
@@ -139,6 +161,9 @@ struct AcquisitionWorker::Impl final {
             return rejected("camera_raw_pool_layout", "The selected mode does not fit the raw buffer pool.");
         }
         return Result::success();
+    }
+    Result validateMode(const camera::CameraConfiguration& configuration) const {
+        return validateMode(configuration, fixedMode ? &*fixedMode : nullptr, *rawPool);
     }
     Result generation(std::uint64_t value) const {
         return value == status.sessionGeneration ? Result::success()
@@ -212,42 +237,84 @@ struct AcquisitionWorker::Impl final {
         status.consecutiveTimeouts = 0U;
         return event(E::OpenSucceeded);
     }
-    Result apply(const ApplyConfiguration& request) {
+    Result restoreAfterReconfigurationFailure(core::Error error,
+        const std::optional<camera::AppliedCameraConfiguration>& previous) {
+        status.confirmedRevision.reset();
+        status.restoreEligible = false;
+        reconfigurationRequiresApply = true;
+        if (!previous) return failAndCleanup(std::move(error), E::DisconnectFailed);
+        auto restored = device->applyConfiguration(previous->actual);
+        if (!restored.hasValue()) return failAndCleanup(restored.error(), E::DisconnectFailed);
+        const auto& actual = restored.value().actual;
+        const auto& expected = previous->actual;
+        auto valid = camera::validateCameraConfiguration(actual, *status.capabilities);
+        if (valid.hasValue()) valid = validateMode(actual);
+        const bool exact = sameMode(actual, expected)
+            && actual.requestedFps == expected.requestedFps
+            && actual.exposure.mode == expected.exposure.mode
+            && actual.exposure.requestedMicroseconds == expected.exposure.requestedMicroseconds
+            && actual.gain.mode == expected.gain.mode
+            && actual.gain.requestedDb == expected.gain.requestedDb
+            && actual.acquisitionMode == expected.acquisitionMode;
+        if (!valid.hasValue() || !exact)
+            return failAndCleanup(failure(ErrorCategory::CameraConfiguration,
+                "camera_restore_mismatch", "The previous camera configuration could not be verified."), E::DisconnectFailed);
+        (void)event(E::ApplyFailed);
+        return Result::failure(std::move(error));
+    }
+    Result apply(const ApplyConfiguration& request, Reconfiguration* reconfiguration,
+                 std::optional<CameraCommand>& deferredPriority) {
         auto valid = generation(request.sessionGeneration);
-        if (!valid.hasValue()) { return valid; }
+        if (!valid.hasValue()) return valid;
         valid = event(E::ApplyRequested);
-        if (!valid.hasValue()) { return valid; }
-        if (request.requestRevision == 0U || request.requestRevision <= status.requestedRevision) {
+        if (!valid.hasValue()) return valid;
+        if (request.requestRevision == 0U || request.requestRevision <= status.requestedRevision)
             return rejected("stale_configuration_revision", "Configuration revisions must increase.");
-        }
         status.requestedConfiguration = request.configuration;
         status.requestedRevision = request.requestRevision;
         valid = camera::validateCameraConfiguration(request.configuration, *status.capabilities);
-        if (valid.hasValue()) { valid = validateMode(request.configuration); }
+        if (valid.hasValue()) valid = reconfiguration
+            ? validateMode(request.configuration, &reconfiguration->mode, *reconfiguration->context->rawPool)
+            : validateMode(request.configuration);
         if (!valid.hasValue()) { (void)event(E::ApplyFailed); return valid; }
+        if (reconfiguration && status.sessionGeneration == std::numeric_limits<std::uint64_t>::max())
+            return rejected("camera_generation_exhausted", "Camera generation cannot advance.");
+        deferredPriority = commands.tryPopPriority();
+        if (deferredPriority || stopping()) return cancelled();
+        const auto previous = status.appliedConfiguration;
         auto result = device->applyConfiguration(request.configuration);
-        if (stopping()) { return cancelled(); }
+        if (stopping()) return cancelled();
         if (!result.hasValue()) {
-            if (result.error().category != ErrorCategory::CameraConfiguration) {
+            if (reconfiguration) return restoreAfterReconfigurationFailure(result.error(), previous);
+            if (result.error().category != ErrorCategory::CameraConfiguration)
                 return failAndCleanup(result.error(), E::DisconnectFailed);
-            }
             (void)event(E::ApplyFailed);
             return Result::failure(result.error());
         }
         valid = camera::validateCameraConfiguration(result.value().actual, *status.capabilities);
-        if (valid.hasValue()) { valid = validateMode(result.value().actual); }
-        if (valid.hasValue() && (!result.value().actual.requestedFps
-            || !std::isfinite(*result.value().actual.requestedFps) || *result.value().actual.requestedFps <= 0.0)) {
-            valid = rejected("camera_actual_fps_invalid", "Camera readback must include positive finite actual FPS.");
+        if (valid.hasValue()) valid = reconfiguration
+            ? validateMode(result.value().actual, &reconfiguration->mode, *reconfiguration->context->rawPool)
+            : validateMode(result.value().actual);
+        if (valid.hasValue() && !isSupportedLiveCameraConfiguration(result.value().actual))
+            valid = rejected("camera_actual_fps_invalid", "Camera readback must include positive finite actual FPS and continuous acquisition.");
+        if (!valid.hasValue()) {
+            if (reconfiguration) return restoreAfterReconfigurationFailure(valid.error(), previous);
+            return failAndCleanup(valid.error(), E::DisconnectFailed);
         }
-        if (!valid.hasValue()) { return failAndCleanup(valid.error(), E::DisconnectFailed); }
-        // Standalone workers without a prepared mode bind the first successful
-        // actual mode. Production is fixed before the worker is constructed.
-        if (!fixedMode) { fixedMode = result.value().actual; }
+        if (reconfiguration) {
+            // Keep the old device and frame-ID history. Ownership of its new raw
+            // destination remains typed and lives until the camera worker joins.
+            boundContext = reconfiguration->context;
+            rawPool = boundContext->rawPool.get();
+            rawSlot = &boundContext->rawSlot;
+            fixedMode = reconfiguration->mode;
+            ++status.sessionGeneration;
+        } else if (!fixedMode) fixedMode = result.value().actual;
         status.appliedConfiguration = std::move(result.value());
         status.appliedRevision = request.requestRevision;
         status.confirmedRevision.reset();
         status.restoreEligible = false;
+        reconfigurationRequiresApply = false;
         return event(E::ApplySucceeded);
     }
     Result confirm(const ConfirmConfiguration& request) {
@@ -255,7 +322,7 @@ struct AcquisitionWorker::Impl final {
         if (!valid.hasValue()) { return valid; }
         valid = event(E::ConfirmRequested);
         if (!valid.hasValue()) { return valid; }
-        if (!status.appliedConfiguration || request.appliedRequestRevision != status.appliedRevision) {
+        if (reconfigurationRequiresApply || !status.appliedConfiguration || request.appliedRequestRevision != status.appliedRevision) {
             return rejected("configuration_not_applied", "Confirm the current successfully applied configuration.");
         }
         status.confirmedRevision = request.appliedRequestRevision;
@@ -309,12 +376,12 @@ struct AcquisitionWorker::Impl final {
         }
         return event(E::DisconnectSucceeded);
     }
-    Result dispatch(const CameraCommand& command, std::optional<CameraCommand>& deferredPriority) {
+    Result dispatch(const CameraCommand& command, std::optional<CameraCommand>& deferredPriority, Reconfiguration* reconfiguration) {
         return std::visit([&](const auto& request) -> Result {
             using T = std::decay_t<decltype(request)>;
             if constexpr (std::is_same_v<T, Discover>) { return discover(); }
             else if constexpr (std::is_same_v<T, Connect>) { return connect(request.cameraId, false); }
-            else if constexpr (std::is_same_v<T, ApplyConfiguration>) { return apply(request); }
+            else if constexpr (std::is_same_v<T, ApplyConfiguration>) { return apply(request, reconfiguration, deferredPriority); }
             else if constexpr (std::is_same_v<T, ConfirmConfiguration>) { return confirm(request); }
             else if constexpr (std::is_same_v<T, StartStream>) { return startStream(request, deferredPriority); }
             else if constexpr (std::is_same_v<T, StopStream>) { return stopStream(); }
@@ -333,14 +400,38 @@ struct AcquisitionWorker::Impl final {
         }, command.payload);
     }
     void execute(CameraCommand command) {
-        // Only Start can defer one priority command. That priority payload
+        // Apply and Start can defer one priority command. That priority payload
         // cannot defer another, so completion requires at most two iterations.
-        // Publish the interrupted Start first, then complete priority cleanup
+        // Publish the interrupted operation first, then complete priority cleanup
         // even if cancellation has arrived. Its result must remain the newest.
         for (std::size_t executed = 0U; executed < 2U; ++executed) {
             std::optional<CameraCommand> deferredPriority;
+            std::optional<Reconfiguration> reconfiguration;
+            std::optional<std::uint64_t> cancelledAttachment;
+            {
+                std::lock_guard lock(reconfigurationMutex);
+                if (staged && staged->requestId == command.requestId) {
+                    reconfiguration = std::move(staged);
+                    staged.reset();
+                } else if (staged && (std::holds_alternative<StopStream>(command.payload)
+                    || std::holds_alternative<Disconnect>(command.payload)
+                    || std::holds_alternative<Shutdown>(command.payload))) {
+                    cancelledAttachment = staged->requestId;
+                    cancelledReconfigurationRequest = staged->requestId;
+                    staged.reset();
+                }
+            }
             auto result = Result::success();
-            try { result = dispatch(command, deferredPriority); }
+            const auto previousGeneration = status.sessionGeneration;
+            try {
+                if (cancelledReconfigurationRequest == command.requestId) {
+                    cancelledReconfigurationRequest.reset();
+                    // Stop already completed this attached Apply through the
+                    // retained completion. Draining its leftover queue entry
+                    // must not overwrite the newer lifecycle outcome.
+                    return;
+                } else result = dispatch(command, deferredPriority, reconfiguration ? &*reconfiguration : nullptr);
+            }
             catch (const std::exception& exception) {
                 result = failAndCleanup(failure(ErrorCategory::Internal, "camera_worker_exception", exception.what()), E::DisconnectFailed);
             } catch (...) {
@@ -350,7 +441,16 @@ struct AcquisitionWorker::Impl final {
             status.latestOutcome = CameraCommandOutcome{command.requestId,
                 result.hasValue() ? std::nullopt : std::optional{result.error()}};
             if (!result.hasValue()) { status.latestError = result.error(); }
-            publish();
+            status.mailboxStats = commands.stats();
+            auto published = std::make_shared<const CameraStatusSnapshot>(status);
+            if (reconfiguration || cancelledAttachment) {
+                std::lock_guard lock(reconfigurationMutex);
+                completion = CameraReconfigurationCompletion{
+                    cancelledAttachment ? CameraCommandOutcome{*cancelledAttachment, cancelled().error()}
+                                        : *status.latestOutcome,
+                    status.sessionGeneration != previousGeneration, 0U, published};
+                completion->publicationRevision = statusSlot.publish(std::move(published)).revision;
+            } else (void)statusSlot.publish(std::move(published));
             if (!deferredPriority) { return; }
             command = std::move(*deferredPriority);
         }
@@ -409,7 +509,7 @@ struct AcquisitionWorker::Impl final {
         try {
             constexpr auto pollingBudget = std::chrono::milliseconds{250};
             const auto sliceDeadline = std::chrono::steady_clock::now() + pollingBudget;
-            auto result = device->retrieve(pollingBudget, rawPool, cancellation.get_token());
+            auto result = device->retrieve(pollingBudget, *rawPool, cancellation.get_token());
             if (stopping()) { return; }
             if (!result.hasValue() && isAcquisitionTimeout(result.error())) {
                 // A quick timeout consumes only the remainder of this real I/O
@@ -429,7 +529,7 @@ struct AcquisitionWorker::Impl final {
                 status.lastAcquiredAt = clock.steadyNow();
                 acquisitionProgressAt = status.lastAcquiredAt;
                 increment(status.acquisitionCounters.acquired);
-                if (rawSlot.publish(std::move(result.value())).replacedUnconsumed) {
+                if (rawSlot->publish(std::move(result.value())).replacedUnconsumed) {
                     increment(status.acquisitionCounters.droppedBeforeProcessing);
                 }
             }
@@ -474,6 +574,7 @@ struct AcquisitionWorker::Impl final {
         if (auto error = cleanup()) { status.latestError = std::move(*error); }
         (void)event(E::ShutdownRequested);
         commands.close();
+        { std::lock_guard lock(reconfigurationMutex); staged.reset(); }
         try { publish(); } catch (...) { /* No allocation can be guaranteed during exhaustion. */ }
     }
 };
@@ -508,9 +609,33 @@ Result AcquisitionWorker::start() {
 }
 Result AcquisitionWorker::post(CameraCommand command) {
     const bool shutdown = std::holds_alternative<Shutdown>(command.payload);
+    std::lock_guard lock(impl_->reconfigurationMutex);
+    if (std::holds_alternative<ApplyConfiguration>(command.payload) && impl_->reconfigurationPending)
+        return rejected("camera_reconfiguration_busy", "A prepared Apply is already outstanding.");
     auto result = impl_->commands.post(std::move(command));
     if (shutdown && result.hasValue()) { impl_->cancellation.request_stop(); }
     return result;
+}
+Result AcquisitionWorker::postReconfiguration(CameraCommand command,
+    std::shared_ptr<LiveSessionContext> context, camera::CameraConfiguration mode) {
+    const auto* apply = std::get_if<ApplyConfiguration>(&command.payload);
+    if (!apply || !context || !context->rawPool || !sameMode(apply->configuration, mode)
+        || apply->sessionGeneration == std::numeric_limits<std::uint64_t>::max()
+        || context->generation != apply->sessionGeneration + 1U)
+        return rejected("invalid_reconfiguration_attachment", "A matching prepared Apply context is required.");
+    std::lock_guard lock(impl_->reconfigurationMutex);
+    if (impl_->reconfigurationPending)
+        return rejected("camera_reconfiguration_busy", "A prepared Apply is already outstanding.");
+    impl_->staged.emplace(Impl::Reconfiguration{command.requestId, std::move(context), std::move(mode)});
+    auto result = impl_->commands.post(std::move(command));
+    if (!result.hasValue()) impl_->staged.reset();
+    else impl_->reconfigurationPending = true;
+    return result;
+}
+std::optional<CameraReconfigurationCompletion> AcquisitionWorker::takeReconfigurationCompletion() {
+    std::lock_guard lock(impl_->reconfigurationMutex);
+    if (impl_->completion) impl_->reconfigurationPending = false;
+    return std::exchange(impl_->completion, std::nullopt);
 }
 void AcquisitionWorker::requestStop() noexcept { impl_->cancellation.request_stop(); impl_->commands.close(); }
 void AcquisitionWorker::join() noexcept { if (impl_->thread.joinable()) { impl_->thread.join(); } }

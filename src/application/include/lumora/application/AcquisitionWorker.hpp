@@ -9,6 +9,17 @@
 
 namespace lumora::application {
 
+struct LiveSessionContext;
+
+// Separate completion prevents a later priority status from hiding a committed
+// binding. The control thread consumes this before exposing a newer generation.
+struct CameraReconfigurationCompletion final {
+    CameraCommandOutcome outcome;
+    bool activated;
+    std::uint64_t publicationRevision;
+    std::shared_ptr<const CameraStatusSnapshot> camera;
+};
+
 // Dependencies outlive this worker. The owner serializes start/join; posting
 // and requesting cancellation are thread-safe. Destruction joins defensively.
 class AcquisitionWorker final {
@@ -28,6 +39,11 @@ public:
     AcquisitionWorker& operator=(const AcquisitionWorker&) = delete;
     [[nodiscard]] core::Result<void> start();
     [[nodiscard]] core::Result<void> post(CameraCommand command);
+    // Capacity-one typed attachment to the existing Apply mailbox. Context
+    // storage is retained until cancellation or transfer to the worker binding.
+    [[nodiscard]] core::Result<void> postReconfiguration(CameraCommand command,
+        std::shared_ptr<LiveSessionContext> context, camera::CameraConfiguration preparedMode);
+    [[nodiscard]] std::optional<CameraReconfigurationCompletion> takeReconfigurationCompletion();
     void requestStop() noexcept;
     void join() noexcept;
 

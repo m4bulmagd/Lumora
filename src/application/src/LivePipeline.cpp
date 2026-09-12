@@ -2,6 +2,8 @@
 #include "LiveResourcePreparation.hpp"
 #include <lumora/application/CameraSettingsPolicy.hpp>
 #include <lumora/core/CheckedMath.hpp>
+#include <lumora/camera/CameraConfigurationValidator.hpp>
+#include <limits>
 #include <lumora/processing/FrameProcessingEngine.hpp>
 #include <lumora/processing/PipelineCompiler.hpp>
 #include <array>
@@ -65,6 +67,16 @@ struct LivePipeline::Impl {
     std::optional<std::uint64_t> retryIntent;
     std::optional<ProcessingConfigurationCommand> processingConfigurationIntent;
     std::uint64_t latestProcessingConfigurationRevision{0};
+    std::optional<processing::PipelineDefinition> acceptedDefinition;
+    struct Reconfiguration final {
+        std::uint64_t requestId;
+        camera::CameraConfiguration mode;
+        detail::LiveResourcePreparation resources;
+        std::unique_ptr<detail::PreparedLiveSession> session;
+    };
+    std::optional<Reconfiguration> staged;
+    // Guarded by mutex. Closes processing admission before preparation starts.
+    bool reconfigurationPending{false};
     mutable std::mutex mutex;
     std::condition_variable_any changed;
     LivePipelineSnapshot state;
@@ -100,43 +112,22 @@ struct LivePipeline::Impl {
                 } catch(...) { /* Teardown remains non-throwing under allocation failure. */ }
             }
             processingConfigurationIntent.reset();state.processingConfigurationPending=false;
-            latestProcessingConfigurationRevision=0;
+            latestProcessingConfigurationRevision=0;reconfigurationPending=false;acceptedDefinition.reset();
         }
         if(cameraWorker) { cameraWorker->requestStop(); cameraWorker->join(); cameraWorker.reset(); }
         if(processingWorker) { processingWorker->requestStop(); processingWorker->join(); processingWorker.reset(); }
-        processor.reset(); cameraCommands.reset(); cameraStatus.reset();
+        staged.reset();processor.reset(); cameraCommands.reset(); cameraStatus.reset();
     }
     Result prepare(CameraStatusSnapshot seed) {
-        const auto& plan = *resources;
-        auto prepared=std::make_shared<LiveSessionContext>();
-        prepared->generation=seed.sessionGeneration;
-        auto raw=core::BufferPool::create(10U,plan.rawBytes);
-        if(!raw.hasValue()) return Result::failure(raw.error());
-        prepared->rawPool=std::move(raw.value());
-        auto u16=core::BufferPool::create(9U,plan.canonicalBytes);
-        if(!u16.hasValue()) return Result::failure(u16.error());
-        prepared->processingPool=std::move(u16.value());
-        auto display=core::BufferPool::create(16U,plan.displayBytes);
-        if(!display.hasValue()) return Result::failure(display.error());
-        prepared->displayPool=std::move(display.value());
-        if(factory) {
-            auto made=factory(*prepared->processingPool, *prepared->displayPool, *plan.sourceLayout);
-            if(!made.hasValue()) return Result::failure(made.error());
-            processor=std::move(made.value());
-        } else {
-            auto made = processing::FrameProcessingEngine::create(*prepared->processingPool,
-                *prepared->displayPool, *plan.enginePlan);
-            if (!made.hasValue()) return Result::failure(made.error());
-            processor = std::move(made).value();
-        }
-        if(!processor) return Result::failure(failure("processor_required","Processor factory returned null."));
+        auto made=detail::prepareLiveSession(*resources,seed.sessionGeneration,factory,std::nullopt);
+        if(!made.hasValue()) return Result::failure(made.error());
+        auto prepared=std::move(made.value());
         retiringContext=std::move(context);
-        context=std::move(prepared);
+        context=std::move(prepared->context);
+        processor=std::move(prepared->processor);
+        processingWorker=std::move(prepared->worker);
         cameraCommands=std::make_unique<CameraCommandMailbox>();
         cameraStatus=std::make_unique<core::LatestValueSlot<CameraStatusSnapshot>>();
-        processingWorker=std::make_unique<ProcessingWorker>(context->rawSlot,context->bundleSlot,*processor);
-        auto processingStarted=processingWorker->start();
-        if(!processingStarted.hasValue()) return processingStarted;
         cameraWorker=std::make_unique<AcquisitionWorker>(provider,*cameraCommands,*context->rawPool,
             context->rawSlot,clock,*cameraStatus,seed,fixed);
         auto cameraStarted=cameraWorker->start();
@@ -168,9 +159,53 @@ struct LivePipeline::Impl {
         auto value=cameraStatus->consumeAfter(statusRevision);
         if(!value) return;
         statusRevision=value->revision;
-        const auto& outcome=value->value->latestOutcome;
+        // Completion is deposited before worker publication and survives later
+        // Stop/Disconnect snapshots. Never expose the new camera with old slots.
+        auto completion=cameraWorker->takeReconfigurationCompletion();
+        auto observed=value->value;
+        const bool completedReconfiguration=completion && staged
+            && completion->outcome.requestId==staged->requestId;
+        std::optional<ProcessingWorkerSnapshot> committedProcessing;
+        if(completedReconfiguration) {
+            if(statusRevision<completion->publicationRevision) {
+                observed=completion->camera;
+                statusRevision=completion->publicationRevision;
+            }
+            if(completion->activated) {
+                processingWorker->requestStop();
+                processingWorker->join();
+                processingWorker.reset();
+                processor.reset();
+                retiringContext=std::move(context);
+                context=std::move(staged->session->context);
+                processor=std::move(staged->session->processor);
+                processingWorker=std::move(staged->session->worker);
+                fixed=std::move(staged->mode);
+                resources=std::move(staged->resources);
+                committedProcessing=processingWorker->snapshot();
+                committedProcessing->processorStatus=processor->status();
+            }
+            staged.reset();
+        }
+        const auto& outcome=observed->latestOutcome;
         std::lock_guard lock(mutex);
-        state.camera=value->value;
+        state.camera=std::move(observed);
+        if(completedReconfiguration) {
+            if(completion->activated) {
+                state.context=context;
+                state.contextBound=false;
+                state.resources=resources->resources;
+                state.processing=std::move(*committedProcessing);
+                state.processingRetryPending=false;retryIntent.reset();
+                state.processingConfigurationOutcome.reset();
+                latestProcessingConfigurationRevision=0;
+            }
+            reconfigurationPending=false;
+            if(active && active->requestId==completion->outcome.requestId) {
+                state.ordinaryOutcome=completion->outcome;
+                active.reset();
+            }
+        }
         if(outcome && priority && outcome->requestId==priority->requestId) {
             state.priorityOutcome=outcome;
             incoming.completeBarrier(priority->requestId);
@@ -218,6 +253,7 @@ struct LivePipeline::Impl {
             outcome.error=processingConfigurationError("processing_configuration_unknown_exception",
                 "An unknown exception occurred while validating or activating the processing configuration.");
         }
+        if(!outcome.error) acceptedDefinition=command->definition;
         auto processorStatus=processor->status();
         {
             std::lock_guard lock(mutex);
@@ -225,6 +261,48 @@ struct LivePipeline::Impl {
             state.processingConfigurationOutcome=std::move(outcome);
             state.processingConfigurationPending=false;
         }
+    }
+    Result prepareReconfiguration(const CameraCommand& command) {
+        const auto& apply=std::get<ApplyConfiguration>(command.payload);
+        {
+            std::lock_guard lock(mutex);
+            if(!state.contextBound || retiringContext || staged)
+                return Result::failure(failure("context_handoff_pending","Acknowledge the outstanding source before reconfiguration."));
+            if(!state.camera || apply.sessionGeneration!=state.camera->sessionGeneration)
+                return Result::failure(failure("stale_camera_session","Camera command belongs to a retired session."));
+            if(state.camera->state!=CameraSessionState::ConnectedIdle || !state.camera->capabilities)
+                return Result::failure(failure("invalid_camera_state","Stop the connected camera before changing its source mode."));
+            if(apply.requestRevision==0 || apply.requestRevision<=state.camera->requestedRevision)
+                return Result::failure(failure("stale_configuration_revision","Configuration revisions must increase."));
+            auto valid=camera::validateCameraConfiguration(apply.configuration,*state.camera->capabilities);
+            if(!valid.hasValue()) return valid;
+            if(apply.sessionGeneration==std::numeric_limits<std::uint64_t>::max())
+                return Result::failure(failure("camera_generation_exhausted","Camera generation cannot advance."));
+            reconfigurationPending=true;
+        }
+        // Already-admitted processing work completes on the old generation;
+        // concurrent submissions now get the existing retriable unavailable code.
+        dispatchProcessingConfiguration();
+        auto plan=detail::prepareLiveResources(apply.configuration,preparationOptions,
+            static_cast<bool>(factory),acceptedDefinition.value_or(processing::defaultPipeline()));
+        if(plan.error) return Result::failure(*plan.error);
+        // Each context keeps its existing per-session admission budget. The
+        // bounded transition contains exactly one active and one candidate.
+        auto total=core::checkedAdd(resources->resources.requiredStorageBytes,plan.resources.requiredStorageBytes);
+        auto bound=core::checkedMultiply(preparationOptions.storageBudgetBytes,2U);
+        if(!total.hasValue()) return Result::failure(total.error());
+        if(!bound.hasValue()) return Result::failure(bound.error());
+        if(total.value()>bound.value()) return Result::failure(failure("processing_resource_budget_exceeded",
+            "The active and candidate resources exceed the two-session transition bound.",core::ErrorCategory::ResourceExhaustion));
+        auto prepared=detail::prepareLiveSession(plan,apply.sessionGeneration+1U,factory,acceptedDefinition);
+        if(!prepared.hasValue()) return Result::failure(prepared.error());
+        staged.emplace(Reconfiguration{command.requestId,apply.configuration,std::move(plan),std::move(prepared.value())});
+        return Result::success();
+    }
+    void discardReconfiguration() {
+        staged.reset();
+        std::lock_guard lock(mutex);
+        reconfigurationPending=false;
     }
     void send(CameraCommand command,bool isPriority) {
         {
@@ -265,9 +343,21 @@ struct LivePipeline::Impl {
                 cancellation.request_stop();return;
             }
         }
+        const auto* apply=std::get_if<ApplyConfiguration>(&command.payload);
+        const bool rebind=!isPriority && apply && !isCameraSettingsCompatible(apply->configuration,fixed);
+        if(rebind) {
+            auto prepared=prepareReconfiguration(command);
+            if(!prepared.hasValue()) {
+                discardReconfiguration();
+                std::lock_guard lock(mutex);
+                state.ordinaryOutcome=CameraCommandOutcome{command.requestId,prepared.error()};
+                return;
+            }
+        }
         if(!isPriority) {
             auto priorityCommand=incoming.tryPopPriority();
             if(cancellation.stop_requested() || priorityCommand) {
+                if(rebind) discardReconfiguration();
                 {
                     std::lock_guard lock(mutex);
                     state.ordinaryOutcome=CameraCommandOutcome{command.requestId,
@@ -277,8 +367,11 @@ struct LivePipeline::Impl {
                 return;
             }
         }
-        auto result=cameraWorker->post(command);
+        auto result=rebind
+            ? cameraWorker->postReconfiguration(command,staged->session->context,staged->mode)
+            : cameraWorker->post(command);
         if(!result.hasValue()) {
+            if(rebind) discardReconfiguration();
             std::lock_guard lock(mutex);
             auto outcome=CameraCommandOutcome{command.requestId,result.error()};
             if(isPriority) { state.priorityOutcome=outcome;incoming.completeBarrier(command.requestId); }
@@ -321,7 +414,7 @@ struct LivePipeline::Impl {
                         } else send(std::move(*command),false);
                     }
                 }
-                if(!dispatchedPriority && !priority) dispatchProcessingConfiguration();
+                if(!dispatchedPriority && !priority && !staged) dispatchProcessingConfiguration();
                 std::unique_lock lock(mutex);
                 changed.wait_for(lock,stop,std::chrono::milliseconds{2},[&]{return terminal;});
             }
@@ -370,17 +463,21 @@ Result LivePipeline::post(CameraCommand command) {
         (std::holds_alternative<Connect>(command.payload) || std::holds_alternative<Retry>(command.payload) ||
          std::holds_alternative<Discover>(command.payload)))
         return Result::failure(failure("context_handoff_pending","Acknowledge the outstanding source before replacement."));
-    if(auto* apply=std::get_if<ApplyConfiguration>(&command.payload);
-        apply && !isCameraSettingsCompatible(apply->configuration,impl_->fixed))
-        return Result::failure(failure("unsupported_pipeline_request",
-            "The request changes fields bound to the prepared live pipeline."));
+    if(auto* apply=std::get_if<ApplyConfiguration>(&command.payload)) {
+        if(!isSupportedLiveCameraConfiguration(apply->configuration))
+            return Result::failure(failure("unsupported_pipeline_request","The request requires a positive-rate continuous native mode."));
+        if(impl_->state.camera && impl_->state.camera->state==CameraSessionState::Streaming
+            && impl_->state.camera->appliedConfiguration
+            && !isCameraSettingsCompatible(apply->configuration,impl_->state.camera->appliedConfiguration->actual))
+            return Result::failure(failure("invalid_camera_state","Stop the camera before applying settings."));
+    }
     auto result=impl_->incoming.post(std::move(command));impl_->changed.notify_all();return result;
 }
 Result LivePipeline::requestProcessingRetry(std::uint64_t generation) {
     std::lock_guard lock(impl_->mutex);
     if(impl_->state.context && impl_->state.context->generation!=generation)
         return Result::failure(failure("stale_processing_session","The processing session was replaced."));
-    if(!impl_->accepting.load() || impl_->terminal || !impl_->state.context || !impl_->state.processingAvailable
+    if(!impl_->accepting.load() || impl_->terminal || impl_->reconfigurationPending || !impl_->state.context || !impl_->state.processingAvailable
         || !impl_->state.processing.processorStatus.retrySupported)
         return Result::failure(failure("processing_retry_unavailable","Processing retry is unavailable."));
     if(!impl_->state.processingRetryPending) impl_->retryIntent=generation;
@@ -394,7 +491,7 @@ Result LivePipeline::setProcessingConfiguration(ProcessingConfigurationCommand c
         && impl_->state.context->generation!=command.sessionGeneration)
         return Result::failure(failure("stale_processing_session",
             "The processing session was replaced.",core::ErrorCategory::Processing));
-    if(!impl_->accepting.load() || impl_->terminal || !impl_->state.context
+    if(!impl_->accepting.load() || impl_->terminal || impl_->reconfigurationPending || !impl_->state.context
         || !impl_->state.processingAvailable || !impl_->processor)
         return Result::failure(failure("processing_configuration_unavailable",
             "Processing configuration activation is unavailable.",core::ErrorCategory::Processing));

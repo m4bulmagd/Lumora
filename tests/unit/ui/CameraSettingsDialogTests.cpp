@@ -7,7 +7,9 @@
 #include <QLocale>
 #include <QPushButton>
 #include <QPixmap>
+#include <QSpinBox>
 #include <gtest/gtest.h>
+#include <climits>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -77,6 +79,140 @@ TEST(CameraSettingsDialog, EditsRemainLocalAndApplyEmitsCompleteTaggedRequest) {
     expected.exposure.requestedMicroseconds = 2468.875; expected.gain.requestedDb = -1.375;
     expected.requestedFps = 1.25;
     EXPECT_TRUE(application::cameraConfigurationsEqual(*emitted, expected));
+}
+
+TEST(CameraSettingsDialog, AdvertisedFormatAndRoiEditorsEmitExactCompleteRequest) {
+    auto presentation = settingsPresentation();
+    auto status = std::make_shared<application::CameraStatusSnapshot>(*presentation.cameraStatus);
+    status->capabilities->pixelFormats.push_back({"Mono12", 0x01100005U, 12U, 4095U,
+        core::SourcePacking::Unpacked, core::BitAlignment::LeastSignificant,
+        core::StorageType::UInt16});
+    presentation.cameraStatus = status;
+    CameraSettingsDialog dialog;
+    dialog.setPresentation(presentation);
+
+    auto* format = dialog.findChild<QComboBox*>("cameraPixelFormat");
+    auto* roiX = dialog.findChild<QSpinBox*>("cameraRoiX");
+    auto* roiY = dialog.findChild<QSpinBox*>("cameraRoiY");
+    auto* roiWidth = dialog.findChild<QSpinBox*>("cameraRoiWidth");
+    auto* roiHeight = dialog.findChild<QSpinBox*>("cameraRoiHeight");
+    auto* apply = dialog.findChild<QPushButton*>("applyCameraSettingsButton");
+    ASSERT_NE(format, nullptr);
+    ASSERT_NE(roiX, nullptr);
+    ASSERT_NE(roiY, nullptr);
+    ASSERT_NE(roiWidth, nullptr);
+    ASSERT_NE(roiHeight, nullptr);
+    ASSERT_NE(apply, nullptr);
+    ASSERT_EQ(format->count(), 2);
+    EXPECT_TRUE(format->itemText(1).contains("Mono12"));
+    EXPECT_TRUE(format->itemText(1).contains("12"));
+
+    std::optional<camera::CameraConfiguration> emitted;
+    QObject::connect(&dialog, &CameraSettingsDialog::settingsApplyRequested,
+        [&](std::uint64_t, camera::CameraId, camera::CameraConfiguration request) {
+            emitted = std::move(request);
+        });
+
+    format->setCurrentIndex(1);
+    roiX->setValue(12);
+    roiY->setValue(8);
+    roiWidth->setValue(320);
+    roiHeight->setValue(240);
+
+    ASSERT_TRUE(apply->isEnabled());
+    apply->click();
+    ASSERT_TRUE(emitted);
+    EXPECT_EQ(emitted->roi.x, 12U);
+    EXPECT_EQ(emitted->roi.y, 8U);
+    EXPECT_EQ(emitted->roi.width, 320U);
+    EXPECT_EQ(emitted->roi.height, 240U);
+    EXPECT_EQ(emitted->pixelFormat.canonicalName, "Mono12");
+    EXPECT_EQ(emitted->pixelFormat.canonicalEncoding, 0x01100005U);
+    EXPECT_EQ(emitted->pixelFormat.validBits, 12U);
+    EXPECT_EQ(emitted->pixelFormat.sampleMaximum, 4095U);
+    EXPECT_EQ(emitted->pixelFormat.packing, core::SourcePacking::Unpacked);
+    EXPECT_EQ(emitted->pixelFormat.alignment, core::BitAlignment::LeastSignificant);
+    EXPECT_EQ(emitted->pixelFormat.applicationStorage, core::StorageType::UInt16);
+}
+
+TEST(CameraSettingsDialog, RoiEditorsExposeIncrementsAndRejectMisalignmentAndContainment) {
+    auto presentation = settingsPresentation();
+    auto status = std::make_shared<application::CameraStatusSnapshot>(*presentation.cameraStatus);
+    status->capabilities->roi = {
+        {0U, 0U, 16U, 16U}, {100U, 100U, 1920U, 1080U}, {4U, 2U, 8U, 4U}};
+    presentation.cameraStatus = status;
+    CameraSettingsDialog dialog;
+    dialog.setPresentation(presentation);
+
+    auto* roiX = dialog.findChild<QSpinBox*>("cameraRoiX");
+    auto* roiY = dialog.findChild<QSpinBox*>("cameraRoiY");
+    auto* roiWidth = dialog.findChild<QSpinBox*>("cameraRoiWidth");
+    auto* roiHeight = dialog.findChild<QSpinBox*>("cameraRoiHeight");
+    auto* apply = dialog.findChild<QPushButton*>("applyCameraSettingsButton");
+    ASSERT_NE(roiX, nullptr);
+    ASSERT_NE(roiY, nullptr);
+    ASSERT_NE(roiWidth, nullptr);
+    ASSERT_NE(roiHeight, nullptr);
+    ASSERT_NE(apply, nullptr);
+    EXPECT_EQ(roiX->singleStep(), 4);
+    EXPECT_EQ(roiY->singleStep(), 2);
+    EXPECT_EQ(roiWidth->singleStep(), 8);
+    EXPECT_EQ(roiHeight->singleStep(), 4);
+
+    int emissionCount = 0;
+    QObject::connect(&dialog, &CameraSettingsDialog::settingsApplyRequested,
+        [&](std::uint64_t, camera::CameraId, camera::CameraConfiguration) {
+            ++emissionCount;
+        });
+
+    roiWidth->setValue(321);
+    EXPECT_FALSE(apply->isEnabled());
+    apply->click();
+    EXPECT_EQ(emissionCount, 0);
+
+    roiWidth->setValue(320);
+    EXPECT_TRUE(apply->isEnabled());
+    roiX->setValue(100);
+    roiWidth->setValue(1920);
+    EXPECT_FALSE(apply->isEnabled());
+    apply->click();
+    EXPECT_EQ(emissionCount, 0);
+}
+
+TEST(CameraSettingsDialog, UnrepresentableUnsignedRoiCapabilityFailsClosed) {
+    auto presentation = settingsPresentation();
+    auto status = std::make_shared<application::CameraStatusSnapshot>(*presentation.cameraStatus);
+    status->capabilities->roi.maximum.x = static_cast<std::uint32_t>(INT_MAX) + 1U;
+    presentation.cameraStatus = status;
+    CameraSettingsDialog dialog;
+    dialog.setPresentation(presentation);
+
+    auto* roiX = dialog.findChild<QSpinBox*>("cameraRoiX");
+    auto* roiY = dialog.findChild<QSpinBox*>("cameraRoiY");
+    auto* roiWidth = dialog.findChild<QSpinBox*>("cameraRoiWidth");
+    auto* roiHeight = dialog.findChild<QSpinBox*>("cameraRoiHeight");
+    auto* apply = dialog.findChild<QPushButton*>("applyCameraSettingsButton");
+    auto* message = dialog.findChild<QLabel*>("cameraSettingsStatus");
+    ASSERT_NE(roiX, nullptr);
+    ASSERT_NE(roiY, nullptr);
+    ASSERT_NE(roiWidth, nullptr);
+    ASSERT_NE(roiHeight, nullptr);
+    ASSERT_NE(apply, nullptr);
+    ASSERT_NE(message, nullptr);
+    EXPECT_FALSE(roiX->isEnabled());
+    EXPECT_FALSE(roiY->isEnabled());
+    EXPECT_FALSE(roiWidth->isEnabled());
+    EXPECT_FALSE(roiHeight->isEnabled());
+    EXPECT_FALSE(apply->isEnabled());
+    EXPECT_TRUE(message->text().contains("range", Qt::CaseInsensitive));
+
+    int emissionCount = 0;
+    QObject::connect(&dialog, &CameraSettingsDialog::settingsApplyRequested,
+        [&](std::uint64_t, camera::CameraId, camera::CameraConfiguration) {
+            ++emissionCount;
+        });
+    apply->click();
+    EXPECT_EQ(emissionCount, 0);
 }
 
 TEST(CameraSettingsDialog, UntouchedFractionalValuesRoundTripWithoutDisplayRounding) {
@@ -225,8 +361,11 @@ TEST(CameraSettingsDialog, StreamingRequiresStopAndPendingOperationDisablesApply
     auto* apply = dialog.findChild<QPushButton*>("applyCameraSettingsButton");
     auto* exposure = dialog.findChild<QDoubleSpinBox*>("cameraExposureValue");
     auto* frameRate = dialog.findChild<QDoubleSpinBox*>("cameraFrameRateValue");
+    auto* format = dialog.findChild<QComboBox*>("cameraPixelFormat");
+    auto* roiWidth = dialog.findChild<QSpinBox*>("cameraRoiWidth");
     auto* message = dialog.findChild<QLabel*>("cameraSettingsStatus");
-    ASSERT_NE(apply, nullptr); ASSERT_NE(exposure, nullptr); ASSERT_NE(frameRate, nullptr); ASSERT_NE(message, nullptr);
+    ASSERT_NE(apply, nullptr); ASSERT_NE(exposure, nullptr); ASSERT_NE(frameRate, nullptr);
+    ASSERT_NE(format, nullptr); ASSERT_NE(roiWidth, nullptr); ASSERT_NE(message, nullptr);
     frameRate->setValue(1.25);
     int count = 0;
     QObject::connect(&dialog, &CameraSettingsDialog::settingsApplyRequested,
@@ -235,15 +374,18 @@ TEST(CameraSettingsDialog, StreamingRequiresStopAndPendingOperationDisablesApply
     status->state = application::CameraSessionState::Streaming; presentation.cameraStatus = status;
     dialog.setPresentation(presentation);
     EXPECT_FALSE(apply->isEnabled()); EXPECT_FALSE(exposure->isEnabled());
-    EXPECT_FALSE(frameRate->isEnabled()); apply->click(); EXPECT_EQ(count, 0);
+    EXPECT_FALSE(frameRate->isEnabled()); EXPECT_FALSE(format->isEnabled());
+    EXPECT_FALSE(roiWidth->isEnabled()); apply->click(); EXPECT_EQ(count, 0);
     EXPECT_TRUE(message->text().contains("Stop"));
     status = std::make_shared<application::CameraStatusSnapshot>(*status);
     status->state = application::CameraSessionState::ConnectedIdle; presentation.cameraStatus = status;
     presentation.ordinaryOperationPending = true; dialog.setPresentation(presentation);
     EXPECT_FALSE(apply->isEnabled()); EXPECT_FALSE(frameRate->isEnabled());
+    EXPECT_FALSE(format->isEnabled()); EXPECT_FALSE(roiWidth->isEnabled());
     apply->click(); EXPECT_EQ(count, 0);
     presentation.ordinaryOperationPending = false; dialog.setPresentation(presentation);
     EXPECT_TRUE(apply->isEnabled()); EXPECT_TRUE(frameRate->isEnabled());
+    EXPECT_TRUE(format->isEnabled()); EXPECT_TRUE(roiWidth->isEnabled());
     EXPECT_DOUBLE_EQ(frameRate->value(), 1.25);
 }
 
@@ -325,9 +467,301 @@ TEST(CameraSettingsDialog, ExternalRevisionInvalidatesButOwnSubmissionPreservesR
     }
 }
 
+TEST(CameraSettingsDialog, OwnSuccessfulRebindShowsNewReadbackAndRequiresReopen) {
+    auto presentation = settingsPresentation();
+    auto status = std::make_shared<application::CameraStatusSnapshot>(*presentation.cameraStatus);
+    status->capabilities->pixelFormats.push_back({"Mono12", 0x01100005U, 12U, 4095U,
+        core::SourcePacking::Unpacked, core::BitAlignment::LeastSignificant,
+        core::StorageType::UInt16});
+    presentation.cameraStatus = status;
+    CameraSettingsDialog dialog;
+    dialog.setPresentation(presentation);
+
+    auto* format = dialog.findChild<QComboBox*>("cameraPixelFormat");
+    auto* roiWidth = dialog.findChild<QSpinBox*>("cameraRoiWidth");
+    auto* apply = dialog.findChild<QPushButton*>("applyCameraSettingsButton");
+    auto* actual = dialog.findChild<QLabel*>("cameraSettingsActual");
+    auto* message = dialog.findChild<QLabel*>("cameraSettingsStatus");
+    ASSERT_NE(format, nullptr);
+    ASSERT_NE(roiWidth, nullptr);
+    ASSERT_NE(apply, nullptr);
+    ASSERT_NE(actual, nullptr);
+    ASSERT_NE(message, nullptr);
+
+    std::optional<camera::CameraConfiguration> submitted;
+    QObject::connect(&dialog, &CameraSettingsDialog::settingsApplyRequested,
+        [&](std::uint64_t, camera::CameraId, camera::CameraConfiguration request) {
+            submitted = std::move(request);
+        });
+    format->setCurrentIndex(1);
+    roiWidth->setValue(320);
+    ASSERT_TRUE(apply->isEnabled());
+    apply->click();
+    ASSERT_TRUE(submitted);
+
+    // The controller publishes admission and the desired request together.
+    presentation.requestedConfiguration = submitted;
+    presentation.ordinaryOperationPending = true;
+    dialog.setPresentation(presentation);
+
+    auto rebound = std::make_shared<application::CameraStatusSnapshot>(*status);
+    rebound->sessionGeneration = 18U;
+    rebound->requestedRevision = 4U;
+    rebound->appliedRevision = 4U;
+    rebound->confirmedRevision.reset();
+    rebound->requestedConfiguration = submitted;
+    rebound->appliedConfiguration = camera::AppliedCameraConfiguration{*submitted, *submitted};
+    presentation.cameraStatus = rebound;
+    presentation.ordinaryOperationPending = false;
+    dialog.setPresentation(presentation);
+
+    EXPECT_FALSE(apply->isEnabled());
+    EXPECT_FALSE(format->isEnabled());
+    EXPECT_FALSE(roiWidth->isEnabled());
+    EXPECT_TRUE(actual->text().contains("Mono12"));
+    EXPECT_TRUE(actual->text().contains("12"));
+    EXPECT_TRUE(actual->text().contains("4095"));
+    EXPECT_TRUE(actual->text().contains("01100005"));
+    EXPECT_TRUE(actual->text().contains("unpacked", Qt::CaseInsensitive));
+    EXPECT_TRUE(actual->text().contains("least-significant", Qt::CaseInsensitive));
+    EXPECT_TRUE(actual->text().contains("320"));
+    EXPECT_TRUE(message->text().contains("reopen", Qt::CaseInsensitive));
+    EXPECT_TRUE(message->text().contains("Confirm"));
+    EXPECT_TRUE(message->text().contains("Start"));
+
+    auto changedAfterSuccess = std::make_shared<application::CameraStatusSnapshot>(*rebound);
+    changedAfterSuccess->appliedConfiguration->actual.pixelFormat.alignment =
+        core::BitAlignment::MostSignificant;
+    presentation.cameraStatus = changedAfterSuccess;
+    dialog.setPresentation(presentation);
+    EXPECT_TRUE(actual->text().contains("unavailable", Qt::CaseInsensitive));
+    EXPECT_FALSE(message->text().contains("were applied", Qt::CaseInsensitive));
+
+    changedAfterSuccess->appliedConfiguration->actual = *submitted;
+    dialog.setPresentation(presentation);
+    EXPECT_TRUE(actual->text().contains("unavailable", Qt::CaseInsensitive));
+    EXPECT_FALSE(message->text().contains("were applied", Qt::CaseInsensitive));
+}
+
+TEST(CameraSettingsDialog, RebindWithMismatchedActualSourceModeFailsClosed) {
+    using ActualChange = std::function<void(camera::CameraConfiguration&)>;
+    int caseIndex = 0;
+    for (const ActualChange& change : std::vector<ActualChange>{
+        [](auto& actual) { actual.roi.width = 318U; },
+        [](auto& actual) { actual.pixelFormat.canonicalEncoding = 0x01100006U; }}) {
+        SCOPED_TRACE(caseIndex++);
+        auto presentation = settingsPresentation();
+        auto status = std::make_shared<application::CameraStatusSnapshot>(*presentation.cameraStatus);
+        status->capabilities->pixelFormats.push_back({"Mono12", 0x01100005U, 12U, 4095U,
+            core::SourcePacking::Unpacked, core::BitAlignment::LeastSignificant,
+            core::StorageType::UInt16});
+        presentation.cameraStatus = status;
+        CameraSettingsDialog dialog;
+        dialog.setPresentation(presentation);
+
+        auto* format = dialog.findChild<QComboBox*>("cameraPixelFormat");
+        auto* roiWidth = dialog.findChild<QSpinBox*>("cameraRoiWidth");
+        auto* apply = dialog.findChild<QPushButton*>("applyCameraSettingsButton");
+        auto* actual = dialog.findChild<QLabel*>("cameraSettingsActual");
+        auto* message = dialog.findChild<QLabel*>("cameraSettingsStatus");
+        ASSERT_NE(format, nullptr);
+        ASSERT_NE(roiWidth, nullptr);
+        ASSERT_NE(apply, nullptr);
+        ASSERT_NE(actual, nullptr);
+        ASSERT_NE(message, nullptr);
+
+        std::optional<camera::CameraConfiguration> submitted;
+        QObject::connect(&dialog, &CameraSettingsDialog::settingsApplyRequested,
+            [&](std::uint64_t, camera::CameraId, camera::CameraConfiguration request) {
+                submitted = std::move(request);
+            });
+        format->setCurrentIndex(1);
+        roiWidth->setValue(320);
+        ASSERT_TRUE(apply->isEnabled());
+        apply->click();
+        ASSERT_TRUE(submitted);
+
+        presentation.requestedConfiguration = submitted;
+        presentation.ordinaryOperationPending = true;
+        dialog.setPresentation(presentation);
+
+        auto rebound = std::make_shared<application::CameraStatusSnapshot>(*status);
+        rebound->sessionGeneration = 18U;
+        rebound->requestedRevision = 4U;
+        rebound->appliedRevision = 4U;
+        rebound->requestedConfiguration = submitted;
+        rebound->appliedConfiguration = camera::AppliedCameraConfiguration{*submitted, *submitted};
+        change(rebound->appliedConfiguration->actual);
+        presentation.cameraStatus = rebound;
+        presentation.ordinaryOperationPending = false;
+        dialog.setPresentation(presentation);
+
+        EXPECT_FALSE(apply->isEnabled());
+        EXPECT_TRUE(actual->text().contains("unavailable", Qt::CaseInsensitive));
+        EXPECT_FALSE(message->text().contains("were applied", Qt::CaseInsensitive));
+
+        // Once correlation fails, a later corrected snapshot cannot rehabilitate this dialog.
+        rebound->appliedConfiguration->actual = *submitted;
+        dialog.setPresentation(presentation);
+        EXPECT_TRUE(actual->text().contains("unavailable", Qt::CaseInsensitive));
+        EXPECT_FALSE(message->text().contains("were applied", Qt::CaseInsensitive));
+    }
+}
+
+TEST(CameraSettingsDialog, RebindRequiresImmediateSingleGenerationTransition) {
+    for (const bool completeFirst : {false, true}) {
+        SCOPED_TRACE(completeFirst ? "second completion" : "skipped first generation");
+        auto presentation = settingsPresentation();
+        const auto status = presentation.cameraStatus;
+        CameraSettingsDialog dialog;
+        dialog.setPresentation(presentation);
+
+        auto* frameRate = dialog.findChild<QDoubleSpinBox*>("cameraFrameRateValue");
+        auto* apply = dialog.findChild<QPushButton*>("applyCameraSettingsButton");
+        auto* actual = dialog.findChild<QLabel*>("cameraSettingsActual");
+        auto* message = dialog.findChild<QLabel*>("cameraSettingsStatus");
+        ASSERT_NE(frameRate, nullptr);
+        ASSERT_NE(apply, nullptr);
+        ASSERT_NE(actual, nullptr);
+        ASSERT_NE(message, nullptr);
+
+        std::optional<camera::CameraConfiguration> submitted;
+        QObject::connect(&dialog, &CameraSettingsDialog::settingsApplyRequested,
+            [&](std::uint64_t, camera::CameraId, camera::CameraConfiguration request) {
+                submitted = std::move(request);
+            });
+        frameRate->setValue(1.25);
+        ASSERT_TRUE(apply->isEnabled());
+        apply->click();
+        ASSERT_TRUE(submitted);
+
+        presentation.requestedConfiguration = submitted;
+        presentation.ordinaryOperationPending = true;
+        dialog.setPresentation(presentation);
+
+        auto completion = std::make_shared<application::CameraStatusSnapshot>(*status);
+        completion->sessionGeneration = completeFirst ? 18U : 19U;
+        completion->requestedRevision = 4U;
+        completion->appliedRevision = 4U;
+        completion->requestedConfiguration = submitted;
+        completion->appliedConfiguration = camera::AppliedCameraConfiguration{*submitted, *submitted};
+        presentation.cameraStatus = completion;
+        presentation.ordinaryOperationPending = false;
+        if (completeFirst) {
+            dialog.setPresentation(presentation);
+            ASSERT_TRUE(message->text().contains("were applied", Qt::CaseInsensitive));
+
+            completion = std::make_shared<application::CameraStatusSnapshot>(*completion);
+            completion->sessionGeneration = 19U;
+            completion->requestedRevision = 5U;
+            completion->appliedRevision = 5U;
+            presentation.cameraStatus = completion;
+        }
+        dialog.setPresentation(presentation);
+
+        EXPECT_FALSE(apply->isEnabled());
+        EXPECT_TRUE(actual->text().contains("unavailable", Qt::CaseInsensitive));
+        EXPECT_FALSE(message->text().contains("were applied", Qt::CaseInsensitive));
+
+        // A later snapshot from the expected generation cannot rehabilitate the dialog.
+        auto expectedGeneration = std::make_shared<application::CameraStatusSnapshot>(*completion);
+        expectedGeneration->sessionGeneration = 18U;
+        expectedGeneration->requestedRevision = 4U;
+        expectedGeneration->appliedRevision = 4U;
+        presentation.cameraStatus = expectedGeneration;
+        dialog.setPresentation(presentation);
+        EXPECT_TRUE(actual->text().contains("unavailable", Qt::CaseInsensitive));
+        EXPECT_FALSE(message->text().contains("were applied", Qt::CaseInsensitive));
+    }
+}
+
+TEST(CameraSettingsDialog, RebindWithStaleSameCameraRevisionFailsClosed) {
+    auto presentation = settingsPresentation();
+    auto status = std::make_shared<application::CameraStatusSnapshot>(*presentation.cameraStatus);
+    status->capabilities->pixelFormats.push_back({"Mono12", 0x01100005U, 12U, 4095U,
+        core::SourcePacking::Unpacked, core::BitAlignment::LeastSignificant,
+        core::StorageType::UInt16});
+    presentation.cameraStatus = status;
+    CameraSettingsDialog dialog;
+    dialog.setPresentation(presentation);
+
+    auto* format = dialog.findChild<QComboBox*>("cameraPixelFormat");
+    auto* roiWidth = dialog.findChild<QSpinBox*>("cameraRoiWidth");
+    auto* apply = dialog.findChild<QPushButton*>("applyCameraSettingsButton");
+    auto* actual = dialog.findChild<QLabel*>("cameraSettingsActual");
+    auto* message = dialog.findChild<QLabel*>("cameraSettingsStatus");
+    ASSERT_NE(format, nullptr);
+    ASSERT_NE(roiWidth, nullptr);
+    ASSERT_NE(apply, nullptr);
+    ASSERT_NE(actual, nullptr);
+    ASSERT_NE(message, nullptr);
+
+    std::optional<camera::CameraConfiguration> submitted;
+    QObject::connect(&dialog, &CameraSettingsDialog::settingsApplyRequested,
+        [&](std::uint64_t, camera::CameraId, camera::CameraConfiguration request) {
+            submitted = std::move(request);
+        });
+    format->setCurrentIndex(1);
+    roiWidth->setValue(320);
+    ASSERT_TRUE(apply->isEnabled());
+    apply->click();
+    ASSERT_TRUE(submitted);
+
+    presentation.requestedConfiguration = submitted;
+    presentation.ordinaryOperationPending = true;
+    dialog.setPresentation(presentation);
+
+    auto rebound = std::make_shared<application::CameraStatusSnapshot>(*status);
+    rebound->sessionGeneration = 18U;
+    rebound->requestedRevision = status->requestedRevision;
+    rebound->appliedRevision = status->requestedRevision;
+    rebound->requestedConfiguration = submitted;
+    rebound->appliedConfiguration = camera::AppliedCameraConfiguration{*submitted, *submitted};
+    presentation.cameraStatus = rebound;
+    presentation.ordinaryOperationPending = false;
+    dialog.setPresentation(presentation);
+
+    EXPECT_FALSE(apply->isEnabled());
+    EXPECT_TRUE(actual->text().contains("unavailable", Qt::CaseInsensitive));
+    EXPECT_FALSE(message->text().contains("were applied", Qt::CaseInsensitive));
+
+    // The stale transition permanently invalidates this dialog, even if the revision advances later.
+    rebound->requestedRevision = status->requestedRevision + 1U;
+    rebound->appliedRevision = rebound->requestedRevision;
+    dialog.setPresentation(presentation);
+    EXPECT_TRUE(actual->text().contains("unavailable", Qt::CaseInsensitive));
+    EXPECT_FALSE(message->text().contains("were applied", Qt::CaseInsensitive));
+}
+
+TEST(CameraSettingsDialog, UnrelatedGenerationNeverShowsReplacementReadback) {
+    auto presentation = settingsPresentation();
+    CameraSettingsDialog dialog;
+    dialog.setPresentation(presentation);
+    auto* actual = dialog.findChild<QLabel*>("cameraSettingsActual");
+    auto* apply = dialog.findChild<QPushButton*>("applyCameraSettingsButton");
+    ASSERT_NE(actual, nullptr);
+    ASSERT_NE(apply, nullptr);
+    ASSERT_TRUE(actual->text().contains("30 fps"));
+
+    auto replacement = std::make_shared<application::CameraStatusSnapshot>(*presentation.cameraStatus);
+    replacement->sessionGeneration = 18U;
+    replacement->actualIdentity = camera::CameraId{"replacement"};
+    replacement->requestedConfiguration->roi.width = 320U;
+    replacement->appliedConfiguration->actual.roi.width = 320U;
+    presentation.cameraStatus = replacement;
+    presentation.selectedCameraId = replacement->actualIdentity;
+    dialog.setPresentation(presentation);
+
+    EXPECT_FALSE(apply->isEnabled());
+    EXPECT_TRUE(actual->text().contains("unavailable", Qt::CaseInsensitive));
+    EXPECT_FALSE(actual->text().contains("320"));
+}
+
 TEST(CameraSettingsDialog, InvalidCapabilitiesAndRequestsCannotSilentlyClampIntoSubmission) {
     using Change = std::function<void(CameraStartupPanelPresentation&, application::CameraStatusSnapshot&)>;
     for (const Change& change : std::vector<Change>{
+        [](auto&, auto& s) { s.capabilities->pixelFormats.front().validBits = 0U; },
+        [](auto&, auto& s) { s.capabilities->roi.increment.width = 0U; },
         [](auto&, auto& s) { s.capabilities->gainModes.clear(); },
         [](auto&, auto& s) { s.capabilities->exposure.increment = 0; },
         [](auto&, auto& s) { s.capabilities->frameRate.minimum = 0; },
@@ -377,7 +811,10 @@ TEST(CameraSettingsDialog, ReadOnlySourceFieldsAndActualArePlainAccessibleText) 
     EXPECT_TRUE(text.contains("read-only", Qt::CaseInsensitive));
     EXPECT_TRUE(dialog.findChild<QLabel*>("cameraSettingsSource")->text().contains("camera-settings-1"));
     EXPECT_TRUE(dialog.findChild<QLabel*>("cameraSettingsActual")->text().contains("30 fps"));
-    for (const auto* name : {"cameraExposureMode", "cameraGainMode", "cameraExposureValue", "cameraGainValue", "cameraFrameRateValue"}) {
+    for (const auto* name : {"cameraPixelFormat", "cameraRoiX", "cameraRoiY",
+             "cameraRoiWidth", "cameraRoiHeight", "cameraExposureMode",
+             "cameraGainMode", "cameraExposureValue", "cameraGainValue",
+             "cameraFrameRateValue"}) {
         auto* widget = dialog.findChild<QWidget*>(name); ASSERT_NE(widget, nullptr);
         EXPECT_FALSE(widget->accessibleName().isEmpty());
         bool hasBuddy = false;
@@ -391,7 +828,9 @@ TEST(CameraSettingsDialog, NativeDialogLayoutFitsSupportedSizesAndCanBeCaptured)
     for (const QSize size : {QSize{560, 560}, QSize{720, 640}}) {
         dialog.resize(size); dialog.show(); QCoreApplication::processEvents();
         EXPECT_EQ(dialog.size(), size); EXPECT_FALSE(dialog.isModal());
-        for (const auto* name : {"cameraExposureMode", "cameraGainMode", "cameraExposureValue", "cameraGainValue", "cameraFrameRateValue",
+        for (const auto* name : {"cameraPixelFormat", "cameraRoiX", "cameraRoiY",
+                 "cameraRoiWidth", "cameraRoiHeight", "cameraExposureMode",
+                 "cameraGainMode", "cameraExposureValue", "cameraGainValue", "cameraFrameRateValue",
                  "cameraSettingsSource", "cameraSettingsFixedFields", "cameraSettingsActual", "cameraSettingsStatus",
                  "applyCameraSettingsButton", "closeCameraSettingsButton"}) {
             auto* widget = dialog.findChild<QWidget*>(name); ASSERT_NE(widget, nullptr);

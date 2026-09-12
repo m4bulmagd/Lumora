@@ -11,5 +11,17 @@ struct LiveResourcePreparation final {
     std::optional<core::Error> error;
 };
 LiveResourcePreparation prepareLiveResources(const camera::CameraConfiguration&,
-    processing::ProcessingPreparationOptions,bool customFactory);
+    processing::ProcessingPreparationOptions,bool customFactory,
+    const processing::PipelineDefinition& definition = processing::defaultPipeline());
+
+struct PreparedLiveSession final {
+    std::shared_ptr<LiveSessionContext> context;
+    std::unique_ptr<processing::IFrameProcessor> processor;
+    std::unique_ptr<ProcessingWorker> worker;
+    ~PreparedLiveSession();
+};
+core::Result<std::unique_ptr<PreparedLiveSession>> prepareLiveSession(
+    const LiveResourcePreparation& plan, std::uint64_t generation,
+    const LivePipeline::ProcessorFactory& factory,
+    const std::optional<processing::PipelineDefinition>& acceptedDefinition);
 }

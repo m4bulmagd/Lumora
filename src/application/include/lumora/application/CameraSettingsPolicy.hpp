@@ -4,6 +4,9 @@
 
 namespace lumora::application {
 
+// General live admission; capability validation is performed separately.
+[[nodiscard]] bool isSupportedLiveCameraConfiguration(const camera::CameraConfiguration& requested);
+
 // Resource compatibility requires identical source format, full ROI and acquisition
 // mode, and explicit positive finite FPS in both configurations. FPS, exposure and
 // gain may differ; admission must still validate the camera's capabilities.

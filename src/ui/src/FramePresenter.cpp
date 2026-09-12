@@ -255,9 +255,8 @@ void FramePresenter::resetSource(
     impl_->slot = &freshSlot;
     impl_->pending.reset();
     impl_->completed.reset();
-    impl_->requestedMode = DisplayMode::Enhanced;
-    impl_->completedMode = DisplayMode::Enhanced;
-    impl_->pendingMode = DisplayMode::Enhanced;
+    impl_->completedMode = impl_->requestedMode;
+    impl_->pendingMode = impl_->requestedMode;
     impl_->pendingToken = 0U;
     impl_->acceptedId.reset();
     impl_->completedAt.reset();
@@ -266,7 +265,7 @@ void FramePresenter::resetSource(
     impl_->displayedCount = 0U;
     impl_->paused = false;
     impl_->updateAvailability();
-    impl_->view->setPresentedDisplayMode(DisplayMode::Enhanced);
+    impl_->view->setPresentedDisplayMode(impl_->requestedMode);
     impl_->updateStatus();
 }
 
