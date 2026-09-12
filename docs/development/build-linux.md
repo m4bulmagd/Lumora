@@ -177,4 +177,13 @@ Confirmed settings save in the background and may be eligible for explicit **Res
 
 The application on `main` also edits **Frame rate (fps)** while stopped. Build and launch with the same instructions above. SIM-LIVE advertises 1–60 FPS. Choose **Stop**, open **Camera settings**, edit FPS, **Apply settings**, review actual readback, then **Confirm** and **Start**. Requested 1.25 FPS is retained while the simulator reads back actual 1 FPS. Ordinary Apply and eligible saved Resume retain these settings. Viewer Pause continues acquisition and does not enable editing.
 
-The low-FPS watchdog correction preserves 250 ms retrieval polling, allowing healthy slow streams to continue. The [Task 4B record](../architecture/milestones/m09-frame-rate.md#pr-21-integration) retains verified source, inspected native layouts and the explicit numeric-widget precision limit. PR #21 merged after Linux/Windows Debug/Release CI passed. ROI, format and acquisition mode remain read-only.
+The low-FPS watchdog correction preserves 250 ms retrieval polling, allowing healthy slow streams to continue. The [Task 4B record](../architecture/milestones/m09-frame-rate.md#pr-21-integration) retains verified source, inspected native layouts and the explicit numeric-widget precision limit. PR #21 merged after Linux/Windows Debug/Release CI passed. At that integrated checkpoint, ROI, format and acquisition mode remained read-only.
+
+
+### Stopped ROI and pixel-format settings
+
+The local `codex/m09-format-roi` continuation adds **Pixel format** and **Image region** controls. Build and launch from that worktree using the simulator presets above. After Connect, use **Stop**, open **Camera settings**, choose an advertised format and edit ROI x/y/width/height, then **Apply settings**. Review the complete actual readback, close the old dialog, **Confirm**, and **Start**. Reopen Camera settings for further edits after a successful source change. Viewer Pause continues acquisition.
+
+Production SIM-LIVE advertises only Mono12, x/y zero and dimensions up to 640×480; smaller ROI requests are supported. Bounds, increments and containment come from capabilities. Unrepresentable unsigned editor ranges disable Apply with an explanation. Format changes are exercised with additional simulator fixtures; no physical-camera format support is implied.
+
+The camera remains open and frame IDs continue. Processing settings and display-mode selection survive; the old image, pause and viewport state reset before new frames arrive. Confirmed full settings use the existing saved Resume workflow. [Task 4C evidence](../architecture/milestones/m09-format-roi.md) records exact local verification, the temporary matching Qt runtime used for native X11 checks, and the remaining scope. This continuation has not yet been published or verified by hosted Windows CI.
