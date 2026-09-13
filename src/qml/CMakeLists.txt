@@ -60,3 +60,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     VERBATIM
   )
 endif()
+
+# C++ renderer experiment; no live image composition in the preview scene.
+add_library(lumora_quick_renderer STATIC QuickImageItem.cpp QuickImageItem.hpp)
+target_include_directories(lumora_quick_renderer PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(lumora_quick_renderer PUBLIC lumora::presentation Qt6::Quick)
+lumora_enable_warnings(lumora_quick_renderer)
