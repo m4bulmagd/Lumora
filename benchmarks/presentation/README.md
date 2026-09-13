@@ -44,3 +44,12 @@ prove arbitrary scene content was unobscured. Public Qt texture creation also
 provides no per-texture asynchronous upload-success callback: known preparation,
 node/texture creation, initialization and graph-loss errors are handled, but
 otherwise-undetected driver failures are outside this experiment's proof.
+
+Initialization failures before a ticket exists remain available through the
+sink's read-only C++ `initializationError()` accessor. It retains an actionable
+summary, Qt's error code and message while readiness stays false. A fresh window
+binding clears it; old queued window errors are fenced. The benchmark binds the
+sink before first initialization and reports this diagnostic on readiness/error
+exits. Checkpoint 4 must project it into workstation status; the shared ticket
+protocol is unchanged. The signal-handler regression is explicitly injected
+handler coverage, not evidence of a reproduced driver initialization failure.

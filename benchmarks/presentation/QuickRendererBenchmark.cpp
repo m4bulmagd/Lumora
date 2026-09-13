@@ -29,16 +29,31 @@ QJsonObject distribution(std::vector<double> values) {
     std::ranges::sort(values);
     return {{"p50_us",values[29]},{"p95_us",values[56]},{"max_us",values.back()}};
 }
+int rendererFailure(const qml::QuickImageItem& item,int exitCode,const char* stage) {
+    std::cerr << "Renderer experiment failed during " << stage << ". ";
+    if(const auto& error=item.initializationError()) {
+        std::cerr << error->operatorSummary << " Qt sceneGraphError="
+            << error->nativeCode.value_or(-1) << ": " << error->diagnosticDetail;
+    } else {
+        std::cerr << "The image surface did not become ready or complete its ticket. "
+            << "Check window exposure and the selected Qt graphics backend.";
+    }
+    std::cerr << '\n';
+    return exitCode;
+}
 double micros(std::chrono::nanoseconds time) {return static_cast<double>(time.count())/1000.;}
 }
 int main(int argc,char** argv) {
     QGuiApplication app(argc,argv);
     core::SystemClock clock;
-    QQuickWindow window;window.resize(1280,800);window.setColor(Qt::black);
-    window.setTitle("Lumora renderer experiment — synthetic fixtures");
+    // The direct render callback may still run during window teardown. Declare
+    // every referenced diagnostic value first so it outlives the window on all
+    // return paths, including an error while the threaded window is exposed.
     std::mutex diagnosticsMutex;
     QString renderer="software",version;
     bool renderThread=false;
+    QQuickWindow window;window.resize(1280,800);window.setColor(Qt::black);
+    window.setTitle("Lumora renderer experiment — synthetic fixtures");
     QObject::connect(&window,&QQuickWindow::beforeRendering,&window,[&] {
         std::lock_guard lock(diagnosticsMutex);
         renderThread=QThread::currentThread()!=app.thread();
@@ -47,11 +62,16 @@ int main(int argc,char** argv) {
             version=QString::fromLatin1(reinterpret_cast<const char*>(context->functions()->glGetString(GL_VERSION)));
         }
     },Qt::DirectConnection);
-    window.show();if(!QTest::qWaitForWindowExposed(&window))return 2;
     QJsonArray cases;
     for(const auto dimensions:{QSize(640,480),QSize(2048,2048)}) for(const auto mode:{DisplayMode::Original,DisplayMode::Compare}) {
         qml::QuickImageItem item(clock,window.contentItem());item.setSize({1280,800});
-        if(!waitFor([&]{return item.ready();}))return 3;
+        // Bind the sink before the first graphics initialization so failures
+        // before any ticket are retained and reported instead of being lost.
+        if(!window.isVisible()) {
+            window.show();
+            if(!QTest::qWaitForWindowExposed(&window))return rendererFailure(item,2,"window exposure");
+        }
+        if(!waitFor([&]{return item.ready();}))return rendererFailure(item,3,"initialization");
         qml::test::Frames frames;
         auto frame=frames.make(1,clock,static_cast<unsigned>(dimensions.width()),static_cast<unsigned>(dimensions.height()));
         auto storage=qml::QuickImageItem::assessStorage(static_cast<std::size_t>(dimensions.width()),static_cast<std::size_t>(dimensions.height()),mode);
@@ -64,10 +84,10 @@ int main(int argc,char** argv) {
         std::vector<double> conversion,admission,swap,delivery;
         const auto before=item.metrics();
         for(unsigned index=0;index<72;++index) {
-            if(!waitFor([&]{return item.ready();}))return 6;
+            if(!waitFor([&]{return item.ready();}))return rendererFailure(item,6,"sample readiness");
             if(!item.submit({{1,1,index+1},frame,mode}).hasValue())return 7;
             std::optional<PresentationEvent> event;
-            if(!waitFor([&]{event=item.takeEvent();return event.has_value();}) || !std::holds_alternative<PresentationReceipt>(*event))return 8;
+            if(!waitFor([&]{event=item.takeEvent();return event.has_value();}) || !std::holds_alternative<PresentationReceipt>(*event))return rendererFailure(item,8,"sample completion");
             const auto metrics=item.metrics();
             if(index>=12) {
                 conversion.push_back(micros(metrics.preparation));admission.push_back(micros(metrics.admissionToConsume));
@@ -114,7 +134,7 @@ int main(int argc,char** argv) {
         auto frame=frames.make(1,clock,640,480);
         for(const auto size:{QSize(900,600),QSize(1280,800)}) {
             window.resize(size);item.setSize(size);item.fit();
-            if(!waitFor([&]{return item.ready();}))return 11;
+            if(!waitFor([&]{return item.ready();}))return rendererFailure(item,11,"capture readiness");
             if(!item.submit({{2,1,static_cast<std::uint64_t>(size.width())},frame,DisplayMode::Compare}).hasValue())return 12;
             std::optional<PresentationEvent> event;
             if(!waitFor([&]{event=item.takeEvent();return event.has_value();}))return 13;

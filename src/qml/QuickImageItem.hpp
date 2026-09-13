@@ -33,6 +33,8 @@ public:
     void panBy(presentation::Vector);
     [[nodiscard]] std::array<QRectF,2> imageRects() const;
     [[nodiscard]] RendererMetrics metrics() const;
+    // Frontend-thread diagnostic, including failures before a ticket exists.
+    [[nodiscard]] const std::optional<core::Error>& initializationError() const noexcept;
     [[nodiscard]] static core::Result<RendererStorage> assessStorage(std::size_t width, std::size_t height, presentation::DisplayMode);
 protected:
     QSGNode* updatePaintNode(QSGNode*, UpdatePaintNodeData*) override;

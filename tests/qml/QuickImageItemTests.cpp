@@ -332,3 +332,46 @@ TEST(QuickRendererClock, DelayedDeliveryDoesNotRenewActualCallbackTime) {
     EXPECT_EQ(item.metrics().guiDelivery,std::chrono::milliseconds(600));
 }
 }
+
+#include <thread>
+namespace {
+TEST_F(QuickRenderer, InitializationSignalBeforeTicketPreservesDiagnosticAndFreshBindingRecovers) {
+    // Handler injection exercises the real Qt signal connection. It does not
+    // claim an actual graphics-driver initialization fault was reproduced.
+    window.sceneGraphError(QQuickWindow::ContextNotAvailable,
+        QStringLiteral("fixture: graphics context creation failed"));
+    EXPECT_FALSE(item.ready());
+    ASSERT_TRUE(item.initializationError());
+    EXPECT_EQ(item.initializationError()->code,"quick_scene_graph_initialization_failed");
+    EXPECT_EQ(item.initializationError()->nativeCode,
+        static_cast<std::int64_t>(QQuickWindow::ContextNotAvailable));
+    EXPECT_EQ(item.initializationError()->diagnosticDetail,
+        "fixture: graphics context creation failed");
+    EXPECT_NE(item.initializationError()->operatorSummary.find("Reopen"),std::string::npos);
+    EXPECT_FALSE(item.takeEvent());
+    EXPECT_EQ(item.metrics().consumed,0U);
+    EXPECT_EQ(item.metrics().completed,0U);
+    EXPECT_EQ(item.metrics().textures,0U);
+    EXPECT_EQ(item.metrics().conversionImages,0U);
+
+    // Emit from another thread to queue the old connection's GUI callback, then
+    // bind a new window before delivery. Its epoch must fence this old error.
+    std::thread lateError([&] {
+        window.sceneGraphError(QQuickWindow::ContextNotAvailable,
+            QStringLiteral("fixture: queued old-window error"));
+    });
+    lateError.join();
+    QQuickWindow replacement;replacement.resize(512,128);
+    item.setParentItem(replacement.contentItem());
+    EXPECT_FALSE(item.initializationError());
+    replacement.show();ASSERT_TRUE(QTest::qWaitForWindowExposed(&replacement));
+    EXPECT_FALSE(item.initializationError());
+    ASSERT_TRUE(waitFor([&]{return item.ready();}));
+    ASSERT_TRUE(item.submit({{2,1,1},frames.make(1,clock),DisplayMode::Original}).hasValue());
+    auto event=terminal();ASSERT_TRUE(event);
+    EXPECT_TRUE(std::holds_alternative<PresentationReceipt>(*event));
+    EXPECT_EQ(item.metrics().completed,1U);
+    item.retire(2);ASSERT_TRUE(terminal());
+    item.setParentItem(window.contentItem());
+}
+}

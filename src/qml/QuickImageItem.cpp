@@ -154,7 +154,7 @@ struct QuickImageItem::Impl {
     ViewportTransform transform=ViewportTransform::fit({0,0},{0,0});
     Size imageSize{0,0};
     DisplayMode mode=DisplayMode::Original;
-    bool initializationFailed{};
+    std::optional<core::Error> initializationError;
     void scheduleCleanup() {
         if(!binding || !window) return;
         std::uint64_t token;
@@ -201,7 +201,7 @@ bool QuickImageItem::drawable() const {return drawable(impl_->mode,impl_->imageS
 bool QuickImageItem::drawable(DisplayMode mode,Size imageSize) const {
     auto* w=window();
     if(!w || !w->isVisible() || !w->isExposed() || w->visibility()==QWindow::Minimized ||
-       !isVisible() || width()<=0 || height()<=0 || impl_->initializationFailed) return false;
+       !isVisible() || width()<=0 || height()<=0 || impl_->initializationError) return false;
     QRectF visible=mapRectToScene(boundingRect()).intersected(QRectF(0,0,w->width(),w->height()));
     for(const QQuickItem* item=this;item;item=item->parentItem()) {
         if(!item->isVisible() || item->opacity()<=0) return false;
@@ -306,6 +306,9 @@ std::array<QRectF,2> QuickImageItem::imageRects() const {
     const auto point=impl_->transform.imageToViewport({0,0});
     QRectF first(point.x,point.y,impl_->imageSize.width*impl_->transform.scale(),impl_->imageSize.height*impl_->transform.scale());
     return {first,first.translated(width()/2,0)};
+}
+const std::optional<core::Error>& QuickImageItem::initializationError() const noexcept {
+    return impl_->initializationError;
 }
 RendererMetrics QuickImageItem::metrics() const {std::lock_guard lock(impl_->state->mutex);return impl_->state->metrics;}
 core::Result<RendererStorage> QuickImageItem::assessStorage(std::size_t width,std::size_t height,DisplayMode mode) {
@@ -429,7 +432,7 @@ void QuickImageItem::bindWindow(QQuickWindow* window) {
     }
     for(const auto& connection:impl_->connections) QObject::disconnect(connection);
     impl_->connections.clear();
-    impl_->window=window; impl_->initializationFailed=false;
+    impl_->window=window; impl_->initializationError.reset();
     if(!window) {impl_->binding.reset();return;}
     auto state=impl_->state;
     auto binding=std::make_shared<Binding>();
@@ -476,8 +479,17 @@ void QuickImageItem::bindWindow(QQuickWindow* window) {
         }
         if(abandoned) cleanup(state,binding);
     },Qt::DirectConnection));
-    impl_->connections.push_back(connect(window,&QQuickWindow::sceneGraphError,this,[this](QQuickWindow::SceneGraphError,const QString&) {
-        impl_->initializationFailed=true; surfaceChanged();
+    impl_->connections.push_back(connect(window,&QQuickWindow::sceneGraphError,this,[this,binding](QQuickWindow::SceneGraphError error,const QString& message) {
+        {
+            std::lock_guard lock(impl_->state->mutex);
+            if(binding->epoch!=impl_->state->epoch) return;
+        }
+        impl_->initializationError=core::Error{
+            core::ErrorCategory::ResourceExhaustion,
+            "quick_scene_graph_initialization_failed",
+            "Image renderer initialization failed. Reopen the image window and check the graphics backend.",
+            message.toStdString(),true,static_cast<std::int64_t>(error)};
+        surfaceChanged();
     }));
     impl_->connections.push_back(connect(window,&QWindow::visibleChanged,this,[this](bool){surfaceChanged();}));
     impl_->connections.push_back(connect(window,&QWindow::visibilityChanged,this,[this](QWindow::Visibility){surfaceChanged();}));
