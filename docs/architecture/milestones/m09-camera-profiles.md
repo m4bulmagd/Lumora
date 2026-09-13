@@ -42,6 +42,8 @@ Fresh build trees reuse `/home/mo/code/Lumora/out/vcpkg_installed/x64-linux-dyna
 
 ## Remaining work
 
+Successor: [Task 4E camera controls](m09-camera-controls.md) completes the compact panel and capability access work described below, and advances the current schemas to user 5/machine 2/fingerprint 2. The versions and verification in this Task 4D record remain historical.
+
 This completes the bounded per-camera persistence and installation-orientation slice. M9 Task 4 still has the compact camera panel and remaining capability availability/writability details; Task 5 adds fullscreen, a collapsible sidebar and persisted UI preferences. M10 capture follows the remaining M9 work.
 
 Native Windows compilation/ACL/UAC/visual/DPI execution, physical-camera testing, designated reference/performance work and formal acceptance remain open. The inherited intermittent lifecycle/context-retirement timeout is not fixed by this slice. No processing algorithm or performance benchmark changed, and the recorded Linux 2048 Standard result remains below the 30 FPS target. The branch and evidence stay local; no push, PR, hosted CI or main merge is included.

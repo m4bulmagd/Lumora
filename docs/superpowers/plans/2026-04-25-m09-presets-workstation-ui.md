@@ -190,18 +190,16 @@ git commit -m "feat(ui): add synchronized original enhanced comparison"
 
 ### Task 4: Camera selection and safe settings dialog
 
-The owner-authorized [Task 4A refined plan](2026-09-10-m09-camera-settings.md) and [camera-settings record](../../architecture/milestones/m09-camera-settings.md) implement stopped exposure/gain editing first, preserving the existing startup panel and preferences policy. The subsequent [Task 4B frame-rate continuation](../../architecture/milestones/m09-frame-rate.md#pr-21-integration) implements low-FPS watchdog correction and stopped numeric FPS editing, merged through PR #21 after Linux/Windows Debug/Release CI passed. The local [Task 4C ROI/format continuation](../../architecture/milestones/m09-format-roi.md) implements same-device resource rebinding, followed by [Task 4D camera profiles and installation orientation](../../architecture/milestones/m09-camera-profiles.md) at `10e1018`. Task 4D passes Linux Debug/Release 66/66, targeted sanitizers and supplemental native checks; Windows execution remains separate. Compact main-panel completion and richer availability/writability capabilities remain unfinished. These bounded refinements do not mark this full task complete.
+The owner-authorized [Task 4A refined plan](2026-09-10-m09-camera-settings.md) and [camera-settings record](../../architecture/milestones/m09-camera-settings.md) implement stopped exposure/gain editing first, preserving the existing startup panel and preferences policy. The subsequent [Task 4B frame-rate continuation](../../architecture/milestones/m09-frame-rate.md#pr-21-integration) implements low-FPS watchdog correction and stopped numeric FPS editing, merged through PR #21 after Linux/Windows Debug/Release CI passed. The local [Task 4C ROI/format continuation](../../architecture/milestones/m09-format-roi.md) implements same-device resource rebinding, followed by [Task 4D camera profiles and installation orientation](../../architecture/milestones/m09-camera-profiles.md) at `10e1018`. Task 4D passes Linux Debug/Release 66/66, targeted sanitizers and supplemental native checks; Windows execution remains separate. The local [Task 4E camera controls continuation](../../architecture/milestones/m09-camera-controls.md) completes the compact panel and explicit capability access at `2be3a85`, including absent gain/read-only FPS, authoritative current readback and fingerprint-2 migration. The combined Task 4 implementation is locally verified on Linux; Windows, physical-camera and formal milestone acceptance remain separate. Task 5 is next.
 
 Extend the [M5 startup contract](../../architecture/milestones/m05-preflight.md#3-minimal-startup-ui-and-persistence). M5 already provides minimal startup controls, typed saved preferences, capability comparison, confirmation/revision guards, and asynchronous persistence. This task replaces/expands the small `CameraStartupPanel` with the complete panel/dialog without duplicating its controller policy or stored last-camera record.
 
 **Files:**
-- Create: `src/ui/include/lumora/ui/CameraPanel.hpp`
 - Create: `src/ui/include/lumora/ui/CameraSettingsDialog.hpp`
-- Create: `src/ui/src/CameraPanel.cpp`
 - Create: `src/ui/src/CameraSettingsDialog.cpp`
 - Create: `tests/unit/ui/CameraSettingsDialogTests.cpp`
 - Modify: `src/ui/src/WorkstationController.cpp`
-- Modify: `src/ui/include/lumora/ui/CameraStartupPanel.hpp` and `src/ui/src/CameraStartupPanel.cpp` (retire the replaced panel after its callers/tests move)
+- Modify: `src/ui/include/lumora/ui/CameraStartupPanel.hpp` and `src/ui/src/CameraStartupPanel.cpp` (evolved in place by the authorized Task 4E refinement)
 - Modify: `src/application/include/lumora/application/StartupPreferences.hpp`
 - Modify: `src/application/include/lumora/application/AcquisitionWorker.hpp`
 - Modify: `src/application/src/AcquisitionWorker.cpp`
@@ -219,25 +217,25 @@ Extend the [M5 startup contract](../../architecture/milestones/m05-preflight.md#
 - Consumes: `CameraDescriptor`, `CameraCapabilities`, `CameraConfiguration`, `AppliedCameraConfiguration`, and application commands.
 - Produces: Discover/Refresh, Connect/Disconnect, Start/Stop, selected camera, capability-driven safe settings editing, and an administrator-managed stopped-state installation-orientation profile.
 
-- [ ] **Step 1: Write failing capability-driven control tests**
+- [x] **Step 1: Write failing capability-driven control tests** (Task 4E retained behavioral RED)
 
 Provide capabilities without gain and read-only FPS; assert gain controls are absent/disabled with explanation and FPS is shown read-only. Supply ROI increment 8 and assert width stepping follows 8.
 
-- [ ] **Step 2: Verify dialog types are missing**
+- [x] **Step 2: Verify the missing behavior before implementation**
 
-Build `lumora_ui_tests`; expect failure.
+Task 4A introduced the dialog. Task 4E retained failing capability, controller and compact-layout tests against the existing types before implementation.
 
-- [ ] **Step 3: Implement compact main status and separate dialog**
+- [x] **Step 3: Implement compact main status and separate dialog** (Task 4E, Linux local verification)
 
 Main view shows selected camera identity, active installation orientation, connection state, Live/Paused, and Connect/Disconnect/Start/Stop appropriate to state. Dialog edits format, ROI, FPS, exposure, and gain only when capability exists. First run requires explicit selection, configuration confirmation, and Start. Later runs may offer one-click Resume Live only for the unchanged stored identity/capabilities and never stream silently.
 
-- [ ] **Step 4: Implement stopped-state apply UX**
+- [x] **Step 4: Implement stopped-state apply UX** (Task 4A–4E, Linux local verification)
 
-The authorized Task 4A–4D refinements use explicit stopped editing: when acquisition is running, use Stop before changing settings; Apply submits the complete draft, then review actual readback, Confirm and Start. There is no automatic stop or restart. One Apply command carries the entire requested configuration; UI does not issue individual node writes. Flip/rotation changes require the application to be deliberately launched by an administrator, a stopped stream, explicit confirmation, and a preview showing that both Original and Enhanced will use the same orientation; they never transform native stored Original. The ordinary operator UI is read-only for this setting, and Lumora never silently self-elevates.
+The authorized Task 4A–4E refinements use explicit stopped editing: when acquisition is running, use Stop before changing settings; Apply submits the complete draft, then review actual readback, Confirm and Start. There is no automatic stop or restart. One Apply command carries the entire requested configuration; UI does not issue individual node writes. Flip/rotation changes require the application to be deliberately launched by an administrator, a stopped stream, explicit confirmation, and a preview showing that both Original and Enhanced will use the same orientation; they never transform native stored Original. The ordinary operator UI is read-only for this setting, and Lumora never silently self-elevates.
 
 Extend M5's fixed-mode contract with a stopped-state resource-rebinding operation on the camera-owning worker for resolution changes. Quiesce old processing, provision checked replacement pools/exchanges, reset/rebind presentation and acknowledge the new context before restart; keep the same device instance and its source-ID sequence. Test a rejected request/allocation failure without partial activation, successful rebind, stale acknowledgement, and same-device ID continuity. A configuration or pool change must not quietly become a Disconnect/Connect that resets IDs.
 
-- [ ] **Step 5: Test errors and applied-value feedback**
+- [x] **Step 5: Test errors and applied-value feedback** (automated simulator/policy coverage; native Windows and hardware acceptance remain open)
 
 Cover no cameras, first-run confirmation, later Resume Live, identity/capability change requiring review, manual Disconnect suppressing reconnect, camera disappearance, unsupported saved profile, absent/invalid/mismatched Basler installation profile blocking Start, simulator identity-orientation fallback, orientation confirmation/stopped-state/admin enforcement, validation errors, quantized applied value, apply rollback, connection failure, and UI responsiveness using asynchronous command results.
 
@@ -245,7 +243,7 @@ Cover no cameras, first-run confirmation, later Resume Live, identity/capability
 
 Extend the M5 schema-2 typed startup record into per-camera preferences keyed by vendor/model/serial; retain its last selected `CameraId`, requested/last-applied settings, and versioned canonical capability fingerprint. Supply sequential migration from schema 2 for any schema change and keep M5 first-run/Resume/drift/save-failure tests passing. Reuse the background persistence adapter; do not add file I/O to the UI or camera worker. Store the confirmed installation identity/orientation in a separate machine-profile schema/path adapter: `%PROGRAMDATA%\Lumora\Config` on Windows with admin-write/operator-read ACLs and an injected system root on Linux tests. On discovery, validate the saved request and installation identity/capability fingerprint; require operator Apply/review when either is no longer valid.
 
-- [ ] **Step 7: Commit camera UI**
+- [x] **Step 7: Commit camera UI** (local source `2be3a85`; no publication or merge)
 
 ```powershell
 git add src/ui src/application src/configuration tests/unit/ui/CameraSettingsDialogTests.cpp tests/unit/configuration/ConfigurationStoreTests.cpp tests/unit/application/AcquisitionWorkerTests.cpp tests/integration/LivePipelineTests.cpp src/CMakeLists.txt tests/CMakeLists.txt
