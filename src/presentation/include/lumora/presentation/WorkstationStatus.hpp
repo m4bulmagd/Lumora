@@ -10,6 +10,7 @@ namespace lumora::presentation {
 enum class ViewerState {
     Live,
     Paused,
+    Pausing,
 };
 
 enum class FrameFreshness {

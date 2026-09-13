@@ -9,6 +9,10 @@ add_library(
   include/lumora/presentation/WorkstationCoordinator.hpp
   include/lumora/presentation/WorkstationState.hpp
   include/lumora/presentation/WorkstationStatus.hpp
+  include/lumora/presentation/PresentationProtocol.hpp
+  include/lumora/presentation/FramePresenter.hpp
+  src/PresentationProtocol.cpp
+  src/FramePresenter.cpp
   src/CameraActionPolicy.cpp
   src/ProcessingControlsModel.cpp
   src/ViewportTransform.cpp

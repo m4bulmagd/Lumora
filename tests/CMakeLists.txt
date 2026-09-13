@@ -68,6 +68,8 @@ set_tests_properties(Application.PresetRepository PROPERTIES TIMEOUT 60)
 
 add_executable(
   lumora_presentation_tests
+  unit/presentation/PresentationProtocolTests.cpp
+  unit/presentation/FramePresenterTests.cpp
   unit/presentation/CameraActionPolicyTests.cpp
   unit/presentation/ProcessingControlsModelTests.cpp
   unit/presentation/ViewportTransformTests.cpp
@@ -81,7 +83,11 @@ target_link_libraries(
     lumora::configuration
     GTest::gtest_main
 )
+target_include_directories(lumora_presentation_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
 lumora_enable_warnings(lumora_presentation_tests)
+add_test(NAME SharedFramePresenter COMMAND lumora_presentation_tests --gtest_filter=SharedFramePresenter.*)
+add_test(NAME PresentationProtocol COMMAND lumora_presentation_tests --gtest_filter=PresentationProtocol.*)
+set_tests_properties(SharedFramePresenter PresentationProtocol PROPERTIES TIMEOUT 60)
 add_test(
   NAME ProcessingControls
   COMMAND lumora_presentation_tests --gtest_filter=Controls.*
