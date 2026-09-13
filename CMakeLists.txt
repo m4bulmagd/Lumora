@@ -13,6 +13,7 @@ project(
 option(LUMORA_ENABLE_BASLER "Build the Basler pylon camera adapter" OFF)
 option(LUMORA_BUILD_TESTS "Build automated tests" ON)
 option(LUMORA_BUILD_BENCHMARKS "Build benchmark executables" OFF)
+option(LUMORA_BUILD_QML_UI "Build the optional Qt Quick/QML interface preview" OFF)
 option(LUMORA_ENABLE_STRESS_TESTS "Register opt-in stress tests" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -24,6 +25,13 @@ include(Pylon)
 include(Warnings)
 
 lumora_find_dependencies()
+
+if(LUMORA_BUILD_QML_UI)
+  qt_policy(SET QTP0001 NEW)
+  qt_policy(SET QTP0004 NEW)
+  qt_policy(SET QTP0005 NEW)
+endif()
+
 lumora_configure_pylon()
 
 add_subdirectory(src)

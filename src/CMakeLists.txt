@@ -313,6 +313,10 @@ target_link_libraries(
 )
 lumora_enable_warnings(lumora_app)
 
+if(LUMORA_BUILD_QML_UI)
+  add_subdirectory(qml)
+endif()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # QPA plugins share a directory; resolve the matching Debug/Release location
   # from Qt rather than depending on its build-time prefix or a global setting.

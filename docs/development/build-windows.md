@@ -31,7 +31,7 @@ CI cache keys separate operating systems and architectures; vcpkg checks package
 
 ## Configure, build, and test
 
-The commands below build the current Widgets frontend. The owner has selected [Qt Quick/QML](../adr/0001-qt-quick-qml-frontend.md), but its optional build, matching Qt dependencies and renderer checks remain [proposed migration work](../superpowers/specs/2026-09-13-qt-quick-qml-migration-design.md); no QML target or preset is available yet. Existing `minimal` smoke tests do not verify Quick rendering or native Windows visual/DPI behavior.
+The commands below build the current Widgets workstation. An opt-in [QML interface preview](#optional-qml-interface-preview) is also available. Shared controller policy, live image rendering and camera/processing integration remain later [migration work](../superpowers/plans/2026-09-13-qml-stage-one.md). Existing `minimal` smoke tests do not verify Quick rendering or native Windows visual/DPI behavior.
 
 Debug simulator build:
 
@@ -54,6 +54,24 @@ These presets force `LUMORA_ENABLE_BASLER=OFF`, so a pylon installation is not r
 CTest sets the smoke test's `QT_QPA_PLATFORM_PLUGIN_PATH` from the imported `Qt6::QMinimalIntegrationPlugin` target, selecting the installed plugin directory for the active Debug or Release configuration. Copying Qt DLLs beside the executable alone does not provide this plugin path. This test-only environment does not replace deploying the Qt runtime and the `windows` platform plugin with the future Windows installer.
 
 Basler presets are reserved for the later camera-adapter milestone. Machine-specific pylon paths belong in ignored `CMakeUserPresets.json`, never in the shared presets.
+
+## Optional QML interface preview
+
+Use the separate QML presets to enable `LUMORA_BUILD_QML_UI` and manifest feature `qml-ui`, with dependencies in `out/vcpkg_qml_installed`. The complete Qt module set remains at 6.11.1, dynamically linked. The feature adds Declarative (QML, Quick, Quick Controls and Quick Test), SVG, Shader Tools and Language Server. It does not replace `lumora_app`.
+
+```powershell
+cmake --preset windows-msvc-debug-sim-qml "-DCMAKE_TOOLCHAIN_FILE=$LumoraVcpkgRoot\scripts\buildsystems\vcpkg.cmake"
+cmake --build --preset windows-msvc-debug-sim-qml --parallel
+cmake --build --preset windows-msvc-debug-sim-qml --target all_qmllint
+ctest --preset windows-msvc-debug-sim-qml -R '^Qml.ThemeSmoke$' --output-on-failure
+cmake -E env QT_QPA_PLATFORM=windows `
+  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_qml_installed/x64-windows/debug/Qt6/plugins/platforms" `
+  out/build/windows-msvc-debug-sim-qml/src/qml/Debug/lumora_qml_app.exe
+```
+
+For Release, use `windows-msvc-release-sim-qml`, `src/qml/Release`, and the platform-plugin directory without `debug/`. QML is compiled into the application module; standard Qt imports and plugins still need their matching development/runtime installation.
+
+The preview is explicitly labeled **Interface preview**. It uses `LumoraQmlPreview`, writes no preferences and sends no camera commands. Only the Preview details interaction is active; camera, processing and image controls await shared policy/rendering integration. The automated smoke test uses offscreen/software rendering and checks both supported sizes and keyboard interaction. Native Windows compilation, graphics backend and 100%/125%/150%/200% display scaling require their own recorded results; Linux preview verification does not establish them. This developer launcher is not M13 deployment acceptance.
 
 ## Launch the desktop application
 

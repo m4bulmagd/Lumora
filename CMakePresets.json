@@ -40,6 +40,32 @@
       }
     },
     {
+      "name": "linux-gcc-qml-base",
+      "hidden": true,
+      "inherits": "linux-gcc-base",
+      "cacheVariables": {
+        "LUMORA_BUILD_QML_UI": "ON",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_qml_installed",
+        "VCPKG_MANIFEST_FEATURES": "qml-ui"
+      }
+    },
+    {
+      "name": "linux-gcc-debug-sim-qml",
+      "displayName": "Linux GCC Debug (simulator + QML preview)",
+      "inherits": "linux-gcc-qml-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-gcc-release-sim-qml",
+      "displayName": "Linux GCC Release (simulator + QML preview)",
+      "inherits": "linux-gcc-qml-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
       "name": "windows-msvc-base",
       "hidden": true,
       "generator": "Visual Studio 17 2022",
@@ -55,6 +81,16 @@
       }
     },
     {
+      "name": "windows-msvc-qml-base",
+      "hidden": true,
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "LUMORA_BUILD_QML_UI": "ON",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_qml_installed",
+        "VCPKG_MANIFEST_FEATURES": "qml-ui"
+      }
+    },
+    {
       "name": "windows-msvc-debug-sim",
       "displayName": "Windows MSVC Debug (simulator)",
       "inherits": "windows-msvc-base"
@@ -63,6 +99,16 @@
       "name": "windows-msvc-release-sim",
       "displayName": "Windows MSVC Release (simulator)",
       "inherits": "windows-msvc-base"
+    },
+    {
+      "name": "windows-msvc-debug-sim-qml",
+      "displayName": "Windows MSVC Debug (simulator + QML preview)",
+      "inherits": "windows-msvc-qml-base"
+    },
+    {
+      "name": "windows-msvc-release-sim-qml",
+      "displayName": "Windows MSVC Release (simulator + QML preview)",
+      "inherits": "windows-msvc-qml-base"
     },
     {
       "name": "windows-msvc-debug-basler",
@@ -91,6 +137,14 @@
       "configurePreset": "linux-gcc-release-sim"
     },
     {
+      "name": "linux-gcc-debug-sim-qml",
+      "configurePreset": "linux-gcc-debug-sim-qml"
+    },
+    {
+      "name": "linux-gcc-release-sim-qml",
+      "configurePreset": "linux-gcc-release-sim-qml"
+    },
+    {
       "name": "windows-msvc-debug-sim",
       "configurePreset": "windows-msvc-debug-sim",
       "configuration": "Debug"
@@ -98,6 +152,16 @@
     {
       "name": "windows-msvc-release-sim",
       "configurePreset": "windows-msvc-release-sim",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-msvc-debug-sim-qml",
+      "configurePreset": "windows-msvc-debug-sim-qml",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-release-sim-qml",
+      "configurePreset": "windows-msvc-release-sim-qml",
       "configuration": "Release"
     },
     {
@@ -125,6 +189,16 @@
       "environment": { "QT_QPA_PLATFORM": "minimal" }
     },
     {
+      "name": "linux-gcc-debug-sim-qml",
+      "configurePreset": "linux-gcc-debug-sim-qml",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-gcc-release-sim-qml",
+      "configurePreset": "linux-gcc-release-sim-qml",
+      "output": { "outputOnFailure": true }
+    },
+    {
       "name": "windows-msvc-debug-sim",
       "configurePreset": "windows-msvc-debug-sim",
       "configuration": "Debug",
@@ -137,6 +211,18 @@
       "configuration": "Release",
       "output": { "outputOnFailure": true },
       "environment": { "QT_QPA_PLATFORM": "minimal" }
+    },
+    {
+      "name": "windows-msvc-debug-sim-qml",
+      "configurePreset": "windows-msvc-debug-sim-qml",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-msvc-release-sim-qml",
+      "configurePreset": "windows-msvc-release-sim-qml",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
     },
     {
       "name": "windows-msvc-debug-basler",

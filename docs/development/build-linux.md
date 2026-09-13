@@ -52,7 +52,7 @@ CI cache keys separate operating systems and architectures. Each run saves a new
 
 ## Configure, build, and test
 
-The commands below build the current Widgets frontend. The owner has selected [Qt Quick/QML](../adr/0001-qt-quick-qml-frontend.md), but its optional build, matching Qt dependencies and renderer checks remain [proposed migration work](../superpowers/specs/2026-09-13-qt-quick-qml-migration-design.md); no QML target or preset is available yet. Existing `minimal` smoke tests do not verify Quick rendering.
+The commands below build the current Widgets workstation. An opt-in [QML interface preview](#optional-qml-interface-preview) is also available. The preview implements the first foundation checkpoint; shared controller policy, live image rendering and camera/processing integration remain later [migration work](../superpowers/plans/2026-09-13-qml-stage-one.md). Existing `minimal` smoke tests do not verify Quick rendering.
 
 Debug simulator build:
 
@@ -75,6 +75,33 @@ ctest --preset linux-gcc-release-sim --output-on-failure -LE hardware
 The simulator presets force `LUMORA_ENABLE_BASLER=OFF`; pylon is neither searched for nor linked. The test presets set `QT_QPA_PLATFORM=minimal`, allowing the existing Qt tests to run without a display server. The reduced Qt build supplies `minimal` for these tests and, on Linux only, `xcb` for desktop windows. Linux also enables Fontconfig for system font discovery. These platform-qualified features do not change the Windows dependency selection or the pinned Qt version.
 
 CTest also selects the smoke test's plugin directory from `Qt6::QMinimalIntegrationPlugin` for the active Debug or Release configuration, without requiring a machine-wide Qt plugin-path setting.
+
+## Optional QML interface preview
+
+The `-sim-qml` presets enable `LUMORA_BUILD_QML_UI` and the `qml-ui` vcpkg feature. They use separate build and dependency directories (`out/vcpkg_qml_installed`), preserving the original Widgets installation. The feature adds Qt Declarative (QML, Quick, Quick Controls and Quick Test), SVG, Shader Tools and Language Server at matching Qt 6.11.1 versions; it enables Qt's OpenGL feature on Linux. Qt libraries remain dynamically linked.
+
+```bash
+cmake --preset linux-gcc-debug-sim-qml \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/vcpkg/scripts/buildsystems/vcpkg.cmake"
+cmake --build --preset linux-gcc-debug-sim-qml --parallel
+cmake --build --preset linux-gcc-debug-sim-qml --target all_qmllint
+ctest --preset linux-gcc-debug-sim-qml -R '^Qml.ThemeSmoke$' --output-on-failure
+cmake --build --preset linux-gcc-debug-sim-qml --target run-lumora-qml
+```
+
+Use `linux-gcc-release-sim-qml` for Release. `lumora_app` remains the Widgets workstation and is also built by these presets. Option OFF does not search for the declarative modules. A manually supplied Qt prefix must contain matching Core, Widgets, Qml, Quick, QuickControls2 and test modules; mixing an installed Widgets runtime with unrelated Quick libraries is unsupported.
+
+The QML application is labeled **Interface preview**, uses the separate `LumoraQmlPreview` application identity, and writes no preferences. It shows the image area, source/adjustment hierarchy and evaluation banner. Camera, processing and viewing actions are disabled because this checkpoint does not attach a live session. **Preview details** supports Tab/Space/Escape keyboard interaction.
+
+The `Qml.ThemeSmoke` test loads the compiled module, checks the 900×600 and 1280×800 layouts and keyboard interaction using the explicit offscreen/software configuration. For native Linux software-rendered captures:
+
+```bash
+LUMORA_QML_CAPTURE_DIR="$PWD/out/qa/qml-preview" \
+  xvfb-run -a cmake -E env QT_QPA_PLATFORM=xcb QT_QUICK_BACKEND=software \
+  out/build/linux-gcc-debug-sim-qml/tests/lumora_qml_tests
+```
+
+Use the matching Qt platform-plugin path if required by the installed prefix. An Xvfb/software pass checks an actual Qt Quick window but does not establish accelerated image rendering, physical-display appearance or native Windows/DPI acceptance. The renderer/ownership experiment remains a separate checkpoint.
 
 ## Launch the desktop application
 

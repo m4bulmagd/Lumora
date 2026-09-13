@@ -5,6 +5,10 @@ This product includes third-party software. Each dependency retains its own
 copyright and license terms. Distribution bundles must include the notices
 required by Qt, OpenCV, GoogleTest, spdlog, and their transitive dependencies.
 
+The optional QML frontend adds Qt Qml, Quick and Quick Controls to the Qt
+module inventory. Its development/test dependency graph also includes Qt Test,
+Quick Test, SVG, Shader Tools and Language Server, pinned with Qt Base at 6.11.1.
+
 Lumora's prepared U16 CLAHE contains source adapted from OpenCV 4.12.0.
 The complete copied-source BSD notice, provenance, source hashes, and adaptation
 statement are distributed in THIRD-PARTY-LICENSES/OpenCV-CLAHE.txt.

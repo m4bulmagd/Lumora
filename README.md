@@ -17,7 +17,7 @@ Daily simulator development is planned for Linux/GCC with mandatory Linux and Wi
 
 ## Current implementation
 
-Local `main` now includes [M9 Tasks 4C–4E](docs/architecture/milestones/m09-camera-controls.md#local-main-integration), including ROI/format settings, per-camera preferences, installation orientation and compact capability-aware controls. It was fast-forwarded to `e2de210` from `codex/m09-camera-controls`; this integration has not been pushed and has no PR or hosted CI result. The owner has chosen **Qt Quick/QML** for the next session. The application currently uses Widgets; see the [progress and continuation instructions](docs/PROGRESS.md#next-session-qt-quickqml) and [proposed migration design](docs/superpowers/specs/2026-09-13-qt-quick-qml-migration-design.md).
+Local `main` now includes [M9 Tasks 4C–4E](docs/architecture/milestones/m09-camera-controls.md#local-main-integration), including ROI/format settings, per-camera preferences, installation orientation and compact capability-aware controls. It was fast-forwarded to `e2de210` from `codex/m09-camera-controls`; this integration has not been pushed and has no PR or hosted CI result. The default workstation uses Widgets. An optional **Qt Quick/QML interface preview** now implements the first migration checkpoint: matching dependencies, a compiled QML module, a dark workstation theme and smoke coverage. It has no live camera or processing connection. See the [QML preview build guide](docs/development/build-linux.md#optional-qml-interface-preview), [checkpoint evidence](docs/architecture/milestones/qml-foundation.md), and [remaining migration plan](docs/superpowers/plans/2026-09-13-qml-stage-one.md).
 
 Milestones 1–3 provide:
 

@@ -1,3 +1,36 @@
+if(LUMORA_BUILD_QML_UI)
+  qt_add_executable(
+    lumora_qml_tests
+    MANUAL_FINALIZATION
+    qml/ThemeSmokeTests.cpp
+  )
+  set_target_properties(lumora_qml_tests PROPERTIES AUTOMOC ON)
+  target_link_libraries(
+    lumora_qml_tests
+    PRIVATE
+      lumora_qml_ui
+      lumora_qml_uiplugin
+      Qt6::Qml
+      Qt6::Quick
+      Qt6::QuickControls2
+      Qt6::QuickTest
+      Qt6::Test
+  )
+  lumora_enable_warnings(lumora_qml_tests)
+  qt_import_qml_plugins(lumora_qml_tests)
+  qt_finalize_executable(lumora_qml_tests)
+
+  add_test(NAME Qml.ThemeSmoke COMMAND lumora_qml_tests)
+  set_tests_properties(
+    Qml.ThemeSmoke
+    PROPERTIES
+      LABELS qml
+      TIMEOUT 30
+      ENVIRONMENT
+        "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>;QT_QUICK_BACKEND=software"
+  )
+endif()
+
 add_executable(lumora_application_tests
   unit/application/CameraSessionStateMachineTests.cpp
   unit/application/CameraCommandMailboxTests.cpp
