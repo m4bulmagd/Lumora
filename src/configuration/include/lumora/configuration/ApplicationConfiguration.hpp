@@ -13,7 +13,7 @@
 namespace lumora::configuration {
 
 struct ApplicationConfiguration final {
-    static constexpr int CurrentSchemaVersion = 4;
+    static constexpr int CurrentSchemaVersion = 5;
 
     int schemaVersion{CurrentSchemaVersion};
     QJsonObject application;

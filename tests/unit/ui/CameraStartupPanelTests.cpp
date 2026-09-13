@@ -6,12 +6,14 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QComboBox>
+#include <QToolButton>
 #include <QMetaObject>
 #include <QCoreApplication>
 #include <QTranslator>
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <memory>
 #include <cstring>
 
@@ -89,13 +91,19 @@ TEST(CameraStartupPanel, StartIsDisabledBeforeExplicitConfirmation) {
 
 TEST(CameraStartupPanel, RequestedAndActualFixedConfigurationAreBothVisible) {
     CameraStartupPanel panel;
+    auto requestedConfiguration = configuration(30.0);
+    requestedConfiguration.roi.x = 8U;
+    requestedConfiguration.roi.y = 4U;
+    auto actualConfiguration = requestedConfiguration;
+    actualConfiguration.requestedFps = 29.5;
     auto status = std::make_shared<application::CameraStatusSnapshot>();
     status->state = application::CameraSessionState::ConnectedIdle;
     status->appliedConfiguration = camera::AppliedCameraConfiguration{
-        configuration(30.0), configuration(29.5)};
+        requestedConfiguration, actualConfiguration};
+    status->currentConfiguration = actualConfiguration;
     CameraStartupPanelPresentation presentation;
     presentation.cameraStatus = std::move(status);
-    presentation.requestedConfiguration = configuration(30.0);
+    presentation.requestedConfiguration = requestedConfiguration;
     presentation.preferencesLoadCompleted = true;
 
     panel.setPresentation(std::move(presentation));
@@ -106,7 +114,28 @@ TEST(CameraStartupPanel, RequestedAndActualFixedConfigurationAreBothVisible) {
     ASSERT_NE(requested, nullptr);
     ASSERT_NE(actual, nullptr);
     EXPECT_TRUE(requested->text().contains(QStringLiteral("30")));
+    EXPECT_TRUE(requested->text().contains(QStringLiteral("x 8")));
+    EXPECT_TRUE(requested->text().contains(QStringLiteral("y 4")));
     EXPECT_TRUE(actual->text().contains(QStringLiteral("29.5")));
+}
+
+TEST(CameraStartupPanel, InstallationGuidanceReflectsCurrentBinding) {
+    CameraStartupPanel panel;
+    CameraStartupPanelPresentation presentation;
+    presentation.activeOrientation = core::Orientation{};
+    application::InstallationCameraProfile savedProfile;
+    presentation.installationProfileOutcome = application::InstallationSaveOutcome{
+        7U, savedProfile, std::nullopt};
+    presentation.installationBindingCurrent = true;
+    panel.setPresentation(presentation);
+    auto* status = panel.findChild<QLabel*>("installationProfileStatusLabel");
+    ASSERT_NE(status, nullptr);
+    EXPECT_TRUE(status->isVisibleTo(&panel));
+    EXPECT_FALSE(status->text().contains("Apply", Qt::CaseInsensitive));
+
+    presentation.installationBindingCurrent = false;
+    panel.setPresentation(presentation);
+    EXPECT_TRUE(status->text().contains("Apply", Qt::CaseInsensitive));
 }
 
 TEST(CameraStartupPanel, PriorityActionsRemainEnabledWhileOrdinaryOperationIsPending) {
@@ -130,6 +159,36 @@ TEST(CameraStartupPanel, PriorityActionsRemainEnabledWhileOrdinaryOperationIsPen
     EXPECT_TRUE(stop->isEnabled());
     EXPECT_TRUE(disconnect->isEnabled());
     EXPECT_FALSE(apply->isEnabled());
+}
+
+TEST(CameraStartupPanel, DisconnectAndRetryRemainDistinctInRecoverableStates) {
+    CameraStartupPanel panel;
+    panel.resize(280, 500);
+    panel.show();
+    for (const auto state : {application::CameraSessionState::Error,
+             application::CameraSessionState::Reconnecting}) {
+        auto status = std::make_shared<application::CameraStatusSnapshot>();
+        status->state = state;
+        status->actualIdentity = camera::CameraId{"camera-1"};
+        status->desiredIdentity = camera::CameraId{"camera-1"};
+        status->discoveredDescriptors.push_back(
+            {{"camera-1"}, {"Lumora", "Simulator", "SIM-1", "virtual", {}}, true});
+        CameraStartupPanelPresentation presentation;
+        presentation.cameraStatus = std::move(status);
+        presentation.selectedCameraId = camera::CameraId{"camera-1"};
+        presentation.preferencesLoadCompleted = true;
+        panel.setPresentation(std::move(presentation));
+        QCoreApplication::processEvents();
+
+        auto* disconnect = panel.findChild<QPushButton*>(
+            QStringLiteral("disconnectCameraButton"));
+        auto* retry = panel.findChild<QPushButton*>(QStringLiteral("retryCameraButton"));
+        ASSERT_NE(disconnect, nullptr);
+        ASSERT_NE(retry, nullptr);
+        ASSERT_TRUE(disconnect->isVisibleTo(&panel));
+        ASSERT_TRUE(retry->isVisibleTo(&panel));
+        EXPECT_FALSE(disconnect->geometry().intersects(retry->geometry()));
+    }
 }
 
 TEST(CameraStartupPanel, ControlsEmitIntentsWithoutOptimisticStateChanges) {
@@ -187,11 +246,13 @@ TEST(CameraStartupPanel, ControlsEmitIntentsWithoutOptimisticStateChanges) {
 
     auto idle = std::make_shared<application::CameraStatusSnapshot>();
     idle->state = application::CameraSessionState::ConnectedIdle;
+    idle->actualIdentity = camera::CameraId{"camera-1"};
     idle->requestedRevision = 4U;
     idle->appliedRevision = 4U;
     idle->requestedConfiguration = configuration(30.0);
     idle->appliedConfiguration = camera::AppliedCameraConfiguration{
         configuration(30.0), configuration(29.5)};
+    idle->currentConfiguration = configuration(29.5);
     presentation.cameraStatus = idle;
     panel.setPresentation(presentation);
     panel.findChild<QPushButton*>(QStringLiteral("applyCameraButton"))->click();
@@ -249,8 +310,12 @@ TEST(CameraStartupPanel, OwnsOneModelessDialogAndForwardsOnlyExplicitSettingsApp
     status->sessionGeneration = 12;
     status->capabilities = camera::CameraCapabilities{{mono8()},
         {{0U, 0U, 16U, 16U}, {0U, 0U, 1920U, 1080U}, {1U, 1U, 1U, 1U}},
-        {1, 60, 1, false}, {10, 10000, 1, false}, {camera::ExposureMode::Manual},
-        {0, 24, 0.25, false}, {camera::GainMode::Manual}};
+        {1, 60, 1, camera::ControlAccess::WritableStopped},
+        {10, 10000, 1, camera::ControlAccess::WritableStopped},
+        {camera::ExposureMode::Manual},
+        {0, 24, 0.25, camera::ControlAccess::WritableStopped},
+        {camera::GainMode::Manual}};
+    status->currentConfiguration = configuration(30);
     CameraStartupPanelPresentation presentation;
     presentation.cameraStatus = status;
     presentation.requestedConfiguration = configuration(30);
@@ -288,6 +353,174 @@ TEST(CameraStartupPanel, OwnsOneModelessDialogAndForwardsOnlyExplicitSettingsApp
 }
 }
 }
+
+namespace lumora::ui {
+namespace {
+
+TEST(CameraStartupPanel, MissingOrUnavailableSelectionNeverLooksLikeAnotherCamera) {
+    CameraStartupPanel panel;
+    auto status = std::make_shared<application::CameraStatusSnapshot>();
+    status->state = application::CameraSessionState::Disconnected;
+    status->discoveredDescriptors = {
+        {{"available"}, {"Lumora", "Live", "A-1", "USB", {}}, true},
+        {{"unavailable"}, {"Lumora", "Live", "U-2", "USB", {}}, false}};
+    CameraStartupPanelPresentation presentation;
+    presentation.cameraStatus = status;
+    presentation.selectedCameraId = camera::CameraId{"available"};
+    presentation.preferencesLoadCompleted = true;
+    panel.setPresentation(presentation);
+
+    auto* selection = panel.findChild<QComboBox*>("cameraSelectionCombo");
+    auto* connectButton = panel.findChild<QPushButton*>("connectCameraButton");
+    ASSERT_NE(selection, nullptr);
+    ASSERT_NE(connectButton, nullptr);
+    ASSERT_EQ(selection->currentData().toString(), QStringLiteral("available"));
+
+    int selectionIntents = 0;
+    QObject::connect(&panel, &CameraStartupPanel::selectionRequested,
+        [&](camera::CameraId) { ++selectionIntents; });
+    presentation.selectedCameraId = camera::CameraId{"missing"};
+    panel.setPresentation(presentation);
+    EXPECT_EQ(selection->currentIndex(), -1);
+    EXPECT_FALSE(connectButton->isEnabled());
+    EXPECT_EQ(selectionIntents, 0);
+
+    presentation.selectedCameraId = camera::CameraId{"unavailable"};
+    panel.setPresentation(presentation);
+    ASSERT_EQ(selection->currentData().toString(), QStringLiteral("unavailable"));
+    EXPECT_TRUE(selection->currentText().contains("Unavailable", Qt::CaseInsensitive));
+    EXPECT_FALSE(connectButton->isEnabled());
+    EXPECT_EQ(selectionIntents, 0);
+}
+
+TEST(CameraStartupPanel, ConnectionAndAcquisitionActionsAreContextual) {
+    CameraStartupPanel panel;
+    auto status = std::make_shared<application::CameraStatusSnapshot>();
+    status->state = application::CameraSessionState::Disconnected;
+    status->discoveredDescriptors.push_back(
+        {{"camera-1"}, {"Lumora", "Live", "A-1", "USB", {}}, true});
+    CameraStartupPanelPresentation presentation;
+    presentation.cameraStatus = status;
+    presentation.selectedCameraId = camera::CameraId{"camera-1"};
+    presentation.preferencesLoadCompleted = true;
+    panel.setPresentation(presentation);
+
+    auto* connectButton = panel.findChild<QPushButton*>("connectCameraButton");
+    auto* disconnect = panel.findChild<QPushButton*>("disconnectCameraButton");
+    auto* start = panel.findChild<QPushButton*>("startCameraButton");
+    auto* stop = panel.findChild<QPushButton*>("stopCameraButton");
+    auto* settings = panel.findChild<QPushButton*>("cameraSettingsButton");
+    ASSERT_NE(connectButton, nullptr);
+    ASSERT_NE(disconnect, nullptr);
+    ASSERT_NE(start, nullptr);
+    ASSERT_NE(stop, nullptr);
+    ASSERT_NE(settings, nullptr);
+    EXPECT_TRUE(connectButton->isVisibleTo(&panel));
+    EXPECT_TRUE(connectButton->isEnabled());
+    EXPECT_FALSE(disconnect->isVisibleTo(&panel));
+    EXPECT_FALSE(start->isVisibleTo(&panel));
+    EXPECT_FALSE(stop->isVisibleTo(&panel));
+
+    status = std::make_shared<application::CameraStatusSnapshot>(*status);
+    status->state = application::CameraSessionState::ConnectedIdle;
+    status->actualIdentity = camera::CameraId{"camera-1"};
+    status->requestedRevision = 2U;
+    status->appliedRevision = 2U;
+    status->requestedConfiguration = configuration(30.0);
+    status->appliedConfiguration = camera::AppliedCameraConfiguration{
+        configuration(30.0), configuration(29.5)};
+    presentation.cameraStatus = status;
+    presentation.requestedConfiguration = configuration(30.0);
+    panel.setPresentation(presentation);
+    EXPECT_FALSE(connectButton->isVisibleTo(&panel));
+    EXPECT_TRUE(disconnect->isVisibleTo(&panel));
+    EXPECT_TRUE(start->isVisibleTo(&panel));
+    EXPECT_FALSE(start->isEnabled());
+    EXPECT_FALSE(stop->isVisibleTo(&panel));
+    EXPECT_TRUE(settings->isVisibleTo(&panel));
+    EXPECT_TRUE(settings->isEnabled());
+
+    status = std::make_shared<application::CameraStatusSnapshot>(*status);
+    status->confirmedRevision = 2U;
+    presentation.cameraStatus = status;
+    panel.setPresentation(presentation);
+    EXPECT_TRUE(start->isVisibleTo(&panel));
+    EXPECT_TRUE(start->isEnabled());
+
+    status = std::make_shared<application::CameraStatusSnapshot>(*status);
+    status->state = application::CameraSessionState::Streaming;
+    presentation.cameraStatus = status;
+    panel.setPresentation(presentation);
+    EXPECT_FALSE(start->isVisibleTo(&panel));
+    EXPECT_TRUE(stop->isVisibleTo(&panel));
+    EXPECT_TRUE(stop->isEnabled());
+    EXPECT_TRUE(settings->isVisibleTo(&panel));
+    EXPECT_TRUE(settings->isEnabled());
+}
+
+TEST(CameraStartupPanel, CompactCameraPanelUsesReviewDisclosure) {
+    CameraStartupPanel panel;
+    auto* title = panel.findChild<QLabel*>("cameraPanelTitleLabel");
+    auto* reviewToggle = panel.findChild<QToolButton*>("cameraReviewToggle");
+    auto* reviewDetails = panel.findChild<QWidget*>("cameraReviewDetails");
+    ASSERT_NE(title, nullptr);
+    ASSERT_NE(reviewToggle, nullptr);
+    ASSERT_NE(reviewDetails, nullptr);
+    EXPECT_EQ(title->text(), QStringLiteral("Camera"));
+
+    auto status = std::make_shared<application::CameraStatusSnapshot>();
+    status->state = application::CameraSessionState::ConnectedIdle;
+    status->actualIdentity = camera::CameraId{"camera-1"};
+    status->requestedRevision = 2U;
+    status->appliedRevision = 2U;
+    status->requestedConfiguration = configuration(30.0);
+    status->appliedConfiguration = camera::AppliedCameraConfiguration{
+        configuration(30.0), configuration(29.5)};
+    CameraStartupPanelPresentation presentation;
+    presentation.cameraStatus = status;
+    presentation.selectedCameraId = status->actualIdentity;
+    presentation.requestedConfiguration = configuration(30.0);
+    presentation.preferencesLoadCompleted = true;
+    panel.setPresentation(presentation);
+
+    EXPECT_TRUE(reviewToggle->isVisibleTo(&panel));
+    EXPECT_TRUE(reviewToggle->isChecked());
+    EXPECT_TRUE(reviewDetails->isVisibleTo(&panel));
+}
+
+TEST(CameraStartupPanel, CameraAndViewerStatesRemainIndependent) {
+    CameraStartupPanel panel;
+    auto status = std::make_shared<application::CameraStatusSnapshot>();
+    status->state = application::CameraSessionState::Streaming;
+    CameraStartupPanelPresentation presentation;
+    presentation.cameraStatus = status;
+    presentation.preferencesLoadCompleted = true;
+    presentation.workstationStatus = {
+        ViewerState::Paused, FrameFreshness::Current, std::nullopt,
+        std::chrono::milliseconds{0}, std::nullopt};
+    panel.setPresentation(presentation);
+
+    auto* cameraState = panel.findChild<QLabel*>("cameraStartupStateLabel");
+    auto* viewerState = panel.findChild<QLabel*>("cameraViewerStateLabel");
+    ASSERT_NE(cameraState, nullptr);
+    ASSERT_NE(viewerState, nullptr);
+    EXPECT_TRUE(cameraState->text().contains("Streaming", Qt::CaseInsensitive));
+    EXPECT_TRUE(viewerState->text().contains("Paused", Qt::CaseInsensitive));
+    EXPECT_FALSE(viewerState->text().contains("Live", Qt::CaseInsensitive));
+
+    presentation.workstationStatus.viewerState = ViewerState::Live;
+    presentation.workstationStatus.freshness = FrameFreshness::Stale;
+    panel.setPresentation(presentation);
+    EXPECT_TRUE(viewerState->text().contains("Stale", Qt::CaseInsensitive));
+    EXPECT_FALSE(viewerState->text().contains("Live", Qt::CaseInsensitive));
+
+    presentation.workstationStatus.freshness = FrameFreshness::Current;
+    panel.setPresentation(presentation);
+    EXPECT_TRUE(viewerState->text().contains("Live", Qt::CaseInsensitive));
+}
+
+}  // namespace
+}  // namespace lumora::ui
 
 namespace lumora::ui {
 namespace {

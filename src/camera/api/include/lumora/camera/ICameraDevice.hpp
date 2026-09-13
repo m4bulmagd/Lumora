@@ -20,6 +20,17 @@ public:
 
     [[nodiscard]] virtual core::Result<void> open() = 0;
     [[nodiscard]] virtual core::Result<CameraCapabilities> capabilities() = 0;
+    // Return authoritative current facts without changing configuration or
+    // lifecycle state. Validate with validateCameraConfigurationReadback: actual
+    // FPS is required, absent controls remain null, and readable Auto values may
+    // be reported. Reading alone grants no application Apply/Confirm authority.
+    [[nodiscard]] virtual core::Result<CameraConfiguration> readConfiguration() = 0;
+
+    // Plan against fresh backend actual facts with planCameraConfigurationChange
+    // and execute only the permitted changed nodes in its mask. Retained fixed
+    // fields never authorize setters, including during rollback. Requests use
+    // validateCameraConfiguration (Auto numeric requests are null); returned
+    // actual facts follow the separate readback contract above.
     [[nodiscard]] virtual core::Result<AppliedCameraConfiguration> applyConfiguration(
         const CameraConfiguration& configuration) = 0;
     [[nodiscard]] virtual core::Result<void> startStream() = 0;

@@ -32,9 +32,10 @@ core::SourcePixelFormat mono8() {
 camera::CameraCapabilities capabilities() {
     return {{mono8()},
         {{0U, 0U, 8U, 8U}, {0U, 0U, 640U, 480U}, {1U, 1U, 8U, 8U}},
-        {1.0, 60.0, 0.1, false}, {10.0, 10000.0, 1.0, true},
+        {1.0, 60.0, 0.1, camera::ControlAccess::WritableStopped},
+        {10.0, 10000.0, 1.0, camera::ControlAccess::WritableStreaming},
         {camera::ExposureMode::Manual, camera::ExposureMode::Auto},
-        {0.0, 24.0, 0.1, true},
+        {0.0, 24.0, 0.1, camera::ControlAccess::WritableStreaming},
         {camera::GainMode::Manual, camera::GainMode::Auto}};
 }
 
@@ -47,6 +48,35 @@ camera::CameraConfiguration cameraConfiguration() {
 application::StartupPreferences preferences() {
     return {1U, {"camera-1"}, {"Lumora", "Simulator", "SIM-1", "virtual", "1.0"},
         capabilities(), cameraConfiguration(), cameraConfiguration(), true};
+}
+
+application::StartupPreferences legacyPreferences() {
+    auto result = preferences();
+    result.capabilityFingerprintVersion = 1U;
+    result.confirmedCapabilities.exposureModeAccess =
+        result.confirmedCapabilities.exposure.access;
+    result.confirmedCapabilities.gainModeAccess =
+        result.confirmedCapabilities.gain.access;
+    return result;
+}
+
+application::StartupPreferences absentControlPreferences() {
+    auto result = preferences();
+    result.confirmedCapabilities.exposure = {
+        0.0, 0.0, 0.0, camera::ControlAccess::Unavailable};
+    result.confirmedCapabilities.exposureModes.clear();
+    result.confirmedCapabilities.exposureModeAccess =
+        camera::ControlAccess::Unavailable;
+    result.confirmedCapabilities.gain = {
+        0.0, 0.0, 0.0, camera::ControlAccess::Unavailable};
+    result.confirmedCapabilities.gainModes.clear();
+    result.confirmedCapabilities.gainModeAccess =
+        camera::ControlAccess::Unavailable;
+    result.requested.exposure = {std::nullopt, std::nullopt};
+    result.requested.gain = {std::nullopt, std::nullopt};
+    result.lastApplied.exposure = {std::nullopt, std::nullopt};
+    result.lastApplied.gain = {std::nullopt, std::nullopt};
+    return result;
 }
 
 ApplicationConfiguration profileDocument(std::size_t count) {
@@ -131,7 +161,7 @@ TEST_F(StartupPreferencesTest, Schema1DoesNotInferConfirmation) {
     const auto loaded = loadSchema1();
     ASSERT_TRUE(loaded.hasValue());
     EXPECT_FALSE(loaded.value().usedDefaults);
-    EXPECT_EQ(loaded.value().schemaVersion, 4);
+    EXPECT_EQ(loaded.value().schemaVersion, 5);
     EXPECT_EQ(loaded.value().presets.selectedId.value, "original");
     EXPECT_EQ(loaded.value().legacyPresets.value("selected"), "Standard");
     EXPECT_FALSE(loaded.value().startup.has_value());
@@ -228,9 +258,9 @@ TEST_F(StartupPreferencesTest, FutureStartupRecordVersionIsRejected) {
     EXPECT_EQ(decoded.error().code, "configuration_invalid_camera_profiles");
 }
 
-TEST_F(StartupPreferencesTest, Schema3MigratesStartupAndOpaqueCameraProfilesToSchema4) {
+TEST_F(StartupPreferencesTest, Schema3MigratesStartupAndOpaqueCameraProfilesToSchema5) {
     ApplicationConfiguration current;
-    current.startup = preferences();
+    current.startup = legacyPreferences();
     current.legacyCameraProfiles.insert("opaque", 17);
     const auto encoded = ConfigurationCodec::encode(current);
     ASSERT_TRUE(encoded.hasValue());
@@ -249,7 +279,7 @@ TEST_F(StartupPreferencesTest, Schema3MigratesStartupAndOpaqueCameraProfilesToSc
     const auto decoded = ConfigurationCodec::decode(QJsonDocument(root).toJson());
 
     ASSERT_TRUE(decoded.hasValue()) << decoded.error().diagnosticDetail;
-    EXPECT_EQ(decoded.value().schemaVersion, 4);
+    EXPECT_EQ(decoded.value().schemaVersion, 5);
     EXPECT_EQ(decoded.value().legacyCameraProfiles.value("opaque"), 17);
     ASSERT_EQ(decoded.value().cameraProfiles.profiles.size(), 1U);
     EXPECT_EQ(decoded.value().cameraProfiles.profiles.front().identity.serial, "SIM-1");
@@ -259,7 +289,7 @@ TEST_F(StartupPreferencesTest, Schema3MigratesStartupAndOpaqueCameraProfilesToSc
 
 TEST_F(StartupPreferencesTest, Schema2And3RejectMissingOrWrongTypedStartup) {
     ApplicationConfiguration current;
-    current.startup = preferences();
+    current.startup = legacyPreferences();
     const auto encoded = ConfigurationCodec::encode(current);
     ASSERT_TRUE(encoded.hasValue());
     const auto schema4 = QJsonDocument::fromJson(encoded.value()).object();
@@ -329,7 +359,7 @@ TEST_F(StartupPreferencesTest, StorePreservesMalformedSchema3Startup) {
     EXPECT_TRUE(std::filesystem::exists(*loaded.value().preservedInvalidFile));
 }
 
-TEST_F(StartupPreferencesTest, Schema4RoundTripOmitsLegacyStartupAuthority) {
+TEST_F(StartupPreferencesTest, Schema5RoundTripOmitsLegacyStartupAuthority) {
     ApplicationConfiguration configuration;
     auto cameraA = preferences();
     cameraA.cameraId = {"logical-a"};
@@ -346,7 +376,7 @@ TEST_F(StartupPreferencesTest, Schema4RoundTripOmitsLegacyStartupAuthority) {
     const auto encoded = ConfigurationCodec::encode(configuration);
     ASSERT_TRUE(encoded.hasValue()) << encoded.error().diagnosticDetail;
     const auto root = QJsonDocument::fromJson(encoded.value()).object();
-    EXPECT_EQ(root.value("schemaVersion").toInt(), 4);
+    EXPECT_EQ(root.value("schemaVersion").toInt(), 5);
     EXPECT_FALSE(root.contains("startup"));
     const auto decoded = ConfigurationCodec::decode(encoded.value());
     ASSERT_TRUE(decoded.hasValue()) << decoded.error().diagnosticDetail;
@@ -359,16 +389,135 @@ TEST_F(StartupPreferencesTest, Schema4RoundTripOmitsLegacyStartupAuthority) {
         (core::Orientation{true, false, core::Rotation::Degrees270}));
 }
 
-TEST_F(StartupPreferencesTest, FutureSchema5IsRejected) {
+TEST_F(StartupPreferencesTest, FutureSchema6IsRejected) {
     const auto encoded = ConfigurationCodec::encode(ApplicationConfiguration{});
     ASSERT_TRUE(encoded.hasValue());
     auto root = QJsonDocument::fromJson(encoded.value()).object();
-    root.insert("schemaVersion", 5);
+    root.insert("schemaVersion", 6);
 
     const auto decoded = ConfigurationCodec::decode(QJsonDocument(root).toJson());
 
     ASSERT_FALSE(decoded.hasValue());
     EXPECT_EQ(decoded.error().code, "configuration_future_schema");
+}
+
+TEST_F(StartupPreferencesTest, MixedFingerprintRecordsRetainTheirVersionedCapabilityShape) {
+    ApplicationConfiguration configuration;
+    auto legacy = legacyPreferences();
+    legacy.cameraId = {"legacy-camera"};
+    legacy.identity.serial = "LEGACY";
+    auto current = preferences();
+    current.cameraId = {"current-camera"};
+    current.identity.serial = "CURRENT";
+    current.capabilityFingerprintVersion = 2U;
+    configuration.cameraProfiles.profiles = {legacy, current};
+    configuration.cameraProfiles.lastSelectedCameraId = current.cameraId;
+
+    const auto encoded = ConfigurationCodec::encode(configuration);
+
+    ASSERT_TRUE(encoded.hasValue()) << encoded.error().diagnosticDetail;
+    const auto root = QJsonDocument::fromJson(encoded.value()).object();
+    EXPECT_EQ(root.value("schemaVersion").toInt(), 5);
+    const auto records = root.value("cameraProfiles").toObject()
+        .value("profiles").toArray();
+    ASSERT_EQ(records.size(), 2);
+    const auto legacyRecord = records.at(0).toObject();
+    const auto currentRecord = records.at(1).toObject();
+    EXPECT_EQ(legacyRecord.value("capabilityFingerprintVersion").toInt(), 1);
+    EXPECT_EQ(currentRecord.value("capabilityFingerprintVersion").toInt(), 2);
+    const auto legacyFrameRate = legacyRecord.value("confirmedCapabilities")
+        .toObject().value("frameRate").toObject();
+    const auto currentFrameRate = currentRecord.value("confirmedCapabilities")
+        .toObject().value("frameRate").toObject();
+    EXPECT_TRUE(legacyFrameRate.contains("writableWhileStreaming"));
+    EXPECT_FALSE(legacyFrameRate.contains("access"));
+    EXPECT_FALSE(currentFrameRate.contains("writableWhileStreaming"));
+    EXPECT_TRUE(currentFrameRate.contains("access"));
+
+    const auto decoded = ConfigurationCodec::decode(encoded.value());
+    ASSERT_TRUE(decoded.hasValue()) << decoded.error().diagnosticDetail;
+    ASSERT_EQ(decoded.value().cameraProfiles.profiles.size(), 2U);
+    EXPECT_EQ(decoded.value().cameraProfiles.profiles.at(0)
+                  .capabilityFingerprintVersion, 1U);
+    EXPECT_EQ(decoded.value().cameraProfiles.profiles.at(1)
+                  .capabilityFingerprintVersion, 2U);
+}
+
+TEST_F(StartupPreferencesTest, AbsentExposureAndGainRoundTripAsExplicitNullModes) {
+    ApplicationConfiguration configuration;
+    configuration.startup = absentControlPreferences();
+
+    const auto encoded = ConfigurationCodec::encode(configuration);
+
+    ASSERT_TRUE(encoded.hasValue()) << encoded.error().diagnosticDetail;
+    const auto record = QJsonDocument::fromJson(encoded.value()).object()
+        .value("cameraProfiles").toObject().value("profiles").toArray()
+        .at(0).toObject();
+    EXPECT_TRUE(record.value("requested").toObject()
+        .value("exposure").toObject().value("mode").isNull());
+    EXPECT_TRUE(record.value("requested").toObject()
+        .value("gain").toObject().value("mode").isNull());
+
+    const auto decoded = ConfigurationCodec::decode(encoded.value());
+    ASSERT_TRUE(decoded.hasValue()) << decoded.error().diagnosticDetail;
+    ASSERT_TRUE(decoded.value().startup.has_value());
+    EXPECT_FALSE(decoded.value().startup->requested.exposure.mode.has_value());
+    EXPECT_FALSE(decoded.value().startup->requested.exposure
+        .requestedMicroseconds.has_value());
+    EXPECT_FALSE(decoded.value().startup->requested.gain.mode.has_value());
+    EXPECT_FALSE(decoded.value().startup->requested.gain.requestedDb.has_value());
+    EXPECT_TRUE(application::cameraCapabilitiesEqual(
+        decoded.value().startup->confirmedCapabilities,
+        absentControlPreferences().confirmedCapabilities));
+}
+
+TEST_F(StartupPreferencesTest, OptionalModeJsonRejectsMissingWrongAndUnknownValues) {
+    ApplicationConfiguration configuration;
+    configuration.startup = absentControlPreferences();
+    const auto encoded = ConfigurationCodec::encode(configuration);
+    ASSERT_TRUE(encoded.hasValue()) << encoded.error().diagnosticDetail;
+    const auto original = QJsonDocument::fromJson(encoded.value()).object();
+
+    for (const auto& malformed : std::vector<QJsonValue>{
+             QJsonValue{QJsonValue::Undefined}, true,
+             QStringLiteral("Unsupported")}) {
+        auto root = original;
+        auto cameraProfiles = root.value("cameraProfiles").toObject();
+        auto records = cameraProfiles.value("profiles").toArray();
+        auto record = records.at(0).toObject();
+        auto requested = record.value("requested").toObject();
+        auto exposure = requested.value("exposure").toObject();
+        if (malformed.isUndefined()) exposure.remove("mode");
+        else exposure.insert("mode", malformed);
+        requested.insert("exposure", exposure);
+        record.insert("requested", requested);
+        records.replace(0, record);
+        cameraProfiles.insert("profiles", records);
+        root.insert("cameraProfiles", cameraProfiles);
+
+        EXPECT_FALSE(ConfigurationCodec::decode(
+            QJsonDocument(root).toJson()).hasValue());
+    }
+
+    ApplicationConfiguration legacyConfiguration;
+    legacyConfiguration.startup = legacyPreferences();
+    const auto legacyEncoded = ConfigurationCodec::encode(legacyConfiguration);
+    ASSERT_TRUE(legacyEncoded.hasValue())
+        << legacyEncoded.error().diagnosticDetail;
+    auto legacyRoot = QJsonDocument::fromJson(legacyEncoded.value()).object();
+    auto legacyProfiles = legacyRoot.value("cameraProfiles").toObject();
+    auto legacyRecords = legacyProfiles.value("profiles").toArray();
+    auto legacyRecord = legacyRecords.at(0).toObject();
+    auto legacyRequested = legacyRecord.value("requested").toObject();
+    auto legacyExposure = legacyRequested.value("exposure").toObject();
+    legacyExposure.insert("mode", QJsonValue{});
+    legacyRequested.insert("exposure", legacyExposure);
+    legacyRecord.insert("requested", legacyRequested);
+    legacyRecords.replace(0, legacyRecord);
+    legacyProfiles.insert("profiles", legacyRecords);
+    legacyRoot.insert("cameraProfiles", legacyProfiles);
+    EXPECT_FALSE(ConfigurationCodec::decode(
+        QJsonDocument(legacyRoot).toJson()).hasValue());
 }
 
 TEST_F(StartupPreferencesTest, DuplicateStableIdentitiesAreRejectedWithoutEviction) {
@@ -398,12 +547,70 @@ TEST_F(StartupPreferencesTest, SharedIdentityAndCapabilityCodecsRoundTripStructu
     auto reordered = capabilities();
     std::reverse(reordered.exposureModes.begin(), reordered.exposureModes.end());
     std::reverse(reordered.gainModes.begin(), reordered.gainModes.end());
+    const auto encodedCapabilities = encodeCameraCapabilities(reordered);
+    ASSERT_TRUE(encodedCapabilities.hasValue())
+        << encodedCapabilities.error().diagnosticDetail;
     const auto decodedCapabilities =
-        decodeCameraCapabilities(encodeCameraCapabilities(reordered));
+        decodeCameraCapabilities(encodedCapabilities.value());
     ASSERT_TRUE(decodedCapabilities.hasValue())
         << decodedCapabilities.error().diagnosticDetail;
     EXPECT_TRUE(application::cameraCapabilitiesEqual(
         decodedCapabilities.value(), capabilities()));
+}
+
+TEST_F(StartupPreferencesTest, CapabilityCodecVersionsPreserveAndRequireAccessProvenance) {
+    auto current = capabilities();
+    current.pixelFormatAccess = camera::ControlAccess::Unavailable;
+    current.roi.access = camera::ControlAccess::WritableStreaming;
+    current.frameRate.access = camera::ControlAccess::ReadOnly;
+    current.exposureModeAccess = camera::ControlAccess::ReadOnly;
+    current.exposure.access = camera::ControlAccess::WritableStopped;
+    current.gainModeAccess = camera::ControlAccess::WritableStopped;
+    current.gain.access = camera::ControlAccess::WritableStreaming;
+    const auto encoded = encodeCameraCapabilities(current, 2U);
+    ASSERT_TRUE(encoded.hasValue()) << encoded.error().diagnosticDetail;
+    const auto decoded = decodeCameraCapabilities(encoded.value(), 2U);
+    ASSERT_TRUE(decoded.hasValue()) << decoded.error().diagnosticDetail;
+    EXPECT_TRUE(application::cameraCapabilitiesEqual(decoded.value(), current));
+
+    for (const auto* key : {"frameRate", "exposure", "gain"}) {
+        auto missing = encoded.value();
+        auto numeric = missing.value(key).toObject();
+        numeric.remove("access");
+        missing.insert(key, numeric);
+        EXPECT_FALSE(decodeCameraCapabilities(missing, 2U).hasValue()) << key;
+    }
+
+    for (const auto* key : {
+             "pixelFormatAccess", "exposureModeAccess", "gainModeAccess"}) {
+        auto missing = encoded.value();
+        missing.remove(key);
+        EXPECT_FALSE(decodeCameraCapabilities(missing, 2U).hasValue()) << key;
+    }
+    auto missingRoi = encoded.value();
+    auto roi = missingRoi.value("roi").toObject();
+    roi.remove("access");
+    missingRoi.insert("roi", roi);
+    EXPECT_FALSE(decodeCameraCapabilities(missingRoi, 2U).hasValue());
+
+    auto malformed = encoded.value();
+    malformed.insert("pixelFormatAccess", "Sometimes");
+    EXPECT_FALSE(decodeCameraCapabilities(malformed, 2U).hasValue());
+    EXPECT_FALSE(encodeCameraCapabilities(current, 3U).hasValue());
+    EXPECT_FALSE(decodeCameraCapabilities(encoded.value(), 3U).hasValue());
+
+    const auto legacyEncoded = encodeCameraCapabilities(
+        legacyPreferences().confirmedCapabilities, 1U);
+    ASSERT_TRUE(legacyEncoded.hasValue())
+        << legacyEncoded.error().diagnosticDetail;
+    const auto legacyDecoded = decodeCameraCapabilities(
+        legacyEncoded.value(), 1U);
+    ASSERT_TRUE(legacyDecoded.hasValue())
+        << legacyDecoded.error().diagnosticDetail;
+    EXPECT_EQ(legacyDecoded.value().exposureModeAccess,
+        legacyDecoded.value().exposure.access);
+    EXPECT_EQ(legacyDecoded.value().gainModeAccess,
+        legacyDecoded.value().gain.access);
 }
 
 struct IoState final {

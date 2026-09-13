@@ -137,6 +137,7 @@ WorkstationView::WorkstationView(QWidget* parent)
     processingWarning->setAccessibleName(tr("Enhancement processing warning"));
     processingWarning->setTextFormat(Qt::PlainText);
     processingWarning->setWordWrap(true);
+    processingWarning->setStyleSheet(QStringLiteral("QLabel { color: #ffcc66; }"));
     processingWarning->setText(tr("Enhancement paused after repeated processing failures."));
     processingWarning->hide(); sidebarLayout->addWidget(processingWarning);
     auto* processingRetry=new QPushButton(tr("Retry enhancement"),this);

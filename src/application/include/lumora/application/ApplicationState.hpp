@@ -57,6 +57,8 @@ struct CameraStatusSnapshot final {
     std::optional<camera::CameraId> actualIdentity;
     std::uint64_t sessionGeneration{0U};
     std::optional<camera::CameraCapabilities> capabilities;
+    // Inspection only: readback does not grant an applied or confirmed revision.
+    std::optional<camera::CameraConfiguration> currentConfiguration;
     std::optional<camera::CameraConfiguration> requestedConfiguration;
     std::optional<camera::AppliedCameraConfiguration> appliedConfiguration;
     std::uint64_t requestedRevision{0U};

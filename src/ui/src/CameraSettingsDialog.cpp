@@ -1,4 +1,5 @@
 #include <lumora/ui/CameraSettingsDialog.hpp>
+#include <lumora/ui/CameraSettingsModel.hpp>
 
 #include <lumora/application/CameraSettingsPolicy.hpp>
 #include <lumora/application/StartupPreferences.hpp>
@@ -24,6 +25,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <type_traits>
 #include <utility>
 
 namespace lumora::ui {
@@ -147,6 +149,7 @@ struct CameraSettingsDialog::Impl final {
     std::optional<camera::CameraConfiguration> submitted;
     std::uint64_t observedRevision{0};
     bool initialized{false};
+    bool normalizationFailed{false};
     bool editingIntentReported{false};
     bool submissionAdmitted{false};
     bool invalidated{false};
@@ -167,11 +170,16 @@ struct CameraSettingsDialog::Impl final {
     QLabel* fixedFields;
     QLabel* actual;
     QLabel* statusLabel;
+    QLabel* pixelFormatReason;
+    QLabel* roiReason;
+    QLabel* frameRateReason;
+    QLabel* exposureReason;
+    QLabel* gainReason;
     QPushButton* apply;
 
     explicit Impl(CameraSettingsDialog& owner) : dialog(owner) {
         auto* layout = new QVBoxLayout(&dialog);
-        layout->setSpacing(8);
+        layout->setSpacing(6);
         sourceLabel = label("cameraSettingsSource", CameraSettingsDialog::tr("Source camera"));
         layout->addWidget(sourceLabel);
         fixedFields = label("cameraSettingsFixedFields", CameraSettingsDialog::tr("Selected source and acquisition mode"));
@@ -182,7 +190,9 @@ struct CameraSettingsDialog::Impl final {
         pixelFormat = mode(form, "cameraPixelFormat", CameraSettingsDialog::tr("&Pixel format"));
         pixelFormat->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         pixelFormat->setMinimumContentsLength(12);
-        auto* roiGrid = new QGridLayout;
+        pixelFormatReason = reason(form, "cameraPixelFormatReason");
+        auto* roiHost = new QWidget(&dialog);
+        auto* roiGrid = new QGridLayout(roiHost);
         roiGrid->setContentsMargins(0, 0, 0, 0);
         roiGrid->setHorizontalSpacing(8);
         roiGrid->setVerticalSpacing(4);
@@ -190,16 +200,21 @@ struct CameraSettingsDialog::Impl final {
         roiY = roi(roiGrid, 0, 2, "cameraRoiY", CameraSettingsDialog::tr("&Y"));
         roiWidth = roi(roiGrid, 1, 0, "cameraRoiWidth", CameraSettingsDialog::tr("&Width"));
         roiHeight = roi(roiGrid, 1, 2, "cameraRoiHeight", CameraSettingsDialog::tr("&Height"));
-        form->addRow(CameraSettingsDialog::tr("Image region"), roiGrid);
+        roiGrid->setSizeConstraint(QLayout::SetMinimumSize);
+        form->addRow(CameraSettingsDialog::tr("Image region"), roiHost);
+        roiReason = reason(form, "cameraRoiReason");
         frameRateValue = numeric(form, "cameraFrameRateValue", CameraSettingsDialog::tr("&Frame rate (fps)"));
         // Qt caps decimal places at DBL_MAX_10_EXP + DBL_DIG. Configure before
         // assigning bounds or values, which QDoubleSpinBox otherwise rounds.
         frameRateValue->setDecimals(std::numeric_limits<double>::max_exponent10
             + std::numeric_limits<double>::digits10);
+        frameRateReason = reason(form, "cameraFrameRateReason");
         exposureMode = mode(form, "cameraExposureMode", CameraSettingsDialog::tr("&Exposure mode"));
         exposureValue = numeric(form, "cameraExposureValue", CameraSettingsDialog::tr("Exposure (&µs)"));
+        exposureReason = reason(form, "cameraExposureReason");
         gainMode = mode(form, "cameraGainMode", CameraSettingsDialog::tr("&Gain mode"));
         gainValue = numeric(form, "cameraGainValue", CameraSettingsDialog::tr("Gain (&dB)"));
+        gainReason = reason(form, "cameraGainReason");
         layout->addLayout(form);
         actual = label("cameraSettingsActual", CameraSettingsDialog::tr("Actual camera readback"));
         layout->addWidget(actual);
@@ -271,16 +286,40 @@ struct CameraSettingsDialog::Impl final {
             if (!draft || index < 0) return;
             reportEditingIntent();
             draft->exposure.mode = static_cast<camera::ExposureMode>(exposureMode->currentData().toInt());
-            draft->exposure.requestedMicroseconds = draft->exposure.mode == camera::ExposureMode::Manual
-                ? std::optional<double>{exposureValue->value()} : std::nullopt;
+            if (draft->exposure.mode == camera::ExposureMode::Manual) {
+                const auto& capabilities = source->capabilities->exposure;
+                if (isWritableCameraControl(capabilities.access)) {
+                    draft->exposure.requestedMicroseconds = exposureValue->value();
+                } else if (presentation.cameraStatus
+                    && presentation.cameraStatus->currentConfiguration) {
+                    draft->exposure.requestedMicroseconds = presentation.cameraStatus
+                        ->currentConfiguration->exposure.requestedMicroseconds;
+                } else {
+                    draft->exposure.requestedMicroseconds.reset();
+                }
+            } else {
+                draft->exposure.requestedMicroseconds.reset();
+            }
             refresh();
         });
         QObject::connect(gainMode, &QComboBox::currentIndexChanged, &dialog, [this](int index) {
             if (!draft || index < 0) return;
             reportEditingIntent();
             draft->gain.mode = static_cast<camera::GainMode>(gainMode->currentData().toInt());
-            draft->gain.requestedDb = draft->gain.mode == camera::GainMode::Manual
-                ? std::optional<double>{gainValue->value()} : std::nullopt;
+            if (draft->gain.mode == camera::GainMode::Manual) {
+                const auto& capabilities = source->capabilities->gain;
+                if (isWritableCameraControl(capabilities.access)) {
+                    draft->gain.requestedDb = gainValue->value();
+                } else if (presentation.cameraStatus
+                    && presentation.cameraStatus->currentConfiguration) {
+                    draft->gain.requestedDb = presentation.cameraStatus
+                        ->currentConfiguration->gain.requestedDb;
+                } else {
+                    draft->gain.requestedDb.reset();
+                }
+            } else {
+                draft->gain.requestedDb.reset();
+            }
             refresh();
         });
         // Numeric entries commit on Enter/focus change. Protect their draft
@@ -312,6 +351,13 @@ struct CameraSettingsDialog::Impl final {
         result->setWordWrap(true);
         result->setAccessibleName(accessibleName);
         result->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        return result;
+    }
+
+    QLabel* reason(QFormLayout* form, const char* name) {
+        auto* result = label(name, CameraSettingsDialog::tr("Camera control availability"));
+        result->hide();
+        form->addRow(result);
         return result;
     }
 
@@ -360,6 +406,13 @@ struct CameraSettingsDialog::Impl final {
     void initializeNumeric(NumericEntry* entry, const camera::NumericCapability& capability,
         const std::optional<double>& value) {
         const QSignalBlocker blocker(entry);
+        if (capability.access == camera::ControlAccess::Unavailable
+            && !validRange(capability)) {
+            entry->setRange(0.0, 0.0);
+            entry->setSpecialValueText(CameraSettingsDialog::tr("Unavailable"));
+            entry->setValue(0.0);
+            return;
+        }
         if (validRange(capability)) {
             entry->setRange(capability.minimum, capability.maximum);
             entry->setSingleStep(capability.increment);
@@ -423,10 +476,23 @@ struct CameraSettingsDialog::Impl final {
         source = presentation.cameraStatus;
         draft = presentation.requestedConfiguration;
         if (!draft && source) draft = source->requestedConfiguration;
-        observedRequest = draft;
+        observedRequest = presentation.requestedConfiguration
+            ? presentation.requestedConfiguration
+            : source ? source->requestedConfiguration : std::nullopt;
         observedRevision = source ? source->requestedRevision : 0;
-        if (!source || !source->actualIdentity || !source->capabilities || !draft) return;
+        if (!source || !source->actualIdentity || !source->capabilities || !draft
+            || !source->currentConfiguration) {
+            normalizationFailed = true;
+            return;
+        }
         const auto& capabilities = *source->capabilities;
+        auto normalized = normalizeCameraSettingsDraft(
+            *draft, *source->currentConfiguration, capabilities);
+        if (!normalized.hasValue()) {
+            normalizationFailed = true;
+            return;
+        }
+        draft = std::move(normalized).value();
         const QSignalBlocker formatBlock(pixelFormat), exposureBlock(exposureMode), gainBlock(gainMode);
         for (std::size_t index = 0; index < capabilities.pixelFormats.size(); ++index) {
             const auto& format = capabilities.pixelFormats[index];
@@ -449,8 +515,12 @@ struct CameraSettingsDialog::Impl final {
                 gainMode->addItem(value == camera::GainMode::Manual
                     ? CameraSettingsDialog::tr("Manual") : CameraSettingsDialog::tr("Automatic"), static_cast<int>(value));
         }
-        exposureMode->setCurrentIndex(exposureMode->findData(static_cast<int>(draft->exposure.mode)));
-        gainMode->setCurrentIndex(gainMode->findData(static_cast<int>(draft->gain.mode)));
+        exposureMode->setPlaceholderText(CameraSettingsDialog::tr("Unavailable"));
+        gainMode->setPlaceholderText(CameraSettingsDialog::tr("Unavailable"));
+        exposureMode->setCurrentIndex(draft->exposure.mode
+            ? exposureMode->findData(static_cast<int>(*draft->exposure.mode)) : -1);
+        gainMode->setCurrentIndex(draft->gain.mode
+            ? gainMode->findData(static_cast<int>(*draft->gain.mode)) : -1);
         initializeRoi(capabilities.roi, draft->roi);
         initializeNumeric(frameRateValue, capabilities.frameRate, draft->requestedFps);
         initializeNumeric(exposureValue, capabilities.exposure, draft->exposure.requestedMicroseconds);
@@ -474,6 +544,19 @@ struct CameraSettingsDialog::Impl final {
                 && presentation.selectedCameraId == source->actualIdentity;
             const bool sameCapabilities = current && source->capabilities && current->capabilities
                 && application::cameraCapabilitiesEqual(*source->capabilities, *current->capabilities);
+            if (sameCamera && sameCapabilities && draft) {
+                if (!current->currentConfiguration) {
+                    invalidated = true;
+                } else {
+                    const auto validReadback = camera::validateCameraConfigurationReadback(
+                        *current->currentConfiguration, *current->capabilities);
+                    if (!validReadback.hasValue()
+                        || !cameraSettingsFixedFieldsMatchCurrent(
+                            *draft, *current->currentConfiguration, *current->capabilities)) {
+                        invalidated = true;
+                    }
+                }
+            }
             if (submitted && !submissionAdmitted) {
                 submissionAdmitted = sameCamera && sameCapabilities
                     && current->sessionGeneration == source->sessionGeneration
@@ -488,6 +571,7 @@ struct CameraSettingsDialog::Impl final {
                 && source->sessionGeneration != std::numeric_limits<std::uint64_t>::max()
                 && current->sessionGeneration == source->sessionGeneration + 1U
                 && request && current->requestedConfiguration && current->appliedConfiguration
+                && current->currentConfiguration
                 && current->requestedRevision > observedRevision
                 && current->requestedRevision == current->appliedRevision
                 && application::cameraConfigurationsEqual(*request, *submitted)
@@ -495,7 +579,8 @@ struct CameraSettingsDialog::Impl final {
                     *current->requestedConfiguration, *submitted)
                 && application::cameraConfigurationsEqual(
                     current->appliedConfiguration->requested, *submitted)
-                && sameSourceMode(current->appliedConfiguration->actual, *submitted);
+                && sameSourceMode(current->appliedConfiguration->actual, *submitted)
+                && sameSourceMode(*current->currentConfiguration, *submitted);
             if (ownSuccessfulRebind) {
                 rebindCompleted = true;
                 completedGeneration = current->sessionGeneration;
@@ -508,6 +593,7 @@ struct CameraSettingsDialog::Impl final {
                     || current->sourceReplacementRequired
                     || current->state != application::CameraSessionState::ConnectedIdle
                     || !current->requestedConfiguration || !current->appliedConfiguration
+                    || !current->currentConfiguration
                     || current->requestedRevision != observedRevision
                     || current->appliedRevision != observedRevision
                     || !application::cameraConfigurationsEqual(*request, *submitted)
@@ -515,7 +601,8 @@ struct CameraSettingsDialog::Impl final {
                         *current->requestedConfiguration, *submitted)
                     || !application::cameraConfigurationsEqual(
                         current->appliedConfiguration->requested, *submitted)
-                    || !sameSourceMode(current->appliedConfiguration->actual, *submitted)) {
+                    || !sameSourceMode(current->appliedConfiguration->actual, *submitted)
+                    || !sameSourceMode(*current->currentConfiguration, *submitted)) {
                     rebindCompleted = false;
                     invalidated = true;
                 }
@@ -548,30 +635,55 @@ struct CameraSettingsDialog::Impl final {
     }
 
     QString describeActual(const camera::CameraConfiguration& value) const {
-        const auto exposure = value.exposure.mode == camera::ExposureMode::Auto
-            ? CameraSettingsDialog::tr("Automatic")
-            : value.exposure.requestedMicroseconds ? number(dialog, *value.exposure.requestedMicroseconds)
-                : CameraSettingsDialog::tr("Unavailable");
-        const auto gain = value.gain.mode == camera::GainMode::Auto
-            ? CameraSettingsDialog::tr("Automatic")
-            : value.gain.requestedDb ? number(dialog, *value.gain.requestedDb) : CameraSettingsDialog::tr("Unavailable");
-        return CameraSettingsDialog::tr("Actual readback\nExposure: %1 µs · Gain: %2 dB\n%3 fps · %4\nROI x %5, y %6, %7 × %8")
-            .arg(exposure, gain, value.requestedFps ? number(dialog, *value.requestedFps) : CameraSettingsDialog::tr("Unavailable"),
-                pixelFormatDescription(value.pixelFormat))
-            .arg(value.roi.x).arg(value.roi.y).arg(value.roi.width).arg(value.roi.height);
+        const auto describeControl = [this](const auto& mode, const auto& value) {
+            if (!mode) return CameraSettingsDialog::tr("Unavailable");
+            if (*mode == std::decay_t<decltype(*mode)>::Auto) {
+                return value
+                    ? CameraSettingsDialog::tr("Automatic (actual %1)").arg(number(dialog, *value))
+                    : CameraSettingsDialog::tr("Automatic");
+            }
+            return value ? number(dialog, *value) : CameraSettingsDialog::tr("Unavailable");
+        };
+        const auto exposure = describeControl(value.exposure.mode,
+            value.exposure.requestedMicroseconds);
+        const auto gain = describeControl(value.gain.mode, value.gain.requestedDb);
+        const auto acquisition = value.acquisitionMode == camera::AcquisitionMode::Continuous
+            ? CameraSettingsDialog::tr("Continuous") : CameraSettingsDialog::tr("Triggered");
+        return CameraSettingsDialog::tr(
+            "Actual: %1 fps · %2\nROI x %3, y %4, %5 × %6 · %7\nExposure: %8 · Gain: %9")
+            .arg(value.requestedFps ? number(dialog, *value.requestedFps)
+                                    : CameraSettingsDialog::tr("Unavailable"),
+                pixelFormatName(value.pixelFormat))
+            .arg(value.roi.x).arg(value.roi.y).arg(value.roi.width).arg(value.roi.height)
+            .arg(acquisition, exposure, gain);
     }
 
     void refresh() {
-        sourceLabel->setText(source && source->actualIdentity
-            ? CameraSettingsDialog::tr("Camera: %1").arg(QString::fromStdString(source->actualIdentity->value))
-            : CameraSettingsDialog::tr("Camera unavailable"));
+        QString sourceText = CameraSettingsDialog::tr("Camera unavailable");
+        if (source && source->actualIdentity) {
+            const auto descriptor = std::find_if(source->discoveredDescriptors.begin(),
+                source->discoveredDescriptors.end(), [this](const auto& value) {
+                    return value.id == *source->actualIdentity;
+                });
+            sourceText = descriptor == source->discoveredDescriptors.end()
+                ? CameraSettingsDialog::tr("Camera: %1 — physical identity unavailable")
+                    .arg(QString::fromStdString(source->actualIdentity->value))
+                : CameraSettingsDialog::tr("Camera: %1 %2 — %3")
+                    .arg(QString::fromStdString(descriptor->identity.manufacturer),
+                        QString::fromStdString(descriptor->identity.model),
+                        QString::fromStdString(descriptor->identity.serial));
+        }
+        sourceLabel->setText(sourceText);
         if (draft) {
             const auto formatDescription = pixelFormatDescription(draft->pixelFormat);
-            fixedFields->setText(CameraSettingsDialog::tr("Selected source\n%1\nROI: x %2, y %3, width %4, height %5\nRead-only acquisition: %6")
-                .arg(formatDescription)
+            fixedFields->setText(CameraSettingsDialog::tr(
+                "%1\nROI x %2, y %3, %4 × %5 · %6 (read-only)")
+                .arg(pixelFormatName(draft->pixelFormat))
                 .arg(draft->roi.x).arg(draft->roi.y).arg(draft->roi.width).arg(draft->roi.height)
                 .arg(draft->acquisitionMode == camera::AcquisitionMode::Continuous
                     ? CameraSettingsDialog::tr("Continuous") : CameraSettingsDialog::tr("Triggered")));
+            fixedFields->setAccessibleDescription(formatDescription);
+            fixedFields->setToolTip(formatDescription);
             pixelFormat->setAccessibleDescription(formatDescription);
             pixelFormat->setToolTip(formatDescription);
         } else {
@@ -585,16 +697,26 @@ struct CameraSettingsDialog::Impl final {
         const bool completedRebindReadback = rebindCompleted && source && current
             && completedGeneration && current->actualIdentity == source->actualIdentity
             && current->sessionGeneration == *completedGeneration;
-        actual->setText((currentSourceReadback || completedRebindReadback)
-            && current->appliedConfiguration
-            ? describeActual(current->appliedConfiguration->actual)
-            : CameraSettingsDialog::tr("Actual readback unavailable"));
+        if ((currentSourceReadback || completedRebindReadback)
+            && current->currentConfiguration) {
+            actual->setText(describeActual(*current->currentConfiguration));
+            const auto details = pixelFormatDescription(
+                current->currentConfiguration->pixelFormat);
+            actual->setAccessibleDescription(details);
+            actual->setToolTip(details);
+        } else {
+            actual->setText(CameraSettingsDialog::tr("Actual readback unavailable"));
+            actual->setAccessibleDescription({});
+            actual->setToolTip({});
+        }
         QString message;
         bool editable = false;
         if (rebindCompleted) {
             message = CameraSettingsDialog::tr("Source settings were applied. Review the actual readback, then close and reopen this dialog before Confirm and Start.");
         } else if (invalidated) {
-            message = CameraSettingsDialog::tr("Camera or settings changed. Close and reopen this dialog before editing.");
+            message = CameraSettingsDialog::tr("Camera, session, or fixed readback changed. Review the actual readback, then close and reopen this dialog before editing.");
+        } else if (normalizationFailed) {
+            message = CameraSettingsDialog::tr("Fresh camera readback is unavailable or invalid. Close and reopen this dialog after the camera reports its current settings.");
         } else if (!source || !source->actualIdentity || !source->capabilities || !draft || !current) {
             message = CameraSettingsDialog::tr("Camera settings unavailable. Connect a camera, then close and reopen this dialog.");
         } else if (current->state == application::CameraSessionState::Streaming) {
@@ -606,36 +728,160 @@ struct CameraSettingsDialog::Impl final {
         } else {
             editable = true;
         }
-        const bool frameRatePrecisionSupported = source && source->capabilities
-            && supportsFrameRatePrecision(*frameRateValue, source->capabilities->frameRate);
-        const bool valid = draft && source && source->capabilities && frameRatePrecisionSupported
+        const auto accessReason = [current](camera::ControlAccess access,
+                                      const QString& control) {
+            if (access == camera::ControlAccess::Unavailable) {
+                return CameraSettingsDialog::tr("%1 is unavailable.").arg(control);
+            }
+            if (access == camera::ControlAccess::ReadOnly) {
+                return CameraSettingsDialog::tr("%1 is read-only.").arg(control);
+            }
+            if (current && current->state == application::CameraSessionState::Streaming) {
+                return CameraSettingsDialog::tr("Stop acquisition to edit %1.").arg(control);
+            }
+            return QString{};
+        };
+        const auto setReason = [](QLabel* label, const QString& text) {
+            label->setText(text);
+            label->setVisible(!text.isEmpty());
+        };
+        const auto* capabilities = source && source->capabilities
+            ? &*source->capabilities : nullptr;
+        QString pixelReasonText;
+        QString roiReasonText;
+        QString frameReasonText;
+        QString exposureReasonText;
+        QString gainReasonText;
+        if (capabilities) {
+            pixelReasonText = accessReason(capabilities->pixelFormatAccess,
+                CameraSettingsDialog::tr("pixel format"));
+            roiReasonText = accessReason(capabilities->roi.access,
+                CameraSettingsDialog::tr("the image region"));
+            frameReasonText = accessReason(capabilities->frameRate.access,
+                CameraSettingsDialog::tr("frame rate"));
+            const bool exposureModeWritable = isWritableCameraControl(
+                capabilities->exposureModeAccess);
+            const bool exposureValueWritable = isWritableCameraControl(
+                capabilities->exposure.access);
+            const bool streaming = current
+                && current->state == application::CameraSessionState::Streaming;
+            if (capabilities->exposureModeAccess == camera::ControlAccess::Unavailable
+                && capabilities->exposure.access == camera::ControlAccess::Unavailable) {
+                exposureReasonText = CameraSettingsDialog::tr(
+                    "Exposure is unavailable.");
+            } else if (streaming && !exposureModeWritable && exposureValueWritable) {
+                exposureReasonText = CameraSettingsDialog::tr(
+                    "Exposure mode is read-only; Stop to edit value.");
+            } else if (streaming && exposureModeWritable && !exposureValueWritable) {
+                exposureReasonText = CameraSettingsDialog::tr(
+                    "Exposure value is read-only; Stop to edit mode.");
+            } else if (streaming && exposureModeWritable && exposureValueWritable) {
+                exposureReasonText = CameraSettingsDialog::tr(
+                    "Stop acquisition to edit exposure mode or value.");
+            } else if (!exposureModeWritable && exposureValueWritable) {
+                exposureReasonText = CameraSettingsDialog::tr(
+                    "Exposure mode is read-only; value is editable.");
+            } else if (exposureModeWritable && !exposureValueWritable) {
+                exposureReasonText = CameraSettingsDialog::tr(
+                    "Exposure value is read-only; mode is editable.");
+            } else if (!exposureModeWritable || !exposureValueWritable) {
+                exposureReasonText = CameraSettingsDialog::tr(
+                    "Exposure mode and value are read-only.");
+            } else if (draft && draft->exposure.mode != camera::ExposureMode::Manual) {
+                exposureReasonText = CameraSettingsDialog::tr(
+                    "Automatic exposure controls the value.");
+            }
+            const bool gainModeWritable = isWritableCameraControl(capabilities->gainModeAccess);
+            const bool gainValueWritable = isWritableCameraControl(capabilities->gain.access);
+            if (capabilities->gainModeAccess == camera::ControlAccess::Unavailable
+                && capabilities->gain.access == camera::ControlAccess::Unavailable) {
+                gainReasonText = CameraSettingsDialog::tr(
+                    "Gain is unavailable.");
+            } else if (streaming && !gainModeWritable && gainValueWritable) {
+                gainReasonText = CameraSettingsDialog::tr(
+                    "Gain mode is read-only; Stop to edit value.");
+            } else if (streaming && gainModeWritable && !gainValueWritable) {
+                gainReasonText = CameraSettingsDialog::tr(
+                    "Gain value is read-only; Stop to edit mode.");
+            } else if (streaming && gainModeWritable && gainValueWritable) {
+                gainReasonText = CameraSettingsDialog::tr(
+                    "Stop acquisition to edit gain mode or value.");
+            } else if (!gainModeWritable && gainValueWritable) {
+                gainReasonText = CameraSettingsDialog::tr(
+                    "Gain mode is read-only; value is editable.");
+            } else if (gainModeWritable && !gainValueWritable) {
+                gainReasonText = CameraSettingsDialog::tr(
+                    "Gain value is read-only; mode is editable.");
+            } else if (!gainModeWritable || !gainValueWritable) {
+                gainReasonText = CameraSettingsDialog::tr("Gain mode and value are read-only.");
+            } else if (draft && draft->gain.mode != camera::GainMode::Manual) {
+                gainReasonText = CameraSettingsDialog::tr(
+                    "Automatic gain controls the value.");
+            }
+        }
+        setReason(pixelFormatReason, pixelReasonText);
+        setReason(roiReason, roiReasonText);
+        setReason(frameRateReason, frameReasonText);
+        setReason(exposureReason, exposureReasonText);
+        setReason(gainReason, gainReasonText);
+
+        const bool frameRatePrecisionSupported = capabilities
+            && (!isWritableCameraControl(capabilities->frameRate.access)
+                || supportsFrameRatePrecision(*frameRateValue, capabilities->frameRate));
+        const bool roiEditorSupported = capabilities
+            && (!isWritableCameraControl(capabilities->roi.access) || roiEditorsRepresentable);
+        const bool exposureSelectionValid = draft && capabilities
+            && (draft->exposure.mode ? exposureMode->currentIndex() >= 0
+                : capabilities->exposureModeAccess == camera::ControlAccess::Unavailable);
+        const bool gainSelectionValid = draft && capabilities
+            && (draft->gain.mode ? gainMode->currentIndex() >= 0
+                : capabilities->gainModeAccess == camera::ControlAccess::Unavailable);
+        const bool planValid = draft && current && current->currentConfiguration && capabilities
+            && camera::planCameraConfigurationChange(
+                *draft, *current->currentConfiguration, *capabilities, false).hasValue();
+        const bool valid = draft && capabilities && frameRatePrecisionSupported
             && draft->requestedFps && std::isfinite(*draft->requestedFps) && *draft->requestedFps > 0.0
-            && pixelFormat->currentIndex() >= 0 && roiEditorsRepresentable
-            && exposureMode->currentIndex() >= 0 && gainMode->currentIndex() >= 0
+            && pixelFormat->currentIndex() >= 0 && roiEditorSupported
+            && exposureSelectionValid && gainSelectionValid
             && application::isSupportedLiveCameraConfiguration(*draft)
-            && camera::validateCameraConfiguration(*draft, *source->capabilities).hasValue();
-        if (editable && source && source->capabilities && validRange(source->capabilities->frameRate)
-            && source->capabilities->frameRate.minimum > 0.0 && !frameRatePrecisionSupported) {
+            && camera::validateCameraConfiguration(*draft, *capabilities).hasValue()
+            && planValid;
+        if (editable && capabilities && isWritableCameraControl(capabilities->frameRate.access)
+            && validRange(capabilities->frameRate)
+            && capabilities->frameRate.minimum > 0.0 && !frameRatePrecisionSupported) {
             message = CameraSettingsDialog::tr("The camera's frame-rate range exceeds this editor's numeric precision. Camera settings cannot be applied here.");
-        } else if (editable && !roiEditorsRepresentable) {
+        } else if (editable && capabilities && isWritableCameraControl(capabilities->roi.access)
+            && !roiEditorsRepresentable) {
             message = CameraSettingsDialog::tr("The camera's ROI range or increment cannot be represented by this editor. Camera settings cannot be applied here.");
         } else if (editable && !valid) {
             message = CameraSettingsDialog::tr("Settings unavailable or outside the camera's supported ranges. Review pixel format, ROI, frame rate, exposure, gain and camera capabilities before applying.");
         } else if (editable) {
             message = CameraSettingsDialog::tr("Apply settings, review the actual readback, then explicitly Confirm before Start.");
         }
-        pixelFormat->setEnabled(editable && pixelFormat->count() > 0);
-        roiX->setEnabled(editable && roiEditorsRepresentable);
-        roiY->setEnabled(editable && roiEditorsRepresentable);
-        roiWidth->setEnabled(editable && roiEditorsRepresentable);
-        roiHeight->setEnabled(editable && roiEditorsRepresentable);
-        exposureMode->setEnabled(editable && exposureMode->count() > 0);
-        gainMode->setEnabled(editable && gainMode->count() > 0);
-        frameRateValue->setEnabled(editable && draft && frameRatePrecisionSupported);
+        pixelFormat->setEnabled(editable && capabilities
+            && isWritableCameraControl(capabilities->pixelFormatAccess)
+            && pixelFormat->count() > 0);
+        const bool roiEnabled = editable && capabilities
+            && isWritableCameraControl(capabilities->roi.access) && roiEditorsRepresentable;
+        roiX->setEnabled(roiEnabled);
+        roiY->setEnabled(roiEnabled);
+        roiWidth->setEnabled(roiEnabled);
+        roiHeight->setEnabled(roiEnabled);
+        exposureMode->setEnabled(editable && capabilities
+            && isWritableCameraControl(capabilities->exposureModeAccess)
+            && exposureMode->count() > 0);
+        gainMode->setEnabled(editable && capabilities
+            && isWritableCameraControl(capabilities->gainModeAccess)
+            && gainMode->count() > 0);
+        frameRateValue->setEnabled(editable && draft && capabilities
+            && isWritableCameraControl(capabilities->frameRate.access)
+            && frameRatePrecisionSupported);
         exposureValue->setEnabled(editable && draft && draft->exposure.mode == camera::ExposureMode::Manual
-            && source && source->capabilities && validRange(source->capabilities->exposure));
+            && capabilities && isWritableCameraControl(capabilities->exposure.access)
+            && validRange(capabilities->exposure));
         gainValue->setEnabled(editable && draft && draft->gain.mode == camera::GainMode::Manual
-            && source && source->capabilities && validRange(source->capabilities->gain));
+            && capabilities && isWritableCameraControl(capabilities->gain.access)
+            && validRange(capabilities->gain));
         apply->setEnabled(editable && valid);
         statusLabel->setText(message);
     }

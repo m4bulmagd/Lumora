@@ -282,20 +282,20 @@ TEST(PresetCodec, EncodeRejectsInvalidEntriesAndNonfiniteActiveValuesWithoutDrop
     EXPECT_FALSE(PresetCodec::encode(state).hasValue());
 }
 
-TEST(PresetCodec, SchemaOneAndTwoMigrationPreserveLegacyAndNormalizeToSchemaFour) {
+TEST(PresetCodec, SchemaOneAndTwoMigrationPreserveLegacyAndNormalizeToSchemaFive) {
     const QJsonObject legacy{{"selected", "Standard"}, {"uninterpreted", QJsonArray{1, "keep"}}};
     auto first = configurationJson(1, legacy); first.remove("startup");
     const auto second = configurationJson(2, legacy);
     const auto one = ConfigurationCodec::decode(QJsonDocument(first).toJson());
     const auto two = ConfigurationCodec::decode(QJsonDocument(second).toJson());
     ASSERT_TRUE(one.hasValue()); ASSERT_TRUE(two.hasValue());
-    EXPECT_EQ(one.value().schemaVersion, 4); EXPECT_EQ(two.value().schemaVersion, 4);
+    EXPECT_EQ(one.value().schemaVersion, 5); EXPECT_EQ(two.value().schemaVersion, 5);
     EXPECT_FALSE(one.value().usedDefaults); EXPECT_TRUE(one.value().loadWarning.has_value());
     const auto encodedOne = ConfigurationCodec::encode(one.value());
     const auto encodedTwo = ConfigurationCodec::encode(two.value());
     ASSERT_TRUE(encodedOne.hasValue()); ASSERT_TRUE(encodedTwo.hasValue()); EXPECT_EQ(encodedOne.value(), encodedTwo.value());
     const auto normalized = QJsonDocument::fromJson(encodedOne.value()).object();
-    EXPECT_EQ(normalized.value("schemaVersion").toInt(), 4);
+    EXPECT_EQ(normalized.value("schemaVersion").toInt(), 5);
     EXPECT_EQ(normalized.value("presets").toObject().value("legacy").toObject(), legacy);
     EXPECT_EQ(normalized.value("presets").toObject().value("selectedId"), "original");
     for (const char* section : {"application", "processing", "capture", "ui"}) EXPECT_EQ(normalized.value(QLatin1String(section)), first.value(QLatin1String(section)));

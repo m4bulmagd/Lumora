@@ -111,11 +111,14 @@ core::Result<std::unique_ptr<FrameSource>> makeFrameSource(SimulatedCameraOption
     }
     const auto& descriptor = sequence.value().descriptor();
     options.capabilities.pixelFormats = {descriptor.format};
+    options.capabilities.pixelFormatAccess = ControlAccess::ReadOnly;
+    const auto roiAccess = options.capabilities.roi.access;
     options.capabilities.roi = {
         .minimum = {.x = 0U, .y = 0U, .width = 1U, .height = 1U},
         .maximum = {.x = descriptor.width - 1U, .y = descriptor.height - 1U,
                     .width = descriptor.width, .height = descriptor.height},
-        .increment = {.x = 1U, .y = 1U, .width = 1U, .height = 1U}};
+        .increment = {.x = 1U, .y = 1U, .width = 1U, .height = 1U},
+        .access = roiAccess};
     return SourceResult::success(std::make_unique<ReplaySource>(std::move(sequence).value()));
 }
 

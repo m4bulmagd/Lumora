@@ -25,8 +25,8 @@ camera::CameraConfiguration request() {
 }
 camera::sim::SimulatedCameraOptions options() {
     return {{"SIM-PROFILES"}, {{request().pixelFormat},{{0,0,1,1},{0,0,8,6},{1,1,1,1}},
-        {1,60,1,false},{1,1000,1,false},{camera::ExposureMode::Manual},
-        {0,10,1,false},{camera::GainMode::Manual}},camera::sim::SimulationPattern::Ramp,
+        {1,60,1,camera::ControlAccess::WritableStopped},{1,1000,1,camera::ControlAccess::WritableStopped},{camera::ExposureMode::Manual},
+        {0,10,1,camera::ControlAccess::WritableStopped},{camera::GainMode::Manual}},camera::sim::SimulationPattern::Ramp,
         30.0,123,camera::sim::SimulationPacingMode::Manual};
 }
 class Memory final : public configuration::IStartupPreferencesIo {

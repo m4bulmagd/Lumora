@@ -20,20 +20,27 @@ core::Result<QByteArray> InstallationProfileCodec::encode(const Profiles& profil
     if (!valid.hasValue()) return core::Result<QByteArray>::failure(valid.error());
     QJsonArray records;
     for (const auto& profile : profiles) {
+        auto capabilities = encodeCameraCapabilities(
+            profile.capabilities, profile.capabilityFingerprintVersion);
+        if (!capabilities.hasValue()) {
+            return core::Result<QByteArray>::failure(
+                invalid(capabilities.error().diagnosticDetail));
+        }
         records.append(QJsonObject{
             {"recordVersion", 1},
             // A decimal string preserves every uint64 revision through JSON double parsers.
             {"revision", QString::number(static_cast<qulonglong>(profile.revision))},
             {"identity", encodeCameraIdentity(profile.identity)},
-            {"capabilityFingerprintVersion", 1},
-            {"capabilities", encodeCameraCapabilities(profile.capabilities)},
+            {"capabilityFingerprintVersion",
+                static_cast<double>(profile.capabilityFingerprintVersion)},
+            {"capabilities", capabilities.value()},
             {"orientation", QJsonObject{{"flipHorizontal", profile.orientation.flipHorizontal},
                 {"flipVertical", profile.orientation.flipVertical},
                 {"rotation", static_cast<int>(profile.orientation.rotation) * 90}}},
             {"confirmed", profile.confirmed}});
     }
     return core::Result<QByteArray>::success(QJsonDocument(QJsonObject{
-        {"schemaVersion", 1}, {"profiles", records}}).toJson());
+        {"schemaVersion", 2}, {"profiles", records}}).toJson());
 }
 
 core::Result<Profiles> InstallationProfileCodec::decode(const QByteArray& bytes) {
@@ -43,7 +50,9 @@ core::Result<Profiles> InstallationProfileCodec::decode(const QByteArray& bytes)
         return core::Result<Profiles>::failure(invalid("Malformed installation JSON."));
     }
     const auto root = document.object();
-    if (root.value("schemaVersion") != QJsonValue(1) || !root.value("profiles").isArray()) {
+    const auto schema = root.value("schemaVersion");
+    if ((schema != QJsonValue(1) && schema != QJsonValue(2))
+        || !root.value("profiles").isArray()) {
         return core::Result<Profiles>::failure(invalid("Unsupported schema or missing profiles array."));
     }
     const auto records = root.value("profiles").toArray();
@@ -55,11 +64,15 @@ core::Result<Profiles> InstallationProfileCodec::decode(const QByteArray& bytes)
         const auto record = value.toObject();
         const auto orientation = record.value("orientation").toObject();
         const auto revisionText = record.value("revision").toString();
+        const auto fingerprintValue = record.value("capabilityFingerprintVersion");
+        const auto fingerprintVersion = fingerprintValue == QJsonValue(1) ? 1U
+            : fingerprintValue == QJsonValue(2) ? 2U : 0U;
         bool revisionValid = false;
         const auto revision = revisionText.toULongLong(&revisionValid);
         const auto rotation = orientation.value("rotation");
         if (!value.isObject() || record.value("recordVersion") != QJsonValue(1)
-            || record.value("capabilityFingerprintVersion") != QJsonValue(1)
+            || fingerprintVersion == 0U
+            || (schema == QJsonValue(1) && fingerprintVersion != 1U)
             || !record.value("identity").isObject() || !record.value("capabilities").isObject()
             || !record.value("confirmed").isBool() || !record.value("confirmed").toBool()
             || !revisionValid || revision == 0 || QString::number(revision) != revisionText
@@ -70,11 +83,13 @@ core::Result<Profiles> InstallationProfileCodec::decode(const QByteArray& bytes)
             return core::Result<Profiles>::failure(invalid("Malformed installation record fields."));
         }
         auto identity = decodeCameraIdentity(record.value("identity").toObject());
-        auto capabilities = decodeCameraCapabilities(record.value("capabilities").toObject());
+        auto capabilities = decodeCameraCapabilities(
+            record.value("capabilities").toObject(), fingerprintVersion);
         if (!identity.hasValue() || !capabilities.hasValue()) {
             return core::Result<Profiles>::failure(invalid("Invalid identity or capabilities."));
         }
-        profiles.push_back({1U, revision, std::move(identity).value(), 1U,
+        profiles.push_back({1U, revision, std::move(identity).value(),
+            fingerprintVersion,
             std::move(capabilities).value(),
             {orientation.value("flipHorizontal").toBool(), orientation.value("flipVertical").toBool(),
                 static_cast<core::Rotation>(rotation.toInt() / 90)}, true});

@@ -27,7 +27,7 @@ add_test(NAME Application.CameraSettingsPolicy
   COMMAND lumora_application_tests --gtest_filter=CameraSettingsPolicy.*)
 set_tests_properties(Application.CameraSettingsPolicy PROPERTIES TIMEOUT 60)
 add_test(NAME Application.StartupPreferences
-  COMMAND lumora_application_tests --gtest_filter=StartupPreferences.*)
+  COMMAND lumora_application_tests --gtest_filter=StartupPreferences.*:CameraProfile.*)
 set_tests_properties(Application.StartupPreferences PROPERTIES TIMEOUT 60)
 add_test(NAME Application.PresetRepository
   COMMAND lumora_application_tests --gtest_filter=PresetRepository.*)
@@ -68,6 +68,7 @@ add_executable(
   unit/ui/CameraSettingsDialogTests.cpp
   unit/ui/InstallationSettingsDialogTests.cpp
   unit/ui/CameraStartupPanelTests.cpp
+  unit/ui/CameraPanelLayoutTests.cpp
   unit/ui/ProcessingPanelTests.cpp
   unit/ui/ProcessingControlsModelTests.cpp
   unit/ui/WorkstationControllerTests.cpp
@@ -127,11 +128,12 @@ add_test(NAME WorkstationController COMMAND lumora_ui_tests --gtest_filter=Works
 # Surface stalled Qt startup promptly on unattended CI runners.
 add_test(NAME CameraSettingsDialog COMMAND lumora_ui_tests --gtest_filter=CameraSettingsDialog.*)
 add_test(NAME InstallationSettingsDialog COMMAND lumora_ui_tests --gtest_filter=InstallationSettingsDialog.*)
+add_test(NAME CameraPanelLayout COMMAND lumora_ui_tests --gtest_filter=CameraPanelLayout.*)
 
 # Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
 # does not make the installed Qt platform plugins discoverable by itself.
 set_tests_properties(
-  MainWindowSmoke ViewportTransform ImageViewport ComparisonViewport CompareWorkstation WorkstationView FramePresenter CameraSettingsDialog InstallationSettingsDialog CameraStartupPanel WorkstationController ProcessingControls
+  MainWindowSmoke ViewportTransform ImageViewport ComparisonViewport CompareWorkstation WorkstationView FramePresenter CameraSettingsDialog InstallationSettingsDialog CameraStartupPanel CameraPanelLayout WorkstationController ProcessingControls
   PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
@@ -146,6 +148,7 @@ add_executable(
   integration/InstallationPipelineTests.cpp
   integration/InstallationControllerTests.cpp
   integration/CameraReconfigurationTests.cpp
+  integration/CameraControlsTests.cpp
   "${PROJECT_SOURCE_DIR}/src/app/SimulatorComposition.cpp"
 )
 target_include_directories(
@@ -167,6 +170,9 @@ set_tests_properties(ProcessingConfiguration PROPERTIES TIMEOUT 180
 add_test(NAME LivePipeline COMMAND lumora_integration_tests --gtest_filter=LivePipeline.*)
 add_test(NAME InstallationPipeline COMMAND lumora_integration_tests --gtest_filter=InstallationPipeline.*)
 add_test(NAME InstallationController COMMAND lumora_integration_tests --gtest_filter=InstallationController.*)
+add_test(NAME CameraControls COMMAND lumora_integration_tests --gtest_filter=CameraControls.*)
+set_tests_properties(CameraControls PROPERTIES TIMEOUT 60
+  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
 set_tests_properties(InstallationController PROPERTIES TIMEOUT 180
   ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
 set_tests_properties(InstallationPipeline PROPERTIES TIMEOUT 180

@@ -21,10 +21,10 @@ core::SourcePixelFormat mono16() {
 camera::CameraCapabilities capabilities() {
     return {{mono8(), mono16()},
         {{0U, 0U, 8U, 8U}, {0U, 0U, 640U, 480U}, {1U, 1U, 8U, 8U}},
-        {1.0, 60.0, 0.1, false},
-        {10.0, 10000.0, 1.0, true},
+        {1.0, 60.0, 0.1, camera::ControlAccess::WritableStopped},
+        {10.0, 10000.0, 1.0, camera::ControlAccess::WritableStreaming},
         {camera::ExposureMode::Manual, camera::ExposureMode::Auto},
-        {0.0, 24.0, 0.1, true},
+        {0.0, 24.0, 0.1, camera::ControlAccess::WritableStreaming},
         {camera::GainMode::Manual, camera::GainMode::Auto}};
 }
 
@@ -38,6 +38,10 @@ camera::CameraConfiguration configuration() {
 StartupPreferences preferences() {
     return {1U, {"camera-1"}, {"Lumora", "Simulator", "SIM-1", "virtual", "1.0"},
         capabilities(), configuration(), configuration(), true};
+}
+
+TEST(StartupPreferences, NewRecordsDefaultToCurrentCapabilityFingerprint) {
+    EXPECT_EQ(StartupPreferences{}.capabilityFingerprintVersion, 2U);
 }
 
 TEST(StartupPreferences, CapabilityComparisonIgnoresSetOrdering) {
@@ -64,6 +68,34 @@ TEST(StartupPreferences, CapabilityComparisonCoversEveryStructuralGroup) {
     numeric.exposure.maximum = 9999.0;
     EXPECT_FALSE(cameraCapabilitiesEqual(original, numeric));
 
+    auto roiAccess = original;
+    roiAccess.roi.access = camera::ControlAccess::ReadOnly;
+    EXPECT_FALSE(cameraCapabilitiesEqual(original, roiAccess));
+
+    auto pixelAccess = original;
+    pixelAccess.pixelFormatAccess = camera::ControlAccess::ReadOnly;
+    EXPECT_FALSE(cameraCapabilitiesEqual(original, pixelAccess));
+
+    auto frameRateAccess = original;
+    frameRateAccess.frameRate.access = camera::ControlAccess::ReadOnly;
+    EXPECT_FALSE(cameraCapabilitiesEqual(original, frameRateAccess));
+
+    auto exposureModeAccess = original;
+    exposureModeAccess.exposureModeAccess = camera::ControlAccess::ReadOnly;
+    EXPECT_FALSE(cameraCapabilitiesEqual(original, exposureModeAccess));
+
+    auto exposureValueAccess = original;
+    exposureValueAccess.exposure.access = camera::ControlAccess::ReadOnly;
+    EXPECT_FALSE(cameraCapabilitiesEqual(original, exposureValueAccess));
+
+    auto gainModeAccess = original;
+    gainModeAccess.gainModeAccess = camera::ControlAccess::ReadOnly;
+    EXPECT_FALSE(cameraCapabilitiesEqual(original, gainModeAccess));
+
+    auto gainValueAccess = original;
+    gainValueAccess.gain.access = camera::ControlAccess::ReadOnly;
+    EXPECT_FALSE(cameraCapabilitiesEqual(original, gainValueAccess));
+
     auto modes = original;
     modes.gainModes.pop_back();
     EXPECT_FALSE(cameraCapabilitiesEqual(original, modes));
@@ -85,6 +117,16 @@ TEST(StartupPreferences, ValidationRejectsDuplicateAndNonfiniteCapabilities) {
 }
 
 TEST(StartupPreferences, ResumeEligibilityRequiresConfirmationAndStableIdentity) {
+    auto legacy = preferences();
+    legacy.capabilityFingerprintVersion = 1U;
+    legacy.confirmedCapabilities.exposureModeAccess =
+        legacy.confirmedCapabilities.exposure.access;
+    legacy.confirmedCapabilities.gainModeAccess =
+        legacy.confirmedCapabilities.gain.access;
+    EXPECT_TRUE(validateStartupPreferences(legacy).hasValue());
+    EXPECT_FALSE(isStartupResumeEligible(
+        legacy, legacy.cameraId, legacy.identity, legacy.confirmedCapabilities));
+
     const auto saved = preferences();
     EXPECT_TRUE(isStartupResumeEligible(
         saved, {"camera-1"}, {"Lumora", "Simulator", "SIM-1", "usb:changed", "2.0"},
@@ -99,6 +141,15 @@ TEST(StartupPreferences, ResumeEligibilityRequiresConfirmationAndStableIdentity)
     wrongIdentity.serial = "SIM-2";
     EXPECT_FALSE(isStartupResumeEligible(
         saved, saved.cameraId, wrongIdentity, saved.confirmedCapabilities));
+}
+
+TEST(StartupPreferences, ResumeRejectsAccessDrift) {
+    const auto saved = preferences();
+    auto changed = saved.confirmedCapabilities;
+    changed.frameRate.access = camera::ControlAccess::ReadOnly;
+
+    EXPECT_FALSE(isStartupResumeEligible(
+        saved, saved.cameraId, saved.identity, changed));
 }
 
 TEST(StartupPreferences, ConfigurationComparisonIncludesRequestedAndModeValues) {
@@ -162,20 +213,20 @@ TEST(CameraProfile, IdentityKeyComparisonIgnoresTransportAndFirmware) {
 TEST(CameraProfile, CapabilityValidationRejectsInvalidRangesAndRoiIncrements) {
     auto invalidRange = capabilities();
     invalidRange.frameRate.minimum = 61.0;
-    ASSERT_FALSE(validateCameraCapabilities(invalidRange).hasValue());
+    ASSERT_FALSE(application::validateCameraCapabilities(invalidRange).hasValue());
 
     auto invalidRoi = capabilities();
     invalidRoi.roi.increment.width = 0U;
-    ASSERT_FALSE(validateCameraCapabilities(invalidRoi).hasValue());
+    ASSERT_FALSE(application::validateCameraCapabilities(invalidRoi).hasValue());
 
     auto invalidFormat = capabilities();
     invalidFormat.pixelFormats.front().validBits = 0U;
-    ASSERT_FALSE(validateCameraCapabilities(invalidFormat).hasValue());
+    ASSERT_FALSE(application::validateCameraCapabilities(invalidFormat).hasValue());
 }
 
 TEST(StartupPreferences, ValidationRejectsUnknownFingerprintAndInstallationReference) {
     auto invalidFingerprint = preferences();
-    invalidFingerprint.capabilityFingerprintVersion = 2U;
+    invalidFingerprint.capabilityFingerprintVersion = 3U;
     const auto fingerprintResult = validateStartupPreferences(invalidFingerprint);
     ASSERT_FALSE(fingerprintResult.hasValue());
     EXPECT_EQ(fingerprintResult.error().code,

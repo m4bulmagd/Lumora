@@ -32,8 +32,8 @@ camera::CameraConfiguration configuration() {
 }
 camera::CameraCapabilities capabilities() {
     return {{mono8()}, {{0U, 0U, 1U, 1U}, {0U, 0U, 8U, 6U}, {1U, 1U, 1U, 1U}},
-        {1.0, 60.0, 1.0, false}, {1.0, 1000.0, 1.0, false},
-        {camera::ExposureMode::Manual}, {0.0, 10.0, 1.0, false}, {camera::GainMode::Manual}};
+        {1.0, 60.0, 1.0, camera::ControlAccess::WritableStopped}, {1.0, 1000.0, 1.0, camera::ControlAccess::WritableStopped},
+        {camera::ExposureMode::Manual}, {0.0, 10.0, 1.0, camera::ControlAccess::WritableStopped}, {camera::GainMode::Manual}};
 }
 core::Error error(ErrorCategory category, std::string code, bool recoverable = false) {
     return {category, std::move(code), "Scripted camera error.", "", recoverable};
@@ -65,6 +65,8 @@ struct Script final {
     bool failStop{false};
     bool failClose{false};
     std::optional<camera::CameraConfiguration> readback;
+    std::optional<camera::CameraConfiguration> currentReadback;
+    std::optional<camera::CameraConfiguration> initialConfiguration;
     std::optional<camera::CameraCapabilities> offeredCapabilities;
 
     void record(std::string operation) {
@@ -99,7 +101,9 @@ struct Script final {
 
 class Device final : public camera::ICameraDevice {
 public:
-    Device(Script& script, core::ManualClock& clock) : script_(script), clock_(clock) { script_.record("construct"); }
+    Device(Script& script, core::ManualClock& clock)
+        : script_(script), clock_(clock),
+          configuration_(script.initialConfiguration.value_or(application::configuration())) { script_.record("construct"); }
     ~Device() override { script_.record("destroy"); }
     Result<void> open() override {
         script_.record("open");
@@ -109,6 +113,10 @@ public:
         script_.record("capabilities");
         if (script_.failCapabilities) { return Result<camera::CameraCapabilities>::failure(error(ErrorCategory::CameraConfiguration, "capabilities_failed")); }
         return Result<camera::CameraCapabilities>::success(script_.offeredCapabilities.value_or(application::capabilities()));
+    }
+    Result<camera::CameraConfiguration> readConfiguration() override {
+        script_.record("read");
+        return Result<camera::CameraConfiguration>::success(script_.currentReadback.value_or(configuration_));
     }
     Result<camera::AppliedCameraConfiguration> applyConfiguration(const camera::CameraConfiguration& value) override {
         script_.record("apply");
@@ -286,6 +294,59 @@ struct Fixture final {
     }
 };
 
+TEST(AcquisitionWorker, ConnectPublishesInspectionReadbackWithoutAuthorizingStart) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+    ASSERT_TRUE(fixture.latest->currentConfiguration);
+    EXPECT_EQ(fixture.latest->currentConfiguration->requestedFps, 30.0);
+    EXPECT_FALSE(fixture.latest->appliedConfiguration);
+    EXPECT_EQ(fixture.latest->appliedRevision, 0U);
+    EXPECT_FALSE(fixture.latest->confirmedRevision);
+    EXPECT_FALSE(fixture.latest->restoreEligible);
+    ASSERT_TRUE(fixture.command(StartStream{0U, 0U}, false));
+    EXPECT_EQ(fixture.script.count("start"), 0U);
+    EXPECT_EQ(fixture.script.count("read"), 1U);
+    ASSERT_TRUE(fixture.command(Disconnect{}));
+    EXPECT_FALSE(fixture.latest->currentConfiguration);
+}
+
+TEST(AcquisitionWorker, FreshReadOnlyFirstApplyRejectsChangedValueBeforeBackendMutation) {
+    Fixture fixture;
+    auto caps = capabilities();
+    caps.frameRate.access = camera::ControlAccess::ReadOnly;
+    fixture.script.offeredCapabilities = caps;
+    fixture.script.currentReadback = configuration();
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+    fixture.script.currentReadback->requestedFps = 20.0;
+    ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, configuration(), 1U}, false));
+    EXPECT_EQ(fixture.script.count("apply"), 0U);
+    EXPECT_EQ(fixture.script.count("read"), 2U);
+    ASSERT_TRUE(fixture.latest->currentConfiguration);
+    EXPECT_EQ(fixture.latest->currentConfiguration->requestedFps, 20.0);
+    EXPECT_FALSE(fixture.latest->appliedConfiguration);
+    auto retained = configuration();
+    retained.requestedFps = 20.0;
+    retained.exposure.requestedMicroseconds = 250.0;
+    ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, retained, 2U}));
+    EXPECT_EQ(fixture.script.count("apply"), 1U);
+    EXPECT_EQ(fixture.latest->currentConfiguration->exposure.requestedMicroseconds, 250.0);
+}
+
+TEST(AcquisitionWorker, MalformedFreshReadbackFailsClosedBeforeApply) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+    fixture.script.currentReadback = configuration();
+    fixture.script.currentReadback->requestedFps.reset();
+    ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, configuration(), 1U}, false));
+    EXPECT_EQ(fixture.script.count("apply"), 0U);
+    EXPECT_FALSE(fixture.latest->currentConfiguration);
+    EXPECT_FALSE(fixture.latest->actualIdentity);
+    EXPECT_EQ(fixture.latest->state, S::Error);
+}
+
 TEST(AcquisitionWorker, CancelledReconfigurationDoesNotOverwriteItsPriorityCompletion) {
     Fixture fixture;
     fixture.script.blockedOperation = "discover";
@@ -364,6 +425,31 @@ TEST(AcquisitionWorker, InitialSnapshotRejectsDeviceFactsAndTerminalStates) {
     initial.actualIdentity = camera::CameraId{"camera-1"};
     Fixture fixture(initial);
     EXPECT_FALSE(fixture.worker.start().hasValue());
+}
+
+TEST(AcquisitionWorker, InitialSnapshotCannotSupplyInspectionReadback) {
+    CameraStatusSnapshot initial;
+    initial.currentConfiguration = configuration();
+    Fixture fixture(initial);
+    EXPECT_FALSE(fixture.worker.start().hasValue());
+    EXPECT_TRUE(fixture.script.calls.empty());
+}
+
+TEST(AcquisitionWorker, FailedNewerApplyCannotReusePriorConfirmationForStart) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.worker.start().hasValue());
+    ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+    ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, configuration(), 1U}));
+    ASSERT_TRUE(fixture.command(ConfirmConfiguration{0U, 1U}));
+    fixture.script.rejectApply = true;
+    auto changed = configuration();
+    changed.exposure.requestedMicroseconds = 250.0;
+    ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, changed, 2U}, false));
+    EXPECT_TRUE(fixture.command(StartStream{0U, 1U}, false));
+    EXPECT_TRUE(fixture.command(ConfirmConfiguration{0U, 1U}, false));
+    EXPECT_EQ(fixture.script.count("start"), 0U);
+    EXPECT_EQ(fixture.latest->appliedRevision, 1U);
+    EXPECT_EQ(fixture.latest->requestedRevision, 2U);
 }
 
 TEST(AcquisitionWorker, StartRequiresCurrentGenerationAppliedRevisionAndConfirmation) {
@@ -1068,6 +1154,7 @@ TEST(AcquisitionWorker, PreparedHighDepthModeStreamsNativeSamples) {
     Fixture fixture({}, 24, prepared);
     auto offered = capabilities(); offered.pixelFormats = {prepared.pixelFormat};
     fixture.script.offeredCapabilities = offered;
+    fixture.script.initialConfiguration = highDepthConfiguration();
     ASSERT_TRUE(fixture.worker.start().hasValue());
     ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
     ASSERT_TRUE(fixture.command(ApplyConfiguration{0, prepared, 1}));
@@ -1139,6 +1226,7 @@ TEST(AcquisitionWorker, UnpreparedStandaloneWorkerBindsFirstSuccessfulActualMode
     auto offered = capabilities(); offered.pixelFormats = {highDepthConfiguration().pixelFormat};
     offered.roi.maximum.x = 4;
     fixture.script.offeredCapabilities = offered;
+    fixture.script.initialConfiguration = highDepthConfiguration();
     auto first = highDepthConfiguration(); first.roi.width = 2;
     ASSERT_TRUE(fixture.worker.start().hasValue());
     ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));

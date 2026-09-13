@@ -17,6 +17,7 @@ class ContractCamera final : public ICameraDevice {
 public:
     core::Result<void> open() override;
     core::Result<CameraCapabilities> capabilities() override;
+    core::Result<CameraConfiguration> readConfiguration() override;
     core::Result<AppliedCameraConfiguration> applyConfiguration(
         const CameraConfiguration& configuration) override;
     core::Result<void> startStream() override;

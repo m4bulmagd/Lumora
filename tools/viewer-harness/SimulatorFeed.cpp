@@ -43,10 +43,10 @@ camera::CameraCapabilities capabilities() {
             .maximum = {0U, 0U, 640U, 480U},
             .increment = {1U, 1U, 1U, 1U},
         },
-        .frameRate = {1.0, 60.0, 0.1, true},
-        .exposure = {10.0, 20'000.0, 1.0, true},
+        .frameRate = {1.0, 60.0, 0.1, camera::ControlAccess::WritableStreaming},
+        .exposure = {10.0, 20'000.0, 1.0, camera::ControlAccess::WritableStreaming},
         .exposureModes = {camera::ExposureMode::Manual},
-        .gain = {0.0, 24.0, 0.1, true},
+        .gain = {0.0, 24.0, 0.1, camera::ControlAccess::WritableStreaming},
         .gainModes = {camera::GainMode::Manual},
     };
 }

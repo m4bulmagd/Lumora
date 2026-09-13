@@ -4,6 +4,7 @@
 #include <lumora/application/InstallationProfiles.hpp>
 #include <lumora/camera/CameraTypes.hpp>
 #include <lumora/core/Error.hpp>
+#include <lumora/ui/WorkstationStatus.hpp>
 
 #include <QWidget>
 #include <QPointer>
@@ -32,6 +33,7 @@ struct CameraStartupPanelPresentation final {
     bool installationBindingCurrent{true};
     std::optional<application::InstallationSaveOutcome> installationProfileOutcome;
     std::optional<core::Error> installationProfileError;
+    WorkstationStatus workstationStatus;
 };
 
 class CameraStartupPanel final : public QWidget {
@@ -66,6 +68,7 @@ private:
     CameraStartupPanelPresentation presentation_;
     QPointer<CameraSettingsDialog> settingsDialog_;
     QPointer<InstallationSettingsDialog> installationDialog_;
+    bool reviewRequired_{false};
 };
 
 }  // namespace lumora::ui

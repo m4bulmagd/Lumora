@@ -241,6 +241,41 @@ template<typename Enum>
     return invalidEnum<camera::GainMode>("gainMode");
 }
 
+[[nodiscard]] core::Result<std::optional<camera::ExposureMode>>
+parseOptionalExposureMode(
+    const QJsonObject& object,
+    std::uint32_t fingerprintVersion) {
+    const auto value = object.value("mode");
+    if (fingerprintVersion == 2U && value.isNull()) {
+        return core::Result<std::optional<camera::ExposureMode>>::success(
+            std::nullopt);
+    }
+    auto mode = parseExposureMode(value);
+    if (!mode.hasValue()) {
+        return invalidStartup<std::optional<camera::ExposureMode>>(
+            mode.error().diagnosticDetail);
+    }
+    return core::Result<std::optional<camera::ExposureMode>>::success(
+        mode.value());
+}
+
+[[nodiscard]] core::Result<std::optional<camera::GainMode>>
+parseOptionalGainMode(
+    const QJsonObject& object,
+    std::uint32_t fingerprintVersion) {
+    const auto value = object.value("mode");
+    if (fingerprintVersion == 2U && value.isNull()) {
+        return core::Result<std::optional<camera::GainMode>>::success(
+            std::nullopt);
+    }
+    auto mode = parseGainMode(value);
+    if (!mode.hasValue()) {
+        return invalidStartup<std::optional<camera::GainMode>>(
+            mode.error().diagnosticDetail);
+    }
+    return core::Result<std::optional<camera::GainMode>>::success(mode.value());
+}
+
 [[nodiscard]] QString acquisitionModeName(camera::AcquisitionMode value) {
     return value == camera::AcquisitionMode::Continuous ? QStringLiteral("Continuous")
                                                          : QStringLiteral("Triggered");
@@ -259,23 +294,40 @@ template<typename Enum>
     return invalidEnum<camera::AcquisitionMode>("acquisitionMode");
 }
 
-[[nodiscard]] QJsonObject encodeConfiguration(const camera::CameraConfiguration& value) {
-    return {{"pixelFormat", encodePixelFormat(value.pixelFormat)},
+[[nodiscard]] core::Result<QJsonObject> encodeConfiguration(
+    const camera::CameraConfiguration& value,
+    std::uint32_t fingerprintVersion) {
+    if (fingerprintVersion != 1U && fingerprintVersion != 2U) {
+        return invalidStartup<QJsonObject>(
+            "The capability fingerprint version is unsupported.");
+    }
+    if (fingerprintVersion == 1U
+        && (!value.exposure.mode || !value.gain.mode)) {
+        return invalidStartup<QJsonObject>(
+            "Legacy camera configurations require exposure and gain modes.");
+    }
+    const QJsonValue exposureMode = value.exposure.mode
+        ? QJsonValue{exposureModeName(*value.exposure.mode)} : QJsonValue{};
+    const QJsonValue gainMode = value.gain.mode
+        ? QJsonValue{gainModeName(*value.gain.mode)} : QJsonValue{};
+    return core::Result<QJsonObject>::success({
+        {"pixelFormat", encodePixelFormat(value.pixelFormat)},
         {"roi", encodeRegion(value.roi)},
         {"requestedFps", value.requestedFps ? QJsonValue{*value.requestedFps} : QJsonValue{}},
-        {"exposure", QJsonObject{{"mode", exposureModeName(value.exposure.mode)},
+        {"exposure", QJsonObject{{"mode", exposureMode},
                          {"requestedMicroseconds", value.exposure.requestedMicroseconds
                                  ? QJsonValue{*value.exposure.requestedMicroseconds}
                                  : QJsonValue{}}}},
-        {"gain", QJsonObject{{"mode", gainModeName(value.gain.mode)},
+        {"gain", QJsonObject{{"mode", gainMode},
                      {"requestedDb", value.gain.requestedDb
                              ? QJsonValue{*value.gain.requestedDb}
                              : QJsonValue{}}}},
-        {"acquisitionMode", acquisitionModeName(value.acquisitionMode)}};
+        {"acquisitionMode", acquisitionModeName(value.acquisitionMode)}});
 }
 
 [[nodiscard]] core::Result<camera::CameraConfiguration> decodeConfiguration(
-    const QJsonObject& object) {
+    const QJsonObject& object,
+    std::uint32_t fingerprintVersion) {
     auto pixelJson = readObject(object, "pixelFormat");
     auto roiJson = readObject(object, "roi");
     auto fps = readOptionalDouble(object, "requestedFps");
@@ -290,9 +342,10 @@ template<typename Enum>
     }
     auto pixel = decodePixelFormat(pixelJson.value());
     auto roi = decodeRegion(roiJson.value());
-    auto exposureMode = parseExposureMode(exposureJson.value().value("mode"));
+    auto exposureMode = parseOptionalExposureMode(
+        exposureJson.value(), fingerprintVersion);
     auto exposureValue = readOptionalDouble(exposureJson.value(), "requestedMicroseconds");
-    auto gainMode = parseGainMode(gainJson.value().value("mode"));
+    auto gainMode = parseOptionalGainMode(gainJson.value(), fingerprintVersion);
     auto gainValue = readOptionalDouble(gainJson.value(), "requestedDb");
     if (!pixel.hasValue() || !roi.hasValue() || !exposureMode.hasValue()
         || !exposureValue.hasValue() || !gainMode.hasValue() || !gainValue.hasValue()) {
@@ -385,20 +438,33 @@ decodeInstallationReference(const QJsonObject& object) {
         std::move(result));
 }
 
-[[nodiscard]] QJsonObject encodeStartup(const application::StartupPreferences& value) {
-    return {{"recordVersion", static_cast<double>(value.recordVersion)},
+[[nodiscard]] core::Result<QJsonObject> encodeStartup(
+    const application::StartupPreferences& value) {
+    auto capabilities = encodeCameraCapabilities(
+        value.confirmedCapabilities, value.capabilityFingerprintVersion);
+    auto requested = encodeConfiguration(
+        value.requested, value.capabilityFingerprintVersion);
+    auto lastApplied = encodeConfiguration(
+        value.lastApplied, value.capabilityFingerprintVersion);
+    if (!capabilities.hasValue() || !requested.hasValue()
+        || !lastApplied.hasValue()) {
+        const auto& error = !capabilities.hasValue() ? capabilities.error()
+            : !requested.hasValue() ? requested.error() : lastApplied.error();
+        return invalidStartup<QJsonObject>(error.diagnosticDetail);
+    }
+    return core::Result<QJsonObject>::success({
+        {"recordVersion", static_cast<double>(value.recordVersion)},
         {"cameraId", QString::fromStdString(value.cameraId.value)},
         {"identity", encodeCameraIdentity(value.identity)},
         {"capabilityFingerprintVersion",
             static_cast<double>(value.capabilityFingerprintVersion)},
-        {"confirmedCapabilities",
-            encodeCameraCapabilities(value.confirmedCapabilities)},
-        {"requested", encodeConfiguration(value.requested)},
-        {"lastApplied", encodeConfiguration(value.lastApplied)},
+        {"confirmedCapabilities", capabilities.value()},
+        {"requested", requested.value()},
+        {"lastApplied", lastApplied.value()},
         {"confirmed", value.confirmed},
         {"installationProfile", value.installationProfile
                 ? QJsonValue{encodeInstallationReference(*value.installationProfile)}
-                : QJsonValue{}}};
+                : QJsonValue{}}});
 }
 
 [[nodiscard]] core::Result<application::StartupPreferences> decodeStartup(
@@ -419,9 +485,12 @@ decodeInstallationReference(const QJsonObject& object) {
             "The startup record is incomplete.");
     }
     auto identity = decodeCameraIdentity(identityJson.value());
-    auto capabilities = decodeCameraCapabilities(capabilitiesJson.value());
-    auto requested = decodeConfiguration(requestedJson.value());
-    auto lastApplied = decodeConfiguration(lastAppliedJson.value());
+    auto capabilities = decodeCameraCapabilities(
+        capabilitiesJson.value(), fingerprintVersion.value());
+    auto requested = decodeConfiguration(
+        requestedJson.value(), fingerprintVersion.value());
+    auto lastApplied = decodeConfiguration(
+        lastAppliedJson.value(), fingerprintVersion.value());
     std::optional<application::InstallationProfileReference> installationProfile;
     const auto installationJson = object.value("installationProfile");
     if (installationJson.isObject()) {
@@ -493,17 +562,22 @@ decodeInstallationReference(const QJsonObject& object) {
     return core::Result<void>::success();
 }
 
-[[nodiscard]] QJsonObject encodeCameraPreferences(
+[[nodiscard]] core::Result<QJsonObject> encodeCameraPreferences(
     application::CameraPreferences preferences) {
     QJsonArray profiles;
     for (const auto& profile : preferences.profiles) {
-        profiles.append(encodeStartup(profile));
+        auto encoded = encodeStartup(profile);
+        if (!encoded.hasValue()) {
+            return core::Result<QJsonObject>::failure(encoded.error());
+        }
+        profiles.append(encoded.value());
     }
-    return {{"lastSelectedCameraId", preferences.lastSelectedCameraId
+    return core::Result<QJsonObject>::success({
+        {"lastSelectedCameraId", preferences.lastSelectedCameraId
                 ? QJsonValue{QString::fromStdString(
                       preferences.lastSelectedCameraId->value)}
                 : QJsonValue{}},
-        {"profiles", profiles}};
+        {"profiles", profiles}});
 }
 
 [[nodiscard]] core::Result<application::CameraPreferences> decodeCameraPreferences(
@@ -607,6 +681,14 @@ decodeInstallationReference(const QJsonObject& object) {
     return core::Result<QJsonObject>::success(std::move(root));
 }
 
+[[nodiscard]] QJsonObject migrateFourToFive(QJsonObject root) {
+    // Fingerprint version 1 records remain explicit legacy provenance. The
+    // document migration changes only the envelope version and never promotes
+    // a retained camera record to current access authority.
+    root.insert("schemaVersion", 5);
+    return root;
+}
+
 [[nodiscard]] core::Result<ApplicationConfiguration> decodeObject(QJsonObject root) {
     const auto schemaValue = root.value("schemaVersion");
     if (!schemaValue.isDouble()) {
@@ -664,6 +746,9 @@ decodeInstallationReference(const QJsonObject& object) {
                 migrated.error());
         }
         root = std::move(migrated).value();
+    }
+    if (root.value("schemaVersion").toInt() == 4) {
+        root = migrateFourToFive(std::move(root));
     }
     if (!root.value("legacyCameraProfiles").isObject()) {
         return core::Result<ApplicationConfiguration>::failure(configurationError(
@@ -750,9 +835,14 @@ core::Result<QByteArray> ConfigurationCodec::encode(
     }
     const auto presets = PresetCodec::encode(configuration.presets, configuration.legacyPresets);
     if (!presets.hasValue()) return core::Result<QByteArray>::failure(presets.error());
+    auto encodedCameraPreferences = encodeCameraPreferences(cameraPreferences);
+    if (!encodedCameraPreferences.hasValue()) {
+        return core::Result<QByteArray>::failure(
+            encodedCameraPreferences.error());
+    }
     QJsonObject root{{"schemaVersion", configuration.schemaVersion},
         {"application", configuration.application},
-        {"cameraProfiles", encodeCameraPreferences(cameraPreferences)},
+        {"cameraProfiles", encodedCameraPreferences.value()},
         {"legacyCameraProfiles", configuration.legacyCameraProfiles},
         {"processing", configuration.processing}, {"presets", presets.value()},
         {"capture", configuration.capture}, {"ui", configuration.ui}};

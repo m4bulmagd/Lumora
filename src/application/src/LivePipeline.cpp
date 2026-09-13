@@ -471,6 +471,7 @@ struct LivePipeline::Impl {
             }
             ++seed.sessionGeneration;
             seed.actualIdentity.reset();seed.capabilities.reset();seed.requestedConfiguration.reset();seed.appliedConfiguration.reset();
+            seed.currentConfiguration.reset();
             seed.requestedRevision=0;seed.appliedRevision=0;seed.confirmedRevision.reset();seed.restoreEligible=false;
             seed.desiredStreaming=false;seed.consecutiveTimeouts=0;seed.latestOutcome.reset();seed.lastAcquiredAt.reset();
             seed.acquisitionCounters={};seed.mailboxStats={};seed.sourceReplacementRequired=false;

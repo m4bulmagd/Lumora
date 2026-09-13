@@ -233,14 +233,16 @@ template<typename Mode>
         },
         .requestedFps = options.defaultFps,
         .exposure = {
-            .mode = exposureIsAuto ? ExposureMode::Auto : ExposureMode::Manual,
-            .requestedMicroseconds = exposureIsAuto
+            .mode = capabilities.exposureModes.empty() ? std::nullopt
+                : std::optional{exposureIsAuto ? ExposureMode::Auto : ExposureMode::Manual},
+            .requestedMicroseconds = exposureIsAuto || capabilities.exposureModes.empty()
                                         ? std::nullopt
                                         : std::optional{capabilities.exposure.minimum},
         },
         .gain = {
-            .mode = gainIsAuto ? GainMode::Auto : GainMode::Manual,
-            .requestedDb = gainIsAuto
+            .mode = capabilities.gainModes.empty() ? std::nullopt
+                : std::optional{gainIsAuto ? GainMode::Auto : GainMode::Manual},
+            .requestedDb = gainIsAuto || capabilities.gainModes.empty()
                                ? std::nullopt
                                : std::optional{capabilities.gain.minimum},
         },
@@ -268,40 +270,28 @@ template<typename Mode>
     return {.requested = requested, .actual = std::move(actual)};
 }
 
-[[nodiscard]] std::optional<core::Error> streamingConfigurationError(
-    const CameraConfiguration& requested,
-    const CameraConfiguration& previous,
-    const CameraCapabilities& capabilities) {
-    const auto formatValues = [](const core::SourcePixelFormat& f) {
-        return std::tie(f.canonicalName, f.canonicalEncoding, f.validBits, f.sampleMaximum,
-            f.packing, f.alignment, f.applicationStorage);
-    };
-    const auto roiValues = [](const core::RegionOfInterest& roi) {
-        return std::tie(roi.x, roi.y, roi.width, roi.height);
-    };
-    const char* code = nullptr;
-    if (formatValues(requested.pixelFormat) != formatValues(previous.pixelFormat)) {
-        code = "pixel_format_not_writable_while_streaming";
-    } else if (roiValues(requested.roi) != roiValues(previous.roi)) {
-        code = "roi_not_writable_while_streaming";
-    } else if (!capabilities.frameRate.writableWhileStreaming &&
-               requested.requestedFps != previous.requestedFps) {
-        code = "frame_rate_not_writable_while_streaming";
-    } else if (!capabilities.exposure.writableWhileStreaming &&
-               (requested.exposure.mode != previous.exposure.mode ||
-                requested.exposure.requestedMicroseconds != previous.exposure.requestedMicroseconds)) {
-        code = "exposure_not_writable_while_streaming";
-    } else if (!capabilities.gain.writableWhileStreaming &&
-               (requested.gain.mode != previous.gain.mode ||
-                requested.gain.requestedDb != previous.gain.requestedDb)) {
-        code = "gain_not_writable_while_streaming";
+// Build actual facts from retained readback, changing only nodes allowed by the
+// common plan. A mode transition to Auto removes the manual-value representation.
+[[nodiscard]] AppliedCameraConfiguration applyPlannedConfiguration(
+    const CameraConfiguration& requested, const CameraConfiguration& current,
+    const CameraConfigurationWriteMask& mask, const SimulatedCameraOptions& options) {
+    auto actual = current;
+    if (mask.pixelFormat) actual.pixelFormat = requested.pixelFormat;
+    if (mask.roi) actual.roi = requested.roi;
+    if (mask.frameRate) actual.requestedFps = quantize(
+        requested.requestedFps.value_or(options.capabilities.frameRate.maximum), options.capabilities.frameRate);
+    if (mask.exposureMode) {
+        actual.exposure.mode = requested.exposure.mode;
+        if (actual.exposure.mode != ExposureMode::Manual) actual.exposure.requestedMicroseconds.reset();
     }
-    if (!code) {
-        return std::nullopt;
+    if (mask.exposureValue) actual.exposure.requestedMicroseconds = quantize(
+        *requested.exposure.requestedMicroseconds, options.capabilities.exposure);
+    if (mask.gainMode) {
+        actual.gain.mode = requested.gain.mode;
+        if (actual.gain.mode != GainMode::Manual) actual.gain.requestedDb.reset();
     }
-    return lifecycleError(core::ErrorCategory::CameraConfiguration, code,
-        "Stop the stream before changing this setting.",
-        "The requested setting cannot be changed while the simulated camera is streaming.");
+    if (mask.gainValue) actual.gain.requestedDb = quantize(*requested.gain.requestedDb, options.capabilities.gain);
+    return {requested, std::move(actual)};
 }
 
 [[nodiscard]] std::size_t bytesPerSample(core::StorageType storage) noexcept {
@@ -402,6 +392,12 @@ public:
         return core::Result<CameraCapabilities>::success(options_.capabilities);
     }
 
+    core::Result<CameraConfiguration> readConfiguration() override {
+        if (state_ == State::Closed) return core::Result<CameraConfiguration>::failure(notOpenError());
+        if (disconnected()) return core::Result<CameraConfiguration>::failure(disconnectedError());
+        return core::Result<CameraConfiguration>::success(applied_.actual);
+    }
+
     core::Result<AppliedCameraConfiguration> applyConfiguration(
         const CameraConfiguration& configuration) override {
         if (state_ == State::Closed) {
@@ -410,21 +406,12 @@ public:
         if (disconnected()) {
             return core::Result<AppliedCameraConfiguration>::failure(disconnectedError());
         }
-        const auto validated =
-            validateCameraConfiguration(configuration, options_.capabilities);
-        if (!validated.hasValue()) {
-            return core::Result<AppliedCameraConfiguration>::failure(
-                validated.error());
+        const auto planned = planCameraConfigurationChange(
+            configuration, applied_.actual, options_.capabilities, state_ == State::Streaming);
+        if (!planned.hasValue()) {
+            return core::Result<AppliedCameraConfiguration>::failure(planned.error());
         }
-
-        if (state_ == State::Streaming) {
-            if (const auto error = streamingConfigurationError(
-                    configuration, applied_.requested, options_.capabilities)) {
-                return core::Result<AppliedCameraConfiguration>::failure(*error);
-            }
-        }
-
-        auto candidate = appliedConfiguration(configuration, options_);
+        auto candidate = applyPlannedConfiguration(configuration, applied_.actual, planned.value(), options_);
         const auto candidatePeriod =
             validatedFramePeriod(*candidate.actual.requestedFps);
         if (!candidatePeriod.hasValue()) {

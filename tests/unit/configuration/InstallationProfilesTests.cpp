@@ -25,11 +25,21 @@ application::InstallationCameraProfile profile(std::string serial = "SIM-1") {
         core::StorageType::UInt8};
     camera::CameraCapabilities caps{{format},
         {{0U, 0U, 8U, 8U}, {0U, 0U, 640U, 480U}, {1U, 1U, 8U, 8U}},
-        {1.0, 60.0, 0.1, false}, {10.0, 10000.0, 1.0, true},
+        {1.0, 60.0, 0.1, camera::ControlAccess::WritableStopped},
+        {10.0, 10000.0, 1.0, camera::ControlAccess::WritableStreaming},
         {camera::ExposureMode::Manual, camera::ExposureMode::Auto},
-        {0.0, 24.0, 0.1, true}, {camera::GainMode::Manual, camera::GainMode::Auto}};
+        {0.0, 24.0, 0.1, camera::ControlAccess::WritableStreaming},
+        {camera::GainMode::Manual, camera::GainMode::Auto}};
+    caps.exposureModeAccess = caps.exposure.access;
+    caps.gainModeAccess = caps.gain.access;
     return {1U, 1U, {"Lumora", "Simulator", std::move(serial), "virtual", "1"},
         1U, caps, {true, false, core::Rotation::Degrees90}, true};
+}
+application::InstallationCameraProfile currentProfile(
+    std::string serial = "SIM-1") {
+    auto result = profile(std::move(serial));
+    result.capabilityFingerprintVersion = 2U;
+    return result;
 }
 std::filesystem::path path(const QTemporaryDir& temp) {
 #ifdef _WIN32
@@ -39,7 +49,7 @@ std::filesystem::path path(const QTemporaryDir& temp) {
 #endif
 }
 TEST(InstallationProfilesTest, RejectsUnconfirmedAndInvalidIdentityCapabilitiesAndRevision) {
-    auto value = profile();
+    auto value = currentProfile();
     EXPECT_TRUE(application::validateInstallationProfile(value).hasValue());
     value.confirmed = false;
     EXPECT_FALSE(application::validateInstallationProfile(value).hasValue());
@@ -52,6 +62,10 @@ TEST(InstallationProfilesTest, RejectsUnconfirmedAndInvalidIdentityCapabilitiesA
     value = profile(); value.orientation.rotation = static_cast<core::Rotation>(99);
     EXPECT_FALSE(application::validateInstallationProfile(value).hasValue());
 }
+TEST(InstallationProfilesTest, NewRecordsDefaultToCurrentCapabilityFingerprint) {
+    EXPECT_EQ(application::InstallationCameraProfile{}
+                  .capabilityFingerprintVersion, 2U);
+}
 TEST(InstallationProfilesTest, MissingSimulatorFallbackNeverHidesInvalidOrMismatchedProfile) {
     application::InstallationProfilesSnapshot snapshot;
     snapshot.loadCompleted = true;
@@ -62,12 +76,26 @@ TEST(InstallationProfilesTest, MissingSimulatorFallbackNeverHidesInvalidOrMismat
     ASSERT_TRUE(missing.hasValue()); EXPECT_FALSE(missing.value().has_value());
     snapshot.loadError = core::Error{core::ErrorCategory::Storage, "bad", "bad", {}, true};
     EXPECT_FALSE(application::resolveInstallationProfile(snapshot, value.identity, value.capabilities).hasValue());
-    snapshot.loadError.reset(); snapshot.profiles = {value};
+    snapshot.loadError.reset();
+    value.capabilityFingerprintVersion = 2U;
+    snapshot.profiles = {value};
     auto changed = value.capabilities; changed.frameRate.maximum += 1.0;
     EXPECT_FALSE(application::resolveInstallationProfile(snapshot, value.identity, changed).hasValue());
     auto resolved = application::resolveInstallationProfile(snapshot, value.identity, value.capabilities);
     ASSERT_TRUE(resolved.hasValue()); ASSERT_TRUE(resolved.value().has_value());
     EXPECT_EQ(application::installationProfileReference(*resolved.value()).orientation, value.orientation);
+}
+TEST(InstallationProfilesTest, LegacyProfileIsValidRetainedDataButCannotBind) {
+    auto legacy = profile();
+    ASSERT_TRUE(application::validateInstallationProfile(legacy).hasValue());
+    application::InstallationProfilesSnapshot snapshot;
+    snapshot.loadCompleted = true;
+    snapshot.profiles = {legacy};
+
+    const auto resolved = application::resolveInstallationProfile(
+        snapshot, legacy.identity, legacy.capabilities);
+
+    EXPECT_FALSE(resolved.hasValue());
 }
 TEST(InstallationProfilesTest, CollectionRejectsDuplicatesAndCapacityOverflow) {
     EXPECT_FALSE(application::validateInstallationProfiles({profile(), profile()}).hasValue());
@@ -145,6 +173,37 @@ TEST(InstallationProfilesStoreTest, SavesAtomicallyPreservingOtherProfilesAndRej
     ASSERT_EQ(loaded.value().size(), 2U);
     EXPECT_EQ(application::findInstallationProfile(loaded.value(), updated.identity)->revision, 2U);
 }
+TEST(InstallationProfilesStoreTest, UpgradingOneLegacyCameraPreservesTheOtherLegacyRecord) {
+    QTemporaryDir temp; ASSERT_TRUE(temp.isValid());
+    InstallationProfileStore store(path(temp), true);
+    const auto targetLegacy = profile("SIM-1");
+    const auto retainedLegacy = profile("SIM-2");
+    ASSERT_TRUE(store.save(targetLegacy).hasValue());
+    ASSERT_TRUE(store.save(retainedLegacy).hasValue());
+
+    auto upgraded = targetLegacy;
+    upgraded.capabilityFingerprintVersion = 2U;
+    upgraded.revision = 2U;
+    upgraded.orientation.flipVertical = true;
+    ASSERT_TRUE(store.save(upgraded).hasValue());
+
+    const auto loaded = store.load();
+    ASSERT_TRUE(loaded.hasValue()) << loaded.error().diagnosticDetail;
+    ASSERT_EQ(loaded.value().size(), 2U);
+    const auto* target = application::findInstallationProfile(
+        loaded.value(), targetLegacy.identity);
+    const auto* retained = application::findInstallationProfile(
+        loaded.value(), retainedLegacy.identity);
+    ASSERT_NE(target, nullptr);
+    ASSERT_NE(retained, nullptr);
+    EXPECT_EQ(target->revision, 2U);
+    EXPECT_EQ(target->capabilityFingerprintVersion, 2U);
+    EXPECT_EQ(retained->revision, 1U);
+    EXPECT_EQ(retained->capabilityFingerprintVersion, 1U);
+    EXPECT_TRUE(application::cameraCapabilitiesEqual(
+        retained->capabilities, retainedLegacy.capabilities));
+    EXPECT_FALSE(QFile::exists(temp.path() + "/installation.json.invalid-backup"));
+}
 TEST(InstallationProfilesStoreTest, BusyCrossProcessLockPreventsAWrite) {
     QTemporaryDir temp; ASSERT_TRUE(temp.isValid());
     QLockFile lock(temp.path() + "/installation.json.lock"); ASSERT_TRUE(lock.tryLock());
@@ -213,7 +272,69 @@ TEST(InstallationProfilesCodecTest, RoundTripsFullUint64RevisionAndRejectsMalfor
     auto records = object.value("profiles").toArray(); auto record = records[0].toObject();
     record.insert("confirmed", "true"); records[0] = record; object.insert("profiles", records);
     EXPECT_FALSE(InstallationProfileCodec::decode(QJsonDocument(object).toJson()).hasValue());
-    EXPECT_FALSE(InstallationProfileCodec::decode("{\"schemaVersion\":2,\"profiles\":[]}").hasValue());
+    EXPECT_FALSE(InstallationProfileCodec::decode("{\"schemaVersion\":3,\"profiles\":[]}").hasValue());
+}
+TEST(InstallationProfilesCodecTest, MixedFingerprintRecordsUseMachineSchema2) {
+    auto legacy = profile("LEGACY");
+    auto current = profile("CURRENT");
+    current.capabilityFingerprintVersion = 2U;
+
+    const auto encoded = InstallationProfileCodec::encode({legacy, current});
+
+    ASSERT_TRUE(encoded.hasValue()) << encoded.error().diagnosticDetail;
+    const auto root = QJsonDocument::fromJson(encoded.value()).object();
+    EXPECT_EQ(root.value("schemaVersion").toInt(), 2);
+    const auto records = root.value("profiles").toArray();
+    ASSERT_EQ(records.size(), 2);
+    EXPECT_EQ(records.at(0).toObject()
+                  .value("capabilityFingerprintVersion").toInt(), 1);
+    EXPECT_EQ(records.at(1).toObject()
+                  .value("capabilityFingerprintVersion").toInt(), 2);
+    const auto legacyFrameRate = records.at(0).toObject().value("capabilities")
+        .toObject().value("frameRate").toObject();
+    const auto currentFrameRate = records.at(1).toObject().value("capabilities")
+        .toObject().value("frameRate").toObject();
+    EXPECT_TRUE(legacyFrameRate.contains("writableWhileStreaming"));
+    EXPECT_FALSE(legacyFrameRate.contains("access"));
+    EXPECT_FALSE(currentFrameRate.contains("writableWhileStreaming"));
+    EXPECT_TRUE(currentFrameRate.contains("access"));
+
+    const auto decoded = InstallationProfileCodec::decode(encoded.value());
+    ASSERT_TRUE(decoded.hasValue()) << decoded.error().diagnosticDetail;
+    ASSERT_EQ(decoded.value().size(), 2U);
+    EXPECT_EQ(decoded.value().at(0).capabilityFingerprintVersion, 1U);
+    EXPECT_EQ(decoded.value().at(1).capabilityFingerprintVersion, 2U);
+}
+TEST(InstallationProfilesCodecTest, LegacyMachineSchemaRemainsReadableAndUnknownVersionsReject) {
+    const auto encoded = InstallationProfileCodec::encode({profile()});
+    ASSERT_TRUE(encoded.hasValue()) << encoded.error().diagnosticDetail;
+    auto root = QJsonDocument::fromJson(encoded.value()).object();
+    root.insert("schemaVersion", 1);
+
+    const auto legacy = InstallationProfileCodec::decode(
+        QJsonDocument(root).toJson());
+
+    ASSERT_TRUE(legacy.hasValue()) << legacy.error().diagnosticDetail;
+    ASSERT_EQ(legacy.value().size(), 1U);
+    EXPECT_EQ(legacy.value().front().capabilityFingerprintVersion, 1U);
+    EXPECT_TRUE(application::cameraCapabilitiesEqual(
+        legacy.value().front().capabilities, profile().capabilities));
+
+    auto records = root.value("profiles").toArray();
+    auto unknownRecord = records.at(0).toObject();
+    unknownRecord.insert("capabilityFingerprintVersion", 3);
+    records.replace(0, unknownRecord);
+    root.insert("schemaVersion", 2);
+    root.insert("profiles", records);
+    EXPECT_FALSE(InstallationProfileCodec::decode(
+        QJsonDocument(root).toJson()).hasValue());
+
+    root.insert("schemaVersion", 1);
+    unknownRecord.insert("capabilityFingerprintVersion", 2);
+    records.replace(0, unknownRecord);
+    root.insert("profiles", records);
+    EXPECT_FALSE(InstallationProfileCodec::decode(
+        QJsonDocument(root).toJson()).hasValue());
 }
 class BlockingIo final : public IInstallationProfilesIo {
 public:
@@ -268,13 +389,13 @@ public:
     explicit FailedSaveRefreshIo(DiskState state) : state_(state) {}
     core::Result<std::vector<application::InstallationCameraProfile>> load() override {
         using Loaded = core::Result<std::vector<application::InstallationCameraProfile>>;
-        if (initialLoad_) { initialLoad_ = false; return Loaded::success({profile()}); }
+        if (initialLoad_) { initialLoad_ = false; return Loaded::success({currentProfile()}); }
         if (state_ == DiskState::Invalid || state_ == DiskState::Unreadable) {
             return Loaded::failure({core::ErrorCategory::Storage,
                 state_ == DiskState::Invalid ? "installation_invalid_document" : "installation_read_failed",
                 "The machine file is unsafe.", {}, true});
         }
-        auto durable = profile();
+        auto durable = currentProfile();
         if (state_ == DiskState::ChangedRevision) durable.revision = 2;
         return Loaded::success({durable});
     }

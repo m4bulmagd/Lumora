@@ -3,6 +3,7 @@
 #include <lumora/application/CameraSettingsPolicy.hpp>
 #include <lumora/camera/CameraConfigurationValidator.hpp>
 #include <lumora/ui/CameraStartupPanel.hpp>
+#include <lumora/ui/CameraSettingsModel.hpp>
 #include <lumora/ui/FramePresenter.hpp>
 #include <lumora/ui/ImageViewport.hpp>
 #include <lumora/ui/WorkstationView.hpp>
@@ -31,6 +32,7 @@ struct WorkstationController::Impl {
     camera::CameraConfiguration desired;
     std::optional<camera::CameraId> desiredCameraId;
     bool requestChosen{false};
+    std::optional<std::pair<std::uint64_t, camera::CameraId>> settingsEditSource;
     bool initialRequestConsidered{false};
     bool savedRequestReconciliationPending{true};
     QTimer timer;
@@ -158,6 +160,15 @@ struct WorkstationController::Impl {
         desiredCameraId=presentation.selectedCameraId;
         presentation.requestedConfiguration=desired;
     }
+    core::Result<camera::CameraConfiguration> normalizedDesiredForCurrentSource() const {
+        using ConfigurationResult=core::Result<camera::CameraConfiguration>;
+        const auto& camera=presentation.cameraStatus;
+        if(!camera || !camera->actualIdentity || !camera->capabilities || !camera->currentConfiguration ||
+            presentation.selectedCameraId!=camera->actualIdentity) {
+            return ConfigurationResult::failure(rejected().error());
+        }
+        return normalizeCameraSettingsDraft(desired,*camera->currentConfiguration,*camera->capabilities);
+    }
     void remember(const application::StartupPreferences& record) {
         const auto found=std::find_if(currentProfiles.begin(),currentProfiles.end(),[&](const auto& value) {
             return application::cameraIdentityKeysEqual(value.identity,record.identity);
@@ -192,10 +203,13 @@ struct WorkstationController::Impl {
     }
     bool eligible(const application::CameraStatusSnapshot& camera) const {
         if(!loaded || manuallyDisconnected || !camera.actualIdentity || !camera.capabilities ||
+            !camera.currentConfiguration ||
             camera.state!=application::CameraSessionState::ConnectedIdle ||
             !application::isSupportedLiveCameraConfiguration(loaded->requested) ||
             !application::cameraConfigurationsEqual(loaded->requested,desired) ||
             presentation.selectedCameraId!=camera.actualIdentity) return false;
+        if(!camera::planCameraConfigurationChange(
+            loaded->requested,*camera.currentConfiguration,*camera.capabilities,false).hasValue()) return false;
         const auto descriptor=std::find_if(camera.discoveredDescriptors.begin(),camera.discoveredDescriptors.end(),
             [&](const auto& value){return value.id==*camera.actualIdentity;});
         if(descriptor==camera.discoveredDescriptors.end() ||
@@ -305,6 +319,7 @@ WorkstationController::WorkstationController(application::LivePipeline& pipeline
                 camera->sessionGeneration!=generation || camera->actualIdentity!=id || d.presentation.selectedCameraId!=id) return;
             d.savedRequestReconciliationPending=false;
             d.requestChosen=true;
+            d.settingsEditSource=std::pair{generation,std::move(id)};
         });
     connect(&panel,&CameraStartupPanel::settingsApplyRequested,this,
         [this](std::uint64_t generation,camera::CameraId id,camera::CameraConfiguration request) {
@@ -347,6 +362,7 @@ void WorkstationController::poll() {
         (void)d.pipeline.acknowledgeContext(d.context->generation);
     }
     if(d.presenter) d.presenter->refresh();
+    d.presentation.workstationStatus=d.view.status();
     d.view.setProcessingStatus(snapshot.processing.processorStatus,snapshot.processingRetryPending);
     d.presentation.installationProfiles=snapshot.installationProfiles;
     d.presentation.activeInstallationProfile=snapshot.activeInstallationProfile;
@@ -419,6 +435,18 @@ void WorkstationController::poll() {
     d.captureConfirmation(snapshot);
     d.refreshSelectedProfile();
     d.reconcileSavedRequest();
+    if(d.settingsEditSource && (!camera || !camera->actualIdentity ||
+        camera->sessionGeneration!=d.settingsEditSource->first ||
+        *camera->actualIdentity!=d.settingsEditSource->second)) d.settingsEditSource.reset();
+    if(!d.settingsEditSource && camera && camera->currentConfiguration && camera->capabilities &&
+        camera->actualIdentity==d.presentation.selectedCameraId) {
+        auto normalized=d.normalizedDesiredForCurrentSource();
+        if(normalized.hasValue()) {
+            d.desired=std::move(normalized).value();
+            d.desiredCameraId=camera->actualIdentity;
+            d.presentation.requestedConfiguration=d.desired;
+        }
+    }
     d.presentation.ordinaryOperationPending=d.pending.has_value() || d.barrier.has_value() || d.installationBusy(snapshot);
     d.presentation.resumeLiveAvailable=camera && d.eligible(*camera) && !d.presentation.startupWarning;
     d.panel.setPresentation(d.presentation);
@@ -456,6 +484,7 @@ void WorkstationController::selectCamera(camera::CameraId id) {
         d.presentation.requestedConfiguration=d.desired;
     }
     d.desiredCameraId=id;
+    d.settingsEditSource.reset();
     d.requestChosen=true; d.probeAttempted=true; d.resumePhase.reset();
     d.presentation.selectedCameraId=id;
     if(d.saveRevision==std::numeric_limits<std::uint64_t>::max()) d.presentation.startupWarning=rejected().error();
@@ -479,10 +508,14 @@ Result WorkstationController::applyCameraSettings(
     if(d.installationBusy(snapshot) || !camera || camera->state!=application::CameraSessionState::ConnectedIdle ||
         camera->sessionGeneration!=generation || !camera->actualIdentity ||
         *camera->actualIdentity!=id || d.presentation.selectedCameraId!=camera->actualIdentity ||
-        !camera->capabilities || !application::isSupportedLiveCameraConfiguration(requested))
+        !camera->capabilities || !camera->currentConfiguration ||
+        !application::isSupportedLiveCameraConfiguration(requested))
         return fail(rejected().error());
     auto valid=camera::validateCameraConfiguration(requested,*camera->capabilities);
     if(!valid.hasValue()) return fail(valid.error());
+    auto plan=camera::planCameraConfigurationChange(
+        requested,*camera->currentConfiguration,*camera->capabilities,false);
+    if(!plan.hasValue()) return fail(plan.error());
     if(d.revision==std::numeric_limits<std::uint64_t>::max() ||
         d.nextRequest==std::numeric_limits<std::uint64_t>::max())
         return fail(rejected().error());
@@ -490,6 +523,7 @@ Result WorkstationController::applyCameraSettings(
         generation,requested,++d.revision}},Intent::Apply);
     if(admitted.hasValue()) {
         d.desired=std::move(requested); d.desiredCameraId=std::move(id); d.requestChosen=true;
+        d.settingsEditSource.reset();
         d.resumePhase.reset();
         d.presentation.requestedConfiguration=d.desired;
     }
@@ -514,6 +548,18 @@ Result WorkstationController::dispatch(Intent intent) {
         (!d.hasSuccessfulDesiredRequest(*camera) || !d.installationBindingCurrent(snapshot))) return rejected();
     if(intent==Intent::Start && (!camera->confirmedRevision ||
         *camera->confirmedRevision!=camera->appliedRevision)) return rejected();
+    if(intent==Intent::Apply) {
+        if(!camera->currentConfiguration || !camera->capabilities) return rejected();
+        auto normalized=normalizeCameraSettingsDraft(
+            d.desired,*camera->currentConfiguration,*camera->capabilities);
+        if(!normalized.hasValue()) return Result::failure(normalized.error());
+        auto plan=camera::planCameraConfigurationChange(
+            normalized.value(),*camera->currentConfiguration,*camera->capabilities,false);
+        if(!plan.hasValue()) return Result::failure(plan.error());
+        d.desired=std::move(normalized).value();
+        d.desiredCameraId=camera->actualIdentity;
+        d.presentation.requestedConfiguration=d.desired;
+    }
     if(d.nextRequest==std::numeric_limits<std::uint64_t>::max() ||
         ((intent==Intent::Apply || intent==Intent::ResumeLive) &&
          d.revision==std::numeric_limits<std::uint64_t>::max())) return rejected();

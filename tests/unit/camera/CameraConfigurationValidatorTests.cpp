@@ -36,12 +36,12 @@ CameraCapabilities mono12Capabilities(std::uint32_t widthIncrement = 8U) {
             .increment = {.x = 4, .y = 2, .width = widthIncrement, .height = 4},
         },
         .frameRate = {.minimum = 1.0, .maximum = 60.0, .increment = 0.1,
-                      .writableWhileStreaming = true},
+                      .access = ControlAccess::WritableStreaming},
         .exposure = {.minimum = 10.0, .maximum = 20000.0, .increment = 1.0,
-                     .writableWhileStreaming = true},
+                     .access = ControlAccess::WritableStreaming},
         .exposureModes = {ExposureMode::Manual, ExposureMode::Auto},
         .gain = {.minimum = 0.0, .maximum = 24.0, .increment = 0.1,
-                 .writableWhileStreaming = true},
+                 .access = ControlAccess::WritableStreaming},
         .gainModes = {GainMode::Manual, GainMode::Auto},
     };
 }
@@ -55,6 +55,160 @@ CameraConfiguration validConfiguration() {
         .gain = {.mode = GainMode::Manual, .requestedDb = 6.0},
         .acquisitionMode = AcquisitionMode::Continuous,
     };
+}
+
+TEST(CameraConfigurationValidator, AcceptsAbsentGainAndAutoOnlyExposureWithoutNumericNodes) {
+    auto caps = mono12Capabilities();
+    caps.gainModes.clear();
+    caps.gain = {0.0, 0.0, 0.0, ControlAccess::Unavailable};
+    caps.gainModeAccess = ControlAccess::Unavailable;
+    caps.exposureModes = {ExposureMode::Auto};
+    caps.exposure = {0.0, 0.0, 0.0, ControlAccess::Unavailable};
+    caps.exposureModeAccess = ControlAccess::ReadOnly;
+    auto current = validConfiguration();
+    current.gain = {std::nullopt, std::nullopt};
+    current.exposure = {ExposureMode::Auto, std::nullopt};
+    EXPECT_TRUE(validateCameraCapabilities(caps).hasValue());
+    EXPECT_TRUE(validateCameraConfigurationReadback(current, caps).hasValue());
+    auto plan = planCameraConfigurationChange(current, current, caps, false);
+    ASSERT_TRUE(plan.hasValue());
+    EXPECT_FALSE(plan.value().gainMode || plan.value().gainValue || plan.value().exposureValue);
+    caps.exposureModes.clear();
+    caps.exposureModeAccess = ControlAccess::Unavailable;
+    current.exposure.mode.reset();
+    EXPECT_TRUE(validateCameraConfigurationReadback(current, caps).hasValue());
+    current.gain.mode = GainMode::Manual;
+    EXPECT_FALSE(validateCameraConfiguration(current, caps).hasValue());
+    caps.gain.maximum = 10.0;
+    EXPECT_FALSE(validateCameraCapabilities(caps).hasValue());
+}
+
+TEST(CameraConfigurationValidator, RejectsMalformedAccessForEveryControlAndUnavailableManualValue) {
+    for (int field = 0; field != 7; ++field) {
+        auto caps = mono12Capabilities();
+        ControlAccess* accesses[] = {&caps.pixelFormatAccess, &caps.roi.access, &caps.frameRate.access,
+            &caps.exposureModeAccess, &caps.exposure.access, &caps.gainModeAccess, &caps.gain.access};
+        *accesses[field] = static_cast<ControlAccess>(999);
+        EXPECT_FALSE(validateCameraCapabilities(caps).hasValue()) << field;
+    }
+    auto caps = mono12Capabilities();
+    caps.exposure = {0.0, 0.0, 0.0, ControlAccess::Unavailable};
+    EXPECT_FALSE(validateCameraCapabilities(caps).hasValue());
+}
+
+TEST(CameraConfigurationValidator, ReadbackRequiresPositiveActualFrameRateEvenWithoutAdjustment) {
+    auto caps = mono12Capabilities();
+    caps.frameRate.access = ControlAccess::Unavailable;
+    caps.pixelFormatAccess = ControlAccess::Unavailable;
+    caps.roi.access = ControlAccess::Unavailable;
+    auto current = validConfiguration();
+    EXPECT_TRUE(validateCameraConfigurationReadback(current, caps).hasValue());
+    current.requestedFps.reset();
+    EXPECT_FALSE(validateCameraConfigurationReadback(current, caps).hasValue());
+    current = validConfiguration();
+    current.roi.width = 0U;
+    EXPECT_FALSE(validateCameraConfigurationReadback(current, caps).hasValue());
+}
+
+TEST(CameraConfigurationValidator, RetainedFixedFactsHaveEmptyMaskAndChangedFixedFactsAreRejected) {
+    auto caps = mono12Capabilities();
+    caps.pixelFormatAccess = ControlAccess::Unavailable;
+    caps.roi.access = ControlAccess::ReadOnly;
+    caps.frameRate.access = ControlAccess::ReadOnly;
+    caps.exposureModeAccess = ControlAccess::ReadOnly;
+    caps.exposure.access = ControlAccess::ReadOnly;
+    caps.gainModeAccess = ControlAccess::ReadOnly;
+    caps.gain.access = ControlAccess::ReadOnly;
+    const auto current = validConfiguration();
+    auto result = planCameraConfigurationChange(current, current, caps, false);
+    ASSERT_TRUE(result.hasValue());
+    const auto mask = result.value();
+    EXPECT_FALSE(mask.pixelFormat || mask.roi || mask.frameRate || mask.exposureMode
+        || mask.exposureValue || mask.gainMode || mask.gainValue);
+    auto requested = current;
+    requested.requestedFps = 20.0;
+    EXPECT_FALSE(planCameraConfigurationChange(requested, current, caps, false).hasValue());
+    requested.requestedFps.reset();
+    EXPECT_FALSE(planCameraConfigurationChange(requested, current, caps, false).hasValue());
+    requested = current;
+    requested.exposure.requestedMicroseconds = 1200.0;
+    EXPECT_FALSE(planCameraConfigurationChange(requested, current, caps, false).hasValue());
+}
+
+TEST(CameraConfigurationValidator, FixedManualModeAllowsIndependentWritableValue) {
+    auto caps = mono12Capabilities();
+    caps.exposureModes = {ExposureMode::Manual};
+    caps.exposureModeAccess = ControlAccess::ReadOnly;
+    caps.exposure.access = ControlAccess::WritableStopped;
+    const auto current = validConfiguration();
+    auto requested = current;
+    requested.exposure.requestedMicroseconds = 1200.4;
+    auto plan = planCameraConfigurationChange(requested, current, caps, false);
+    ASSERT_TRUE(plan.hasValue());
+    EXPECT_TRUE(plan.value().exposureValue);
+    EXPECT_FALSE(plan.value().exposureMode);
+    EXPECT_FALSE(planCameraConfigurationChange(requested, current, caps, true).hasValue());
+    caps.exposure.access = ControlAccess::WritableStreaming;
+    EXPECT_TRUE(planCameraConfigurationChange(requested, current, caps, true).hasValue());
+}
+
+TEST(CameraConfigurationValidator, AutoReadbackMayReportReadableValueAndAuthorizeRetainingItInManual) {
+    auto caps = mono12Capabilities();
+    caps.exposure.access = ControlAccess::ReadOnly;
+    caps.gain.access = ControlAccess::ReadOnly;
+    auto current = validConfiguration();
+    current.exposure.mode = ExposureMode::Auto;
+    current.gain.mode = GainMode::Auto;
+    EXPECT_TRUE(validateCameraConfigurationReadback(current, caps).hasValue());
+    EXPECT_FALSE(validateCameraConfiguration(current, caps).hasValue());
+    auto requested = validConfiguration();
+    auto plan = planCameraConfigurationChange(requested, current, caps, false);
+    ASSERT_TRUE(plan.hasValue());
+    EXPECT_TRUE(plan.value().exposureMode);
+    EXPECT_TRUE(plan.value().gainMode);
+    EXPECT_FALSE(plan.value().exposureValue);
+    EXPECT_FALSE(plan.value().gainValue);
+    requested.gain.requestedDb = 7.0;
+    EXPECT_FALSE(planCameraConfigurationChange(requested, current, caps, false).hasValue());
+}
+
+TEST(CameraConfigurationValidator, AutoTransitionDoesNotWriteNumericNodeAndCannotFabricateFixedManualValue) {
+    auto caps = mono12Capabilities();
+    caps.exposure.access = ControlAccess::ReadOnly;
+    auto current = validConfiguration();
+    auto requested = current;
+    requested.exposure = {ExposureMode::Auto, std::nullopt};
+    auto plan = planCameraConfigurationChange(requested, current, caps, false);
+    ASSERT_TRUE(plan.hasValue());
+    EXPECT_TRUE(plan.value().exposureMode);
+    EXPECT_FALSE(plan.value().exposureValue);
+    current = requested;
+    requested.exposure = {ExposureMode::Manual, 1000.0};
+    EXPECT_FALSE(planCameraConfigurationChange(requested, current, caps, false).hasValue());
+    caps.exposure.access = ControlAccess::WritableStopped;
+    plan = planCameraConfigurationChange(requested, current, caps, false);
+    ASSERT_TRUE(plan.hasValue());
+    EXPECT_TRUE(plan.value().exposureMode);
+    EXPECT_TRUE(plan.value().exposureValue);
+}
+
+TEST(CameraConfigurationValidator, RejectsDuplicateCapabilityFacts) {
+    for (int field = 0; field != 3; ++field) {
+        auto caps = mono12Capabilities();
+        if (field == 0) caps.pixelFormats.push_back(caps.pixelFormats.front());
+        if (field == 1) caps.exposureModes.push_back(caps.exposureModes.front());
+        if (field == 2) caps.gainModes.push_back(caps.gainModes.front());
+        EXPECT_FALSE(validateCameraConfiguration(validConfiguration(), caps).hasValue()) << field;
+    }
+}
+
+TEST(CameraConfigurationValidator, RejectsUnknownCapabilityModesEvenWhenRequestUsesValidMode) {
+    auto caps = mono12Capabilities();
+    caps.exposureModes.push_back(static_cast<ExposureMode>(999));
+    EXPECT_FALSE(validateCameraConfiguration(validConfiguration(), caps).hasValue());
+    caps = mono12Capabilities();
+    caps.gainModes.push_back(static_cast<GainMode>(999));
+    EXPECT_FALSE(validateCameraConfiguration(validConfiguration(), caps).hasValue());
 }
 
 TEST(CameraConfigurationValidator, RejectsRoiThatMissesCameraIncrement) {

@@ -39,8 +39,8 @@ camera::CameraConfiguration request() {
 }
 camera::sim::SimulatedCameraOptions options() {
     return {{"SIM-LIVE"}, {{request().pixelFormat},{{0,0,1,1},{0,0,8,6},{1,1,1,1}},
-        {1,60,1,false},{1,1000,1,false},{camera::ExposureMode::Manual},
-        {0,10,1,false},{camera::GainMode::Manual}},camera::sim::SimulationPattern::MovingBar,
+        {1,60,1,camera::ControlAccess::WritableStopped},{1,1000,1,camera::ControlAccess::WritableStopped},{camera::ExposureMode::Manual},
+        {0,10,1,camera::ControlAccess::WritableStopped},{camera::GainMode::Manual}},camera::sim::SimulationPattern::MovingBar,
         30.0,0x4C554D4FU,camera::sim::SimulationPacingMode::Manual};
 }
 class MemoryIo final : public configuration::IStartupPreferencesIo {
@@ -827,6 +827,7 @@ public:
         return device_->open();
     }
     core::Result<camera::CameraCapabilities> capabilities() override { check();return device_->capabilities(); }
+    core::Result<camera::CameraConfiguration> readConfiguration() override { check();return device_->readConfiguration(); }
     core::Result<camera::AppliedCameraConfiguration> applyConfiguration(const camera::CameraConfiguration& value) override {
         check();if(observation_.applyGate) observation_.applyGate->block();return device_->applyConfiguration(value);
     }
@@ -1390,8 +1391,13 @@ TEST(LivePipeline, OldMono8SavedCapabilitiesRequireReviewForShippingMono12) {
     // it must not silently substitute the shipping descriptor or authorize Start.
     ASSERT_TRUE(f.panel.presentation().requestedConfiguration);
     EXPECT_EQ(f.panel.presentation().requestedConfiguration->pixelFormat.validBits,8U);
-    ASSERT_TRUE(f.act(Intent::Apply));
-    ASSERT_TRUE(f.pipeline.snapshot().ordinaryOutcome->error);
+    const auto revisionBeforeRejectedApply = f.pipeline.snapshot().camera->requestedRevision;
+    // Current capability validation rejects the stale saved descriptor before
+    // admitting a camera command, preserving the review requirement.
+    EXPECT_FALSE(f.controller.dispatch(Intent::Apply).hasValue());
+    EXPECT_EQ(f.pipeline.snapshot().camera->requestedRevision, revisionBeforeRejectedApply);
+    EXPECT_FALSE(f.pipeline.snapshot().camera->appliedConfiguration);
+    EXPECT_EQ(f.panel.presentation().requestedConfiguration->pixelFormat.validBits,8U);
     EXPECT_FALSE(f.controller.dispatch(Intent::Confirm).hasValue());
     EXPECT_FALSE(f.controller.dispatch(Intent::Start).hasValue());
     f.controller.selectCamera({"SIM-LIVE"});

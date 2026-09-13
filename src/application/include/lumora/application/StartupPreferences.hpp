@@ -21,7 +21,8 @@ struct StartupPreferences final {
     camera::CameraConfiguration requested;
     camera::CameraConfiguration lastApplied;
     bool confirmed{false};
-    std::uint32_t capabilityFingerprintVersion{1};
+    std::uint32_t capabilityFingerprintVersion{
+        CurrentCameraCapabilityFingerprintVersion};
     std::optional<InstallationProfileReference> installationProfile{std::nullopt};
 };
 

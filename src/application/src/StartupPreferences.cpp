@@ -41,10 +41,8 @@ namespace {
 [[nodiscard]] bool numericCapabilitiesEqual(
     const camera::NumericCapability& left,
     const camera::NumericCapability& right) {
-    return std::tie(left.minimum, left.maximum, left.increment,
-               left.writableWhileStreaming)
-        == std::tie(right.minimum, right.maximum, right.increment,
-            right.writableWhileStreaming);
+    return std::tie(left.minimum, left.maximum, left.increment, left.access)
+        == std::tie(right.minimum, right.maximum, right.increment, right.access);
 }
 
 template<typename T, typename Equal>
@@ -73,12 +71,15 @@ template<typename T>
         [](const auto& first, const auto& second) { return first == second; });
 }
 
-[[nodiscard]] bool validExposureMode(camera::ExposureMode mode) {
-    return mode == camera::ExposureMode::Manual || mode == camera::ExposureMode::Auto;
+[[nodiscard]] bool validExposureMode(
+    const std::optional<camera::ExposureMode>& mode) {
+    return !mode || *mode == camera::ExposureMode::Manual
+        || *mode == camera::ExposureMode::Auto;
 }
 
-[[nodiscard]] bool validGainMode(camera::GainMode mode) {
-    return mode == camera::GainMode::Manual || mode == camera::GainMode::Auto;
+[[nodiscard]] bool validGainMode(const std::optional<camera::GainMode>& mode) {
+    return !mode || *mode == camera::GainMode::Manual
+        || *mode == camera::GainMode::Auto;
 }
 
 [[nodiscard]] bool validAcquisitionMode(camera::AcquisitionMode mode) {
@@ -102,13 +103,16 @@ core::Result<void> validateStartupPreferences(
             "The stable camera ID and manufacturer/model/serial identity must be present."));
     }
 
-    if (preferences.capabilityFingerprintVersion != 1U) {
+    if (preferences.capabilityFingerprintVersion
+            < LegacyCameraCapabilityFingerprintVersion
+        || preferences.capabilityFingerprintVersion
+            > CurrentCameraCapabilityFingerprintVersion) {
         return core::Result<void>::failure(preferenceError(
             "startup_capability_fingerprint_version_unsupported",
-            "Only capability fingerprint version 1 is supported."));
+            "The capability fingerprint version is unsupported."));
     }
     const auto capabilitiesResult =
-        validateCameraCapabilities(preferences.confirmedCapabilities);
+        application::validateCameraCapabilities(preferences.confirmedCapabilities);
     if (!capabilitiesResult.hasValue()) {
         return core::Result<void>::failure(preferenceError(
             capabilitiesResult.error().code == "camera_capabilities_duplicate"
@@ -151,7 +155,7 @@ core::Result<void> validateStartupPreferences(
 
     const auto requested = camera::validateCameraConfiguration(
         preferences.requested, capabilities);
-    const auto lastApplied = camera::validateCameraConfiguration(
+    const auto lastApplied = camera::validateCameraConfigurationReadback(
         preferences.lastApplied, capabilities);
     if (!requested.hasValue() || !lastApplied.hasValue()) {
         const auto& error = !requested.hasValue() ? requested.error() : lastApplied.error();
@@ -168,11 +172,15 @@ bool cameraCapabilitiesEqual(
         && regionsEqual(left.roi.minimum, right.roi.minimum)
         && regionsEqual(left.roi.maximum, right.roi.maximum)
         && regionsEqual(left.roi.increment, right.roi.increment)
+        && left.roi.access == right.roi.access
         && numericCapabilitiesEqual(left.frameRate, right.frameRate)
         && numericCapabilitiesEqual(left.exposure, right.exposure)
         && unorderedUniqueEqual(left.exposureModes, right.exposureModes)
         && numericCapabilitiesEqual(left.gain, right.gain)
-        && unorderedUniqueEqual(left.gainModes, right.gainModes);
+        && unorderedUniqueEqual(left.gainModes, right.gainModes)
+        && left.pixelFormatAccess == right.pixelFormatAccess
+        && left.exposureModeAccess == right.exposureModeAccess
+        && left.gainModeAccess == right.gainModeAccess;
 }
 
 bool cameraConfigurationsEqual(
@@ -195,6 +203,8 @@ bool isStartupResumeEligible(
     const camera::CameraCapabilities& capabilities) {
     return preferences.confirmed
         && validateStartupPreferences(preferences).hasValue()
+        && preferences.capabilityFingerprintVersion
+            == CurrentCameraCapabilityFingerprintVersion
         && preferences.cameraId == cameraId
         && cameraIdentityKeysEqual(preferences.identity, identity)
         && cameraCapabilitiesEqual(preferences.confirmedCapabilities, capabilities)

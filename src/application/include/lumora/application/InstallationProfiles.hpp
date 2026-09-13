@@ -15,7 +15,8 @@ struct InstallationCameraProfile final {
     std::uint32_t recordVersion{1};
     std::uint64_t revision{0};
     core::CameraIdentity identity;
-    std::uint32_t capabilityFingerprintVersion{1};
+    std::uint32_t capabilityFingerprintVersion{
+        CurrentCameraCapabilityFingerprintVersion};
     camera::CameraCapabilities capabilities;
     core::Orientation orientation{false, false, core::Rotation::Degrees0};
     bool confirmed{false};

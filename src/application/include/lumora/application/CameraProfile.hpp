@@ -8,6 +8,9 @@
 
 namespace lumora::application {
 
+inline constexpr std::uint32_t LegacyCameraCapabilityFingerprintVersion = 1U;
+inline constexpr std::uint32_t CurrentCameraCapabilityFingerprintVersion = 2U;
+
 struct InstallationProfileReference final {
     std::uint32_t recordVersion{1};
     std::uint64_t revision;

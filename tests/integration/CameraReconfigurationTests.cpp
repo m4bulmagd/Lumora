@@ -16,7 +16,7 @@ camera::CameraConfiguration initialRequest() {
 camera::CameraConfiguration changedRequest() { auto r=initialRequest();r.roi={4,6,32,24};r.pixelFormat=mono12();return r; }
 camera::sim::SimulatedCameraOptions simulatorOptions() {
     return {{"ROI-SIM"},{{mono8(),mono12()},{{0,0,1,1},{128,96,128,96},{1,1,1,1}},
-        {1,60,1,false},{1,1000,1,false},{camera::ExposureMode::Manual},{0,10,1,false},{camera::GainMode::Manual}},
+        {1,60,1,camera::ControlAccess::WritableStopped},{1,1000,1,camera::ControlAccess::WritableStopped},{camera::ExposureMode::Manual},{0,10,1,camera::ControlAccess::WritableStopped},{camera::GainMode::Manual}},
         camera::sim::SimulationPattern::Gradient,30.0,42U,camera::sim::SimulationPacingMode::RealTime};
 }
 // Forward every operation to a real simulator. Only deliberately faulty camera
@@ -33,6 +33,7 @@ public:
     ObservedDevice(std::unique_ptr<camera::ICameraDevice> d,DeviceObservations& o):inner(std::move(d)),observations(o) {}
     core::Result<void> open() override { ++observations.opens;return inner->open(); }
     core::Result<camera::CameraCapabilities> capabilities() override { return inner->capabilities(); }
+    core::Result<camera::CameraConfiguration> readConfiguration() override { return inner->readConfiguration(); }
     core::Result<camera::AppliedCameraConfiguration> applyConfiguration(const camera::CameraConfiguration& request) override {
         ++observations.applies;
         if(observations.failRestore && request.roi.width==64U) return core::Result<camera::AppliedCameraConfiguration>::failure(
@@ -59,7 +60,7 @@ class ObservedProvider final : public camera::ICameraProvider {
     camera::sim::SimulatedCameraProvider inner;
 public:
     DeviceObservations observations;
-    explicit ObservedProvider(core::IClock& clock):inner(simulatorOptions(),clock) {}
+    explicit ObservedProvider(core::IClock& clock, camera::sim::SimulatedCameraOptions options = simulatorOptions()):inner(std::move(options),clock) {}
     core::Result<std::vector<camera::CameraDescriptor>> discover(std::stop_token stop) override { return inner.discover(stop); }
     core::Result<std::unique_ptr<camera::ICameraDevice>> create(const camera::CameraId& id) override {
         auto result=inner.create(id);
@@ -69,10 +70,10 @@ public:
 };
 struct ReconfigurationFixture {
     core::SystemClock clock;
-    ObservedProvider provider{clock};
+    ObservedProvider provider;
     application::LivePipeline pipeline;
     std::uint64_t nextId{0};
-    explicit ReconfigurationFixture(processing::ProcessingPreparationOptions options={},application::LivePipeline::ProcessorFactory factory={}):pipeline(provider,clock,initialRequest(),std::move(factory),options) {}
+    explicit ReconfigurationFixture(processing::ProcessingPreparationOptions options={},application::LivePipeline::ProcessorFactory factory={},camera::sim::SimulatedCameraOptions cameraOptions=simulatorOptions()):provider(clock,std::move(cameraOptions)),pipeline(provider,clock,initialRequest(),std::move(factory),options) {}
     ~ReconfigurationFixture() { pipeline.shutdown(); }
     bool wait(const std::function<bool()>& predicate) {
         const auto deadline=std::chrono::steady_clock::now()+3s;
@@ -149,6 +150,35 @@ TEST(CameraReconfiguration, MismatchedReadbackRestoresPreviousActualAndClearsCon
     ASSERT_TRUE(f.command({++f.nextId,application::ConfirmConfiguration{f.generation(),1}},false));
     f.provider.observations.mismatch=false;ASSERT_TRUE(f.command({++f.nextId,application::ApplyConfiguration{f.generation(),initialRequest(),3}}));ASSERT_TRUE(f.start(3));ASSERT_TRUE(f.wait([&]{return f.frame()!=nullptr;}));EXPECT_EQ(f.frame()->raw->layout.width(),64U);
 }
+TEST(CameraReconfiguration, FixedFrameRateAndGainSurviveWritableEditsAndFailureRollback) {
+    auto options = simulatorOptions();
+    options.capabilities.frameRate.access = camera::ControlAccess::ReadOnly;
+    options.capabilities.gain.access = camera::ControlAccess::ReadOnly;
+    options.capabilities.gainModeAccess = camera::ControlAccess::ReadOnly;
+    ReconfigurationFixture f({}, {}, std::move(options));
+    ASSERT_TRUE(f.initialize());
+    f.provider.observations.rejectAfterMutation = true;
+    auto changed = changedRequest();
+    changed.exposure.requestedMicroseconds = 300.0;
+    ASSERT_TRUE(f.command({++f.nextId, application::ApplyConfiguration{f.generation(), changed, 2}}, false));
+    auto state = f.pipeline.snapshot();
+    ASSERT_TRUE(state.camera->currentConfiguration);
+    EXPECT_EQ(state.camera->state, application::CameraSessionState::ConnectedIdle);
+    EXPECT_EQ(state.camera->currentConfiguration->roi.width, 64U);
+    EXPECT_EQ(state.camera->currentConfiguration->requestedFps, 30.0);
+    EXPECT_EQ(state.camera->currentConfiguration->gain.mode, camera::GainMode::Manual);
+    EXPECT_EQ(state.camera->currentConfiguration->gain.requestedDb, 0.0);
+    EXPECT_EQ(state.camera->currentConfiguration->exposure.requestedMicroseconds, 100.0);
+    EXPECT_EQ(f.provider.observations.applies, 3U);
+    f.provider.observations.rejectAfterMutation = false;
+    ASSERT_TRUE(f.command({++f.nextId, application::ApplyConfiguration{f.generation(), changed, 3}}));
+    state = f.pipeline.snapshot();
+    EXPECT_EQ(state.camera->currentConfiguration->requestedFps, 30.0);
+    EXPECT_EQ(state.camera->currentConfiguration->gain.requestedDb, 0.0);
+    EXPECT_EQ(state.camera->currentConfiguration->exposure.requestedMicroseconds, 300.0);
+    EXPECT_FALSE(state.camera->confirmedRevision);
+}
+
 TEST(CameraReconfiguration, RejectedApplyAfterMutationRestoresPreviousActual) {
     ReconfigurationFixture f;ASSERT_TRUE(f.initialize());f.provider.observations.rejectAfterMutation=true;
     ASSERT_TRUE(f.command({++f.nextId,application::ApplyConfiguration{f.generation(),changedRequest(),2}},false));

@@ -10,6 +10,7 @@
 #include <QLocale>
 #include <QPushButton>
 #include <QSizePolicy>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -36,15 +37,25 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(6);
-    auto* title = new QLabel(tr("Camera startup"), this);
+    auto* title = new QLabel(tr("Camera"), this);
+    title->setObjectName(QStringLiteral("cameraPanelTitleLabel"));
+    title->setAccessibleName(tr("Camera controls"));
     title->setStyleSheet(QStringLiteral("QLabel { font-weight: 600; }"));
     layout->addWidget(title);
 
     auto* state = new QLabel(tr("Waiting"), this);
     state->setObjectName(QStringLiteral("cameraStartupStateLabel"));
+    state->setAccessibleName(tr("Camera connection and acquisition state"));
     state->setTextFormat(Qt::PlainText);
     state->setWordWrap(true);
     layout->addWidget(state);
+
+    auto* viewerState = new QLabel(tr("Viewer: waiting for image"), this);
+    viewerState->setObjectName(QStringLiteral("cameraViewerStateLabel"));
+    viewerState->setAccessibleName(tr("Viewer pause and image freshness state"));
+    viewerState->setTextFormat(Qt::PlainText);
+    viewerState->setWordWrap(true);
+    layout->addWidget(viewerState);
 
     auto* cameras = new QComboBox(this);
     cameras->setObjectName(QStringLiteral("cameraSelectionCombo"));
@@ -53,6 +64,14 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
     cameras->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     cameras->setMinimumContentsLength(10);
     layout->addWidget(cameras);
+
+    auto* guidance = new QLabel(this);
+    guidance->setObjectName(QStringLiteral("cameraGuidanceLabel"));
+    guidance->setAccessibleName(tr("Camera action guidance"));
+    guidance->setTextFormat(Qt::PlainText);
+    guidance->setWordWrap(true);
+    guidance->hide();
+    layout->addWidget(guidance);
 
     auto* actionGrid = new QGridLayout;
     actionGrid->setContentsMargins(0, 0, 0, 0);
@@ -63,29 +82,53 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
     actionGrid->addWidget(refresh, 0, 0);
     actionGrid->addWidget(connectButton, 0, 1);
 
-    auto* requestedHeading = new QLabel(tr("Requested"), this);
+    auto* reviewToggle = new QToolButton(this);
+    reviewToggle->setObjectName(QStringLiteral("cameraReviewToggle"));
+    reviewToggle->setText(tr("Review"));
+    reviewToggle->setAccessibleName(tr("Review requested and actual camera settings"));
+    reviewToggle->setToolTip(tr("Review requested and actual camera settings"));
+    reviewToggle->setCheckable(true);
+    reviewToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    reviewToggle->setArrowType(Qt::RightArrow);
+    reviewToggle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+    auto* reviewDetails = new QWidget(this);
+    reviewDetails->setObjectName(QStringLiteral("cameraReviewDetails"));
+    auto* reviewLayout = new QVBoxLayout(reviewDetails);
+    reviewLayout->setContentsMargins(0, 0, 0, 0);
+    reviewLayout->setSpacing(2);
+    auto* requestedHeading = new QLabel(tr("Requested"), reviewDetails);
     auto* requested = new QLabel(tr("Not available"), this);
     requested->setObjectName(QStringLiteral("requestedConfigurationLabel"));
     requested->setTextFormat(Qt::PlainText);
     requested->setWordWrap(true);
-    auto* actualHeading = new QLabel(tr("Actual"), this);
+    auto* actualHeading = new QLabel(tr("Actual"), reviewDetails);
     auto* actual = new QLabel(tr("Not available"), this);
     actual->setObjectName(QStringLiteral("actualConfigurationLabel"));
     actual->setTextFormat(Qt::PlainText);
     actual->setWordWrap(true);
+    reviewLayout->addWidget(requestedHeading);
+    reviewLayout->addWidget(requested);
+    reviewLayout->addWidget(actualHeading);
+    reviewLayout->addWidget(actual);
+    reviewDetails->hide();
     layout->addLayout(actionGrid);
-    layout->addWidget(requestedHeading);
-    layout->addWidget(requested);
-    layout->addWidget(actualHeading);
-    layout->addWidget(actual);
-    auto* settings = makeButton(tr("Camera settings…"), "cameraSettingsButton", this);
-    layout->addWidget(settings);
+    layout->addWidget(reviewToggle);
+    layout->addWidget(reviewDetails);
+    auto* settings = makeButton(tr("Settings…"), "cameraSettingsButton", this);
+    settings->setAccessibleName(tr("Camera settings"));
     auto* installationStatus = new QLabel(this);
     installationStatus->setObjectName("installationProfileStatusLabel");
     installationStatus->setTextFormat(Qt::PlainText); installationStatus->setWordWrap(true);
+    auto* installation = makeButton(tr("Installation…"), "installationSettingsButton", this);
+    installation->setAccessibleName(tr("Installation settings"));
+    auto* settingsLayout = new QVBoxLayout;
+    settingsLayout->setContentsMargins(0, 0, 0, 0);
+    settingsLayout->setSpacing(2);
+    settingsLayout->addWidget(settings);
+    settingsLayout->addWidget(installation);
+    layout->addLayout(settingsLayout);
     layout->addWidget(installationStatus);
-    auto* installation = makeButton(tr("Installation settings…"), "installationSettingsButton", this);
-    layout->addWidget(installation);
     auto* apply = makeButton(tr("Apply"), "applyCameraButton", this);
     auto* confirm = makeButton(tr("Confirm"), "confirmCameraButton", this);
     auto* start = makeButton(tr("Start"), "startCameraButton", this);
@@ -97,13 +140,13 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
     actionGrid->setContentsMargins(0, 0, 0, 0);
     actionGrid->setHorizontalSpacing(6);
     actionGrid->setVerticalSpacing(4);
-    actionGrid->addWidget(apply, 0, 0);
-    actionGrid->addWidget(confirm, 0, 1);
-    actionGrid->addWidget(start, 1, 0);
-    actionGrid->addWidget(stop, 1, 1);
-    actionGrid->addWidget(disconnect, 2, 0);
-    actionGrid->addWidget(retry, 2, 1);
-    actionGrid->addWidget(resumeLive, 3, 0, 1, 2);
+    actionGrid->addWidget(apply, 0, 0, 1, 2);
+    actionGrid->addWidget(confirm, 1, 0, 1, 2);
+    actionGrid->addWidget(start, 2, 0);
+    actionGrid->addWidget(stop, 2, 0);
+    actionGrid->addWidget(disconnect, 2, 1);
+    actionGrid->addWidget(retry, 3, 0, 1, 2);
+    actionGrid->addWidget(resumeLive, 4, 0, 1, 2);
     layout->addLayout(actionGrid);
 
     auto* warning = new QLabel(this);
@@ -112,6 +155,12 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
     warning->setWordWrap(true);
     warning->setStyleSheet(QStringLiteral("QLabel { color: #ffcc66; }"));
     layout->addWidget(warning);
+
+    connect(reviewToggle, &QToolButton::toggled, this,
+        [reviewToggle, reviewDetails](bool expanded) {
+            reviewToggle->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+            reviewDetails->setVisible(expanded);
+        });
 
     connect(cameras, &QComboBox::activated, this, [this, cameras](int index) {
         const camera::CameraId selected{cameras->itemData(index).toString().toStdString()};
@@ -181,22 +230,35 @@ void CameraStartupPanel::updatePresentation() {
         const auto optionalNumber = [this](const std::optional<double>& value) {
             return value ? locale().toString(*value, 'g', QLocale::FloatingPointShortest) : tr("Automatic");
         };
-        const auto exposure = configuration.exposure.mode == camera::ExposureMode::Manual
-            ? tr("Manual %1 µs").arg(optionalNumber(
-                  configuration.exposure.requestedMicroseconds))
-            : tr("Automatic");
-        const auto gain = configuration.gain.mode == camera::GainMode::Manual
-            ? tr("Manual %1 dB").arg(optionalNumber(configuration.gain.requestedDb))
-            : tr("Automatic");
+        const auto exposure = !configuration.exposure.mode
+            ? tr("Unavailable")
+            : configuration.exposure.mode == camera::ExposureMode::Manual
+                ? tr("Manual %1 µs").arg(optionalNumber(
+                      configuration.exposure.requestedMicroseconds))
+                : configuration.exposure.requestedMicroseconds
+                    ? tr("Automatic (actual %1 µs)").arg(optionalNumber(
+                          configuration.exposure.requestedMicroseconds))
+                    : tr("Automatic");
+        const auto gain = !configuration.gain.mode
+            ? tr("Unavailable")
+            : configuration.gain.mode == camera::GainMode::Manual
+                ? tr("Manual %1 dB").arg(optionalNumber(configuration.gain.requestedDb))
+                : configuration.gain.requestedDb
+                    ? tr("Automatic (actual %1 dB)").arg(optionalNumber(
+                          configuration.gain.requestedDb))
+                    : tr("Automatic");
         const auto acquisition =
             configuration.acquisitionMode == camera::AcquisitionMode::Continuous
             ? tr("Continuous")
             : tr("Triggered");
-        return tr("%1 · %2 × %3 · %4 fps\nExposure: %5\nGain: %6 · %7")
+        return tr("%1 · ROI x %2, y %3, %4 × %5 · %6 fps\nExposure: %7\nGain: %8 · %9")
             .arg(QString::fromStdString(configuration.pixelFormat.canonicalName))
+            .arg(configuration.roi.x)
+            .arg(configuration.roi.y)
             .arg(configuration.roi.width)
             .arg(configuration.roi.height)
-            .arg(optionalNumber(configuration.requestedFps), exposure, gain, acquisition);
+            .arg(optionalNumber(configuration.requestedFps))
+            .arg(exposure, gain, acquisition);
     };
 
     auto* requested = findChild<QLabel*>(QStringLiteral("requestedConfigurationLabel"));
@@ -207,8 +269,8 @@ void CameraStartupPanel::updatePresentation() {
         : status ? status->requestedConfiguration : std::nullopt;
     requested->setText(requestedConfiguration ? describe(*requestedConfiguration)
                                               : tr("Not available"));
-    actual->setText(status && status->appliedConfiguration
-            ? describe(status->appliedConfiguration->actual)
+    actual->setText(status && status->currentConfiguration
+            ? describe(*status->currentConfiguration)
             : tr("Not available"));
 
     auto* cameras = findChild<QComboBox*>(QStringLiteral("cameraSelectionCombo"));
@@ -216,10 +278,11 @@ void CameraStartupPanel::updatePresentation() {
     QStringList identities;
     if (status) {
         for (const auto& descriptor : status->discoveredDescriptors) {
-            const auto display = tr("%1 %2 — %3")
+            auto display = tr("%1 %2 — %3")
                 .arg(QString::fromStdString(descriptor.identity.manufacturer),
                     QString::fromStdString(descriptor.identity.model),
                     QString::fromStdString(descriptor.identity.serial));
+            if (!descriptor.available) display += tr(" — Unavailable");
             labels.push_back(display);
             identities.push_back(QString::fromStdString(descriptor.id.value));
         }
@@ -235,18 +298,18 @@ void CameraStartupPanel::updatePresentation() {
             cameras->addItem(labels.at(index), identities.at(index));
         }
     }
+    int selectedIndex = -1;
     if (presentation_.selectedCameraId) {
         const auto selected = QString::fromStdString(
             presentation_.selectedCameraId->value);
         for (int index = 0; index < cameras->count(); ++index) {
             if (cameras->itemData(index).toString() == selected) {
-                cameras->setCurrentIndex(index);
+                selectedIndex = index;
                 break;
             }
         }
-    } else {
-        cameras->setCurrentIndex(-1);
     }
+    cameras->setCurrentIndex(selectedIndex);
 
     const auto cameraState = status ? status->state
                                     : application::CameraSessionState::Disconnected;
@@ -264,13 +327,46 @@ void CameraStartupPanel::updatePresentation() {
         }
     }
     findChild<QLabel*>(QStringLiteral("cameraStartupStateLabel"))->setText(stateText);
+    const auto& workstation = presentation_.workstationStatus;
+    QString viewerText;
+    if (workstation.viewerState == ViewerState::Paused) {
+        switch (workstation.freshness) {
+        case FrameFreshness::Current: viewerText = tr("Viewer: Paused — current image retained"); break;
+        case FrameFreshness::Stale: viewerText = tr("Viewer: Paused — stale image retained"); break;
+        case FrameFreshness::WaitingForFrame: viewerText = tr("Viewer: Paused — waiting for image"); break;
+        }
+    } else {
+        switch (workstation.freshness) {
+        case FrameFreshness::Current: viewerText = tr("Viewer: Live"); break;
+        case FrameFreshness::Stale: viewerText = tr("Viewer: Stale image"); break;
+        case FrameFreshness::WaitingForFrame: viewerText = tr("Viewer: Waiting for image"); break;
+        }
+    }
+    findChild<QLabel*>(QStringLiteral("cameraViewerStateLabel"))->setText(viewerText);
     auto* warning = findChild<QLabel*>(QStringLiteral("startupWarningLabel"));
     const auto warningValue = presentation_.startupWarning
         ? presentation_.startupWarning
         : status ? status->latestError : std::nullopt;
     const auto warningSummary = [this](const core::Error& error) {
+        const auto hasSuffix = [&error](const std::string& suffix) {
+            return error.code.size() >= suffix.size()
+                && error.code.compare(error.code.size() - suffix.size(), suffix.size(), suffix) == 0;
+        };
+        const auto hasPrefix = [&error](const std::string& prefix) {
+            return error.code.rfind(prefix, 0) == 0;
+        };
         if (error.code == "startup_readback_changed")
             return tr("Camera readback changed. Review and confirm settings before Start.");
+        if (error.code == "camera_actual_fps_invalid" || hasPrefix("capability_"))
+            return tr("Camera capabilities or current readback are invalid. Disconnect, reconnect, and review the camera settings before applying.");
+        if (hasSuffix("_not_writable"))
+            return tr("A fixed camera setting changed. Reopen Settings and retain the current camera value.");
+        if (hasSuffix("_not_writable_while_streaming"))
+            return tr("Stop acquisition before changing this camera setting.");
+        if (error.code == "camera_restore_mismatch")
+            return tr("Camera rollback did not restore the previous settings. Disconnect and reconnect before continuing.");
+        if (error.code == "camera_reconfiguration_busy")
+            return tr("Wait for the current camera settings operation to finish.");
         if (error.code == "acquisition_timeout")
             return tr("Camera retrieval timed out. Check the camera connection.");
         if (error.code == "startup_save_source_unsafe" || error.code == "configuration_invalid_preservation_failed")
@@ -328,8 +424,11 @@ void CameraStartupPanel::updatePresentation() {
         && !presentation_.ordinaryOperationPending && !installationPending;
     const bool connectedIdle = status
         && cameraState == application::CameraSessionState::ConnectedIdle;
-    const bool sourceMatches = !status || !status->actualIdentity
-        || status->actualIdentity == presentation_.selectedCameraId;
+    const bool streaming = status
+        && cameraState == application::CameraSessionState::Streaming;
+    const bool sourceMatches = status && status->actualIdentity
+        && presentation_.selectedCameraId
+        && status->actualIdentity == presentation_.selectedCameraId;
     const bool selectedAvailable = status && presentation_.selectedCameraId
         && std::any_of(status->discoveredDescriptors.begin(),
             status->discoveredDescriptors.end(), [&](const auto& descriptor) {
@@ -337,11 +436,34 @@ void CameraStartupPanel::updatePresentation() {
                     && descriptor.id == *presentation_.selectedCameraId;
             });
 
+    auto* guidance = findChild<QLabel*>(QStringLiteral("cameraGuidanceLabel"));
+    QString guidanceText;
+    if (!presentation_.selectedCameraId) {
+        guidanceText = tr("Select the intended camera before connecting.");
+    } else if (!selectedAvailable && cameraState == application::CameraSessionState::Disconnected) {
+        guidanceText = tr("The selected camera is unavailable. Check its connection or select another camera.");
+    } else if (status && status->actualIdentity && !sourceMatches) {
+        guidanceText = tr("The connected camera does not match the current selection. Disconnect before changing source.");
+    } else if (streaming) {
+        guidanceText = tr("Stop acquisition before changing camera settings. Settings remain available for inspection.");
+    }
+    guidance->setText(guidanceText);
+    guidance->setVisible(!guidanceText.isEmpty());
+
     auto* installation = findChild<QPushButton*>("installationSettingsButton");
-    installation->setVisible(presentation_.installationProfiles != nullptr);
-    installation->setEnabled(globallyEnabled && status && status->actualIdentity && sourceMatches);
+    const bool installationAvailable = presentation_.installationProfiles != nullptr;
+    installation->setVisible(installationAvailable && sourceMatches
+        && (connectedIdle || streaming));
+    installation->setEnabled(globallyEnabled && installationAvailable
+        && sourceMatches && (connectedIdle || streaming));
     auto* installationStatus = findChild<QLabel*>("installationProfileStatusLabel");
-    installationStatus->setVisible(presentation_.installationProfiles != nullptr);
+    const bool hasInstallationStatus = installationAvailable
+        || presentation_.activeOrientation.has_value()
+        || presentation_.installationProfilePending
+        || presentation_.installationProfileError.has_value()
+        || presentation_.installationProfileOutcome.has_value()
+        || !presentation_.installationBindingCurrent;
+    installationStatus->setVisible(hasInstallationStatus);
     QString installationText = presentation_.activeOrientation
         ? tr("Active installation: %1").arg(orientationDescription(*presentation_.activeOrientation))
         : tr("Installation: no active camera binding");
@@ -350,41 +472,60 @@ void CameraStartupPanel::updatePresentation() {
         installationText += tr("\n%1").arg(QString::fromStdString(presentation_.installationProfileError->operatorSummary));
     else if (!presentation_.installationBindingCurrent)
         installationText += tr("\nReview installation settings, then Apply → review → Confirm → Start.");
-    else if (presentation_.installationProfileOutcome && presentation_.installationProfileOutcome->savedProfile)
-        installationText += tr("\nInstallation saved. Apply → review Original and Enhanced → Confirm → Start.");
     installationStatus->setText(installationText);
 
-    findChild<QPushButton*>(QStringLiteral("cameraSettingsButton"))
-        ->setEnabled(globallyEnabled && status && status->actualIdentity
-            && (connectedIdle || cameraState == application::CameraSessionState::Streaming));
+    auto* reviewToggle = findChild<QToolButton*>(QStringLiteral("cameraReviewToggle"));
+    auto* reviewDetails = findChild<QWidget*>(QStringLiteral("cameraReviewDetails"));
+    const bool hasReview = requestedConfiguration.has_value()
+        || (status && status->currentConfiguration.has_value());
+    const bool requiresReview = connectedIdle && sourceMatches && applied && !confirmed;
+    if (requiresReview && !reviewRequired_) reviewToggle->setChecked(true);
+    else if (!requiresReview && reviewRequired_) reviewToggle->setChecked(false);
+    reviewRequired_ = requiresReview;
+    reviewToggle->setVisible(hasReview);
+    reviewDetails->setVisible(hasReview && reviewToggle->isChecked());
+
+    auto* settings = findChild<QPushButton*>(QStringLiteral("cameraSettingsButton"));
+    settings->setVisible(sourceMatches && (connectedIdle || streaming));
+    settings->setEnabled(globallyEnabled && sourceMatches && (connectedIdle || streaming));
     cameras->setEnabled(ordinaryEnabled);
-    findChild<QPushButton*>(QStringLiteral("refreshCameraButton"))
-        ->setEnabled(ordinaryEnabled
-            && cameraState == application::CameraSessionState::Disconnected);
-    findChild<QPushButton*>(QStringLiteral("connectCameraButton"))
-        ->setEnabled(ordinaryEnabled && selectedAvailable
-            && (cameraState == application::CameraSessionState::Disconnected
-                || cameraState == application::CameraSessionState::Error));
-    findChild<QPushButton*>(QStringLiteral("applyCameraButton"))
-        ->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches
-            && requestedConfiguration.has_value());
-    findChild<QPushButton*>(QStringLiteral("confirmCameraButton"))
-        ->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches && applied && !confirmed && presentation_.installationBindingCurrent);
+    auto* refresh = findChild<QPushButton*>(QStringLiteral("refreshCameraButton"));
+    const bool canDiscover = cameraState == application::CameraSessionState::Disconnected;
+    refresh->setVisible(canDiscover);
+    refresh->setEnabled(ordinaryEnabled && canDiscover);
+    auto* connectButton = findChild<QPushButton*>(QStringLiteral("connectCameraButton"));
+    connectButton->setVisible(canDiscover);
+    connectButton->setEnabled(ordinaryEnabled && selectedAvailable && canDiscover);
+    auto* apply = findChild<QPushButton*>(QStringLiteral("applyCameraButton"));
+    apply->setVisible(connectedIdle && sourceMatches && requestedConfiguration.has_value());
+    apply->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches
+        && requestedConfiguration.has_value());
+    auto* confirm = findChild<QPushButton*>(QStringLiteral("confirmCameraButton"));
+    confirm->setVisible(connectedIdle && sourceMatches && applied && !confirmed);
+    confirm->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches && applied
+        && !confirmed && presentation_.installationBindingCurrent);
+    start->setVisible(connectedIdle && sourceMatches);
     start->setEnabled(ordinaryEnabled && presentation_.installationBindingCurrent && status
         && status->state == application::CameraSessionState::ConnectedIdle
         && sourceMatches && confirmed && applied);
-    findChild<QPushButton*>(QStringLiteral("stopCameraButton"))
-        ->setEnabled(globallyEnabled
-            && cameraState == application::CameraSessionState::Streaming);
-    findChild<QPushButton*>(QStringLiteral("disconnectCameraButton"))
-        ->setEnabled(globallyEnabled
+    auto* stop = findChild<QPushButton*>(QStringLiteral("stopCameraButton"));
+    stop->setVisible(streaming);
+    stop->setEnabled(globallyEnabled && streaming);
+    auto* disconnect = findChild<QPushButton*>(QStringLiteral("disconnectCameraButton"));
+    const bool canDisconnect = status
+        && cameraState != application::CameraSessionState::Disconnected
+        && cameraState != application::CameraSessionState::ShuttingDown;
+    disconnect->setVisible(canDisconnect);
+    disconnect->setEnabled(globallyEnabled
             && cameraState != application::CameraSessionState::ShuttingDown
             && (presentation_.ordinaryOperationPending
                 || (status && cameraState != application::CameraSessionState::Disconnected)));
-    findChild<QPushButton*>(QStringLiteral("retryCameraButton"))
-        ->setEnabled(ordinaryEnabled && status && status->desiredIdentity
-            && (cameraState == application::CameraSessionState::Error
-                || cameraState == application::CameraSessionState::Reconnecting));
+    auto* retry = findChild<QPushButton*>(QStringLiteral("retryCameraButton"));
+    const bool canRetry = status && status->desiredIdentity
+        && (cameraState == application::CameraSessionState::Error
+            || cameraState == application::CameraSessionState::Reconnecting);
+    retry->setVisible(canRetry);
+    retry->setEnabled(ordinaryEnabled && canRetry);
     auto* resumeLive = findChild<QPushButton*>(QStringLiteral("resumeLiveButton"));
     resumeLive->setVisible(presentation_.resumeLiveAvailable);
     resumeLive->setEnabled(ordinaryEnabled && connectedIdle

@@ -23,17 +23,20 @@ struct CameraDescriptor final {
     bool available;
 };
 
+enum class ControlAccess { Unavailable, ReadOnly, WritableStopped, WritableStreaming };
+
 struct NumericCapability final {
     double minimum;
     double maximum;
     double increment;
-    bool writableWhileStreaming;
+    ControlAccess access{ControlAccess::WritableStopped};
 };
 
 struct RegionOfInterestCapability final {
     core::RegionOfInterest minimum;
     core::RegionOfInterest maximum;
     core::RegionOfInterest increment;
+    ControlAccess access{ControlAccess::WritableStopped};
 };
 
 enum class ExposureMode {
@@ -42,7 +45,7 @@ enum class ExposureMode {
 };
 
 struct ExposureConfiguration final {
-    ExposureMode mode;
+    std::optional<ExposureMode> mode;
     std::optional<double> requestedMicroseconds;
 };
 
@@ -52,7 +55,7 @@ enum class GainMode {
 };
 
 struct GainConfiguration final {
-    GainMode mode;
+    std::optional<GainMode> mode;
     std::optional<double> requestedDb;
 };
 
@@ -69,6 +72,9 @@ struct CameraCapabilities final {
     std::vector<ExposureMode> exposureModes;
     NumericCapability gain;
     std::vector<GainMode> gainModes;
+    ControlAccess pixelFormatAccess{ControlAccess::WritableStopped};
+    ControlAccess exposureModeAccess{ControlAccess::WritableStopped};
+    ControlAccess gainModeAccess{ControlAccess::WritableStopped};
 };
 
 struct CameraConfiguration final {

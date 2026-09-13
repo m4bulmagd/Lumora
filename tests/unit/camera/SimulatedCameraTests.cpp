@@ -166,20 +166,20 @@ CameraCapabilities capabilities() {
             .minimum = 1.0,
             .maximum = 60.0,
             .increment = 0.1,
-            .writableWhileStreaming = true,
+            .access = ControlAccess::WritableStreaming,
         },
         .exposure = {
             .minimum = 10.0,
             .maximum = 20'000.0,
             .increment = 1.0,
-            .writableWhileStreaming = true,
+            .access = ControlAccess::WritableStreaming,
         },
         .exposureModes = {ExposureMode::Manual, ExposureMode::Auto},
         .gain = {
             .minimum = 0.0,
             .maximum = 24.0,
             .increment = 0.1,
-            .writableWhileStreaming = true,
+            .access = ControlAccess::WritableStreaming,
         },
         .gainModes = {GainMode::Manual, GainMode::Auto},
     };
@@ -234,6 +234,68 @@ std::uint16_t readU16(const core::RawFrame& frame, std::uint32_t x, std::uint32_
                         static_cast<std::size_t>(x) * sizeof(value);
     std::memcpy(&value, frame.pixels.bytes().data() + offset, sizeof(value));
     return value;
+}
+
+TEST(SimulatedCamera, ReadbackSupportsAbsentGainAndPreservesFixedControlsDuringWritableEdits) {
+    core::ManualClock clock;
+    auto opts = options();
+    opts.capabilities.gainModes.clear();
+    opts.capabilities.gain = {0.0, 0.0, 0.0, ControlAccess::Unavailable};
+    opts.capabilities.gainModeAccess = ControlAccess::Unavailable;
+    opts.capabilities.exposureModes = {ExposureMode::Manual};
+    opts.capabilities.exposureModeAccess = ControlAccess::ReadOnly;
+    opts.capabilities.frameRate.access = ControlAccess::ReadOnly;
+    auto device = createDevice(clock, opts);
+    ASSERT_FALSE(device->readConfiguration().hasValue());
+    ASSERT_TRUE(device->open().hasValue());
+    auto read = device->readConfiguration();
+    ASSERT_TRUE(read.hasValue());
+    EXPECT_FALSE(read.value().gain.mode);
+    EXPECT_FALSE(read.value().gain.requestedDb);
+    EXPECT_EQ(read.value().requestedFps, 30.0);
+    auto request = read.value();
+    request.exposure.requestedMicroseconds = 1234.4;
+    auto applied = device->applyConfiguration(request);
+    ASSERT_TRUE(applied.hasValue());
+    EXPECT_EQ(applied.value().actual.requestedFps, 30.0);
+    EXPECT_EQ(applied.value().actual.exposure.mode, ExposureMode::Manual);
+    EXPECT_EQ(applied.value().actual.exposure.requestedMicroseconds, 1234.0);
+    EXPECT_FALSE(applied.value().actual.gain.mode);
+    read = device->readConfiguration();
+    ASSERT_TRUE(read.hasValue());
+    EXPECT_EQ(read.value().exposure.requestedMicroseconds, 1234.0);
+    ASSERT_TRUE(device->startStream().hasValue());
+    auto destination = pool();
+    auto frame = device->retrieve(std::chrono::milliseconds{100}, *destination);
+    ASSERT_TRUE(frame.hasValue());
+    EXPECT_FALSE(frame.value()->metadata.acquisitionSettings.gainDb);
+}
+
+TEST(SimulatedCamera, ChangedFixedControlDoesNotConsumeFaultAndFailedWritableEditPreservesActual) {
+    core::ManualClock clock;
+    auto opts = options();
+    opts.capabilities.frameRate.access = ControlAccess::ReadOnly;
+    opts.capabilities.exposureModes = {ExposureMode::Manual};
+    opts.capabilities.exposureModeAccess = ControlAccess::ReadOnly;
+    opts.faults = FaultScript::create({{1U, SimulatedFault::ConfigurationFailure, 1U}}).value();
+    auto device = createDevice(clock, opts);
+    ASSERT_TRUE(device->open().hasValue());
+    const auto before = device->readConfiguration().value();
+    auto request = before;
+    request.requestedFps = 20.0;
+    EXPECT_FALSE(device->applyConfiguration(request).hasValue());
+    EXPECT_TRUE(opts.faults->match(1U, {}, FaultPoint::Configuration));
+    request = before;
+    request.exposure.requestedMicroseconds = 1234.0;
+    auto failed = device->applyConfiguration(request);
+    ASSERT_FALSE(failed.hasValue());
+    EXPECT_EQ(failed.error().code, "simulated_configuration_failure");
+    EXPECT_EQ(device->readConfiguration().value().exposure.requestedMicroseconds,
+        before.exposure.requestedMicroseconds);
+    auto applied = device->applyConfiguration(request);
+    ASSERT_TRUE(applied.hasValue());
+    EXPECT_EQ(applied.value().actual.requestedFps, before.requestedFps);
+    EXPECT_EQ(applied.value().actual.exposure.requestedMicroseconds, 1234.0);
 }
 
 TEST(SimulatedCamera, RampFramesAreRepeatable) {
@@ -368,7 +430,7 @@ TEST(SimulatedCamera, RejectsFrameRatesWithoutRepresentableClockPeriods) {
             .minimum = frameRate,
             .maximum = frameRate,
             .increment = frameRate,
-            .writableWhileStreaming = true,
+            .access = ControlAccess::WritableStreaming,
         };
         SimulatedCameraProvider provider(std::move(cameraOptions), clock);
 
@@ -397,7 +459,7 @@ TEST(SimulatedCamera, RejectsBinary64RoundedFramePeriodBoundary) {
         .minimum = boundaryFps,
         .maximum = boundaryFps,
         .increment = boundaryFps,
-        .writableWhileStreaming = true,
+        .access = ControlAccess::WritableStreaming,
     };
     SimulatedCameraProvider provider(std::move(cameraOptions), clock);
 
@@ -1099,6 +1161,25 @@ TEST(SimulatedCamera, ReplayRasterCopyTimeoutPreservesUnpublishedSequencePositio
     EXPECT_EQ(end.error().code, "sequence_exhausted");
 }
 
+TEST(SimulatedCamera, ReplayRetainsRoiAccessWhileDerivingReadOnlyFormatFacts) {
+    core::ManualClock clock;
+    auto opts = replayOptions();
+    opts.capabilities.roi.access = ControlAccess::ReadOnly;
+    auto device = createDevice(clock, opts);
+    ASSERT_TRUE(device->open().hasValue());
+    auto caps = device->capabilities();
+    ASSERT_TRUE(caps.hasValue());
+    EXPECT_EQ(caps.value().pixelFormatAccess, ControlAccess::ReadOnly);
+    EXPECT_EQ(caps.value().roi.access, ControlAccess::ReadOnly);
+    auto current = device->readConfiguration();
+    ASSERT_TRUE(current.hasValue());
+    auto request = current.value();
+    request.roi.width = 2U;
+    ASSERT_NE(request.roi.width, current.value().roi.width);
+    EXPECT_FALSE(device->applyConfiguration(request).hasValue());
+    EXPECT_EQ(device->readConfiguration().value().roi.width, current.value().roi.width);
+}
+
 TEST(SimulatedCamera, StreamingConfigurationEnforcesEachPermissionBeforeScriptConsumption) {
     struct Change {
         const char* code;
@@ -1123,9 +1204,9 @@ TEST(SimulatedCamera, StreamingConfigurationEnforcesEachPermissionBeforeScriptCo
             SCOPED_TRACE(replay);
             core::ManualClock clock;
             auto opts = replay ? replayOptions() : options();
-            opts.capabilities.frameRate.writableWhileStreaming = false;
-            opts.capabilities.exposure.writableWhileStreaming = false;
-            opts.capabilities.gain.writableWhileStreaming = false;
+            opts.capabilities.frameRate.access = ControlAccess::WritableStopped;
+            opts.capabilities.exposure.access = ControlAccess::WritableStopped;
+            opts.capabilities.gain.access = ControlAccess::WritableStopped;
             opts.faults = FaultScript::create({{0U, SimulatedFault::ConfigurationFailure, 1U, 1ms}}).value();
             auto device = createDevice(clock, opts);
             auto destination = pool();
@@ -1168,6 +1249,8 @@ TEST(SimulatedCamera, WritableStreamingNumbersUpdatePacingForGeneratedAndReplay)
         core::ManualClock clock;
         auto opts = replay ? replayOptions(SequenceEnd::Loop, SimulationPacingMode::Manual)
                            : options(SimulationPattern::Ramp, SimulationPacingMode::Manual);
+        opts.capabilities.exposureModeAccess = ControlAccess::WritableStreaming;
+        opts.capabilities.gainModeAccess = ControlAccess::WritableStreaming;
         auto device = createDevice(clock, opts);
         auto destination = pool();
         ASSERT_TRUE(device->open().hasValue());
@@ -1422,7 +1505,9 @@ TEST(SimulatedCamera, ConfigurationFaultConsumesOnlyAnApplicableValidatedAttempt
     core::ManualClock clock;
     auto opts = options();
     opts.faults = FaultScript::create({{1U, SimulatedFault::ConfigurationFailure, 2U}}).value();
-    auto device = createDevice(clock, opts);
+    opts.capabilities.exposureModeAccess = ControlAccess::WritableStreaming;
+        opts.capabilities.gainModeAccess = ControlAccess::WritableStreaming;
+        auto device = createDevice(clock, opts);
     auto destination = pool();
     ASSERT_TRUE(device->open().hasValue());
     auto invalid = configuration(mono8());
@@ -1692,6 +1777,8 @@ TEST(SimulatedCamera, FailureResultAllocationDoesNotEscapeOrCommitFaultOccurrenc
         core::ManualClock clock;
         auto opts = replayOptions();
         opts.faults = FaultScript::create({{2U, test.fault, 1U}}).value();
+        opts.capabilities.exposureModeAccess = ControlAccess::WritableStreaming;
+        opts.capabilities.gainModeAccess = ControlAccess::WritableStreaming;
         auto device = createDevice(clock, opts);
         auto destination = pool();
         ASSERT_TRUE(device->open().hasValue());

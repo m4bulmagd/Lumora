@@ -202,25 +202,97 @@ template<typename Enum>
         {x.value(), y.value(), width.value(), height.value()});
 }
 
-[[nodiscard]] QJsonObject encodeNumeric(const camera::NumericCapability& value) {
-    return {{"minimum", value.minimum}, {"maximum", value.maximum},
-        {"increment", value.increment},
-        {"writableWhileStreaming", value.writableWhileStreaming}};
+[[nodiscard]] QString accessName(camera::ControlAccess value) {
+    switch (value) {
+    case camera::ControlAccess::Unavailable: return QStringLiteral("Unavailable");
+    case camera::ControlAccess::ReadOnly: return QStringLiteral("ReadOnly");
+    case camera::ControlAccess::WritableStopped:
+        return QStringLiteral("WritableStopped");
+    case camera::ControlAccess::WritableStreaming:
+        return QStringLiteral("WritableStreaming");
+    }
+    return {};
+}
+
+[[nodiscard]] core::Result<camera::ControlAccess> parseAccess(
+    const QJsonValue& value,
+    const char* key) {
+    if (value == QLatin1String("Unavailable")) {
+        return core::Result<camera::ControlAccess>::success(
+            camera::ControlAccess::Unavailable);
+    }
+    if (value == QLatin1String("ReadOnly")) {
+        return core::Result<camera::ControlAccess>::success(
+            camera::ControlAccess::ReadOnly);
+    }
+    if (value == QLatin1String("WritableStopped")) {
+        return core::Result<camera::ControlAccess>::success(
+            camera::ControlAccess::WritableStopped);
+    }
+    if (value == QLatin1String("WritableStreaming")) {
+        return core::Result<camera::ControlAccess>::success(
+            camera::ControlAccess::WritableStreaming);
+    }
+    return invalidEnum<camera::ControlAccess>(key);
+}
+
+[[nodiscard]] core::Result<QJsonObject> encodeNumeric(
+    const camera::NumericCapability& value,
+    std::uint32_t fingerprintVersion) {
+    QJsonObject object{{"minimum", value.minimum}, {"maximum", value.maximum},
+        {"increment", value.increment}};
+    if (fingerprintVersion == 1U) {
+        if (value.access != camera::ControlAccess::WritableStopped
+            && value.access != camera::ControlAccess::WritableStreaming) {
+            return invalid<QJsonObject>(
+                "A legacy numeric capability has unrepresentable access.");
+        }
+        object.insert("writableWhileStreaming",
+            value.access == camera::ControlAccess::WritableStreaming);
+    } else if (fingerprintVersion == 2U) {
+        const auto access = accessName(value.access);
+        if (access.isEmpty()) {
+            return invalid<QJsonObject>("A camera control access value is invalid.");
+        }
+        object.insert("access", access);
+    } else {
+        return invalid<QJsonObject>("The capability fingerprint version is unsupported.");
+    }
+    return core::Result<QJsonObject>::success(std::move(object));
 }
 
 [[nodiscard]] core::Result<camera::NumericCapability> decodeNumeric(
-    const QJsonObject& object) {
+    const QJsonObject& object,
+    std::uint32_t fingerprintVersion) {
     auto minimum = readFiniteDouble(object, "minimum");
     auto maximum = readFiniteDouble(object, "maximum");
     auto increment = readFiniteDouble(object, "increment");
-    const auto writable = object.value("writableWhileStreaming");
-    if (!minimum.hasValue() || !maximum.hasValue() || !increment.hasValue()
-        || !writable.isBool()) {
+    if (!minimum.hasValue() || !maximum.hasValue() || !increment.hasValue()) {
         return invalid<camera::NumericCapability>(
             "A camera profile numeric capability is invalid.");
     }
+    camera::ControlAccess access{};
+    if (fingerprintVersion == 1U) {
+        const auto writable = object.value("writableWhileStreaming");
+        if (!writable.isBool()) {
+            return invalid<camera::NumericCapability>(
+                "A legacy numeric capability is invalid.");
+        }
+        access = writable.toBool() ? camera::ControlAccess::WritableStreaming
+                                   : camera::ControlAccess::WritableStopped;
+    } else if (fingerprintVersion == 2U) {
+        auto decodedAccess = parseAccess(object.value("access"), "access");
+        if (!decodedAccess.hasValue()) {
+            return invalid<camera::NumericCapability>(
+                decodedAccess.error().diagnosticDetail);
+        }
+        access = decodedAccess.value();
+    } else {
+        return invalid<camera::NumericCapability>(
+            "The capability fingerprint version is unsupported.");
+    }
     return core::Result<camera::NumericCapability>::success(
-        {minimum.value(), maximum.value(), increment.value(), writable.toBool()});
+        {minimum.value(), maximum.value(), increment.value(), access});
 }
 
 [[nodiscard]] QString exposureModeName(camera::ExposureMode value) {
@@ -291,7 +363,25 @@ core::Result<core::CameraIdentity> decodeCameraIdentity(
             std::move(firmware)});
 }
 
-QJsonObject encodeCameraCapabilities(camera::CameraCapabilities value) {
+core::Result<QJsonObject> encodeCameraCapabilities(
+    camera::CameraCapabilities value,
+    std::uint32_t fingerprintVersion) {
+    if (fingerprintVersion != 1U && fingerprintVersion != 2U) {
+        return invalid<QJsonObject>(
+            "The capability fingerprint version is unsupported.");
+    }
+    const auto validated = application::validateCameraCapabilities(value);
+    if (!validated.hasValue()) {
+        return invalid<QJsonObject>(validated.error().diagnosticDetail);
+    }
+    if (fingerprintVersion == 1U
+        && (value.roi.access != camera::ControlAccess::WritableStopped
+            || value.pixelFormatAccess != camera::ControlAccess::WritableStopped
+            || value.exposureModeAccess != value.exposure.access
+            || value.gainModeAccess != value.gain.access)) {
+        return invalid<QJsonObject>(
+            "Legacy capabilities contain access facts that version 1 cannot represent.");
+    }
     std::sort(value.pixelFormats.begin(), value.pixelFormats.end(),
         [](const auto& left, const auto& right) {
             return std::tie(left.canonicalName, left.canonicalEncoding, left.validBits,
@@ -312,18 +402,40 @@ QJsonObject encodeCameraCapabilities(camera::CameraCapabilities value) {
     }
     QJsonArray gainModes;
     for (const auto mode : value.gainModes) gainModes.append(gainModeName(mode));
-    return {{"pixelFormats", formats},
-        {"roi", QJsonObject{{"minimum", encodeRegion(value.roi.minimum)},
-                    {"maximum", encodeRegion(value.roi.maximum)},
-                    {"increment", encodeRegion(value.roi.increment)}}},
-        {"frameRate", encodeNumeric(value.frameRate)},
-        {"exposure", encodeNumeric(value.exposure)},
-        {"exposureModes", exposureModes}, {"gain", encodeNumeric(value.gain)},
+    auto frameRate = encodeNumeric(value.frameRate, fingerprintVersion);
+    auto exposure = encodeNumeric(value.exposure, fingerprintVersion);
+    auto gain = encodeNumeric(value.gain, fingerprintVersion);
+    if (!frameRate.hasValue() || !exposure.hasValue() || !gain.hasValue()) {
+        const auto& error = !frameRate.hasValue() ? frameRate.error()
+            : !exposure.hasValue() ? exposure.error() : gain.error();
+        return invalid<QJsonObject>(error.diagnosticDetail);
+    }
+    QJsonObject roi{{"minimum", encodeRegion(value.roi.minimum)},
+        {"maximum", encodeRegion(value.roi.maximum)},
+        {"increment", encodeRegion(value.roi.increment)}};
+    QJsonObject result{{"pixelFormats", formats},
+        {"roi", roi},
+        {"frameRate", frameRate.value()},
+        {"exposure", exposure.value()},
+        {"exposureModes", exposureModes}, {"gain", gain.value()},
         {"gainModes", gainModes}};
+    if (fingerprintVersion == 2U) {
+        roi.insert("access", accessName(value.roi.access));
+        result.insert("roi", roi);
+        result.insert("pixelFormatAccess", accessName(value.pixelFormatAccess));
+        result.insert("exposureModeAccess", accessName(value.exposureModeAccess));
+        result.insert("gainModeAccess", accessName(value.gainModeAccess));
+    }
+    return core::Result<QJsonObject>::success(std::move(result));
 }
 
 core::Result<camera::CameraCapabilities> decodeCameraCapabilities(
-    const QJsonObject& object) {
+    const QJsonObject& object,
+    std::uint32_t fingerprintVersion) {
+    if (fingerprintVersion != 1U && fingerprintVersion != 2U) {
+        return invalid<camera::CameraCapabilities>(
+            "The capability fingerprint version is unsupported.");
+    }
     auto formatsJson = readArray(object, "pixelFormats");
     auto roiJson = readObject(object, "roi");
     auto frameRateJson = readObject(object, "frameRate");
@@ -362,9 +474,9 @@ core::Result<camera::CameraCapabilities> decodeCameraCapabilities(
     auto roiMinimum = decodeRegion(roiMinimumJson.value());
     auto roiMaximum = decodeRegion(roiMaximumJson.value());
     auto roiIncrement = decodeRegion(roiIncrementJson.value());
-    auto frameRate = decodeNumeric(frameRateJson.value());
-    auto exposure = decodeNumeric(exposureJson.value());
-    auto gain = decodeNumeric(gainJson.value());
+    auto frameRate = decodeNumeric(frameRateJson.value(), fingerprintVersion);
+    auto exposure = decodeNumeric(exposureJson.value(), fingerprintVersion);
+    auto gain = decodeNumeric(gainJson.value(), fingerprintVersion);
     if (!roiMinimum.hasValue() || !roiMaximum.hasValue() || !roiIncrement.hasValue()
         || !frameRate.hasValue() || !exposure.hasValue() || !gain.hasValue()) {
         return invalid<camera::CameraCapabilities>(
@@ -388,10 +500,34 @@ core::Result<camera::CameraCapabilities> decodeCameraCapabilities(
         gainModes.push_back(mode.value());
     }
 
+    camera::ControlAccess roiAccess = camera::ControlAccess::WritableStopped;
+    camera::ControlAccess pixelFormatAccess = camera::ControlAccess::WritableStopped;
+    camera::ControlAccess exposureModeAccess = exposure.value().access;
+    camera::ControlAccess gainModeAccess = gain.value().access;
+    if (fingerprintVersion == 2U) {
+        auto decodedRoiAccess = parseAccess(roiJson.value().value("access"), "roi.access");
+        auto decodedPixelAccess = parseAccess(
+            object.value("pixelFormatAccess"), "pixelFormatAccess");
+        auto decodedExposureModeAccess = parseAccess(
+            object.value("exposureModeAccess"), "exposureModeAccess");
+        auto decodedGainModeAccess = parseAccess(
+            object.value("gainModeAccess"), "gainModeAccess");
+        if (!decodedRoiAccess.hasValue() || !decodedPixelAccess.hasValue()
+            || !decodedExposureModeAccess.hasValue()
+            || !decodedGainModeAccess.hasValue()) {
+            return invalid<camera::CameraCapabilities>(
+                "A camera capability access value is invalid.");
+        }
+        roiAccess = decodedRoiAccess.value();
+        pixelFormatAccess = decodedPixelAccess.value();
+        exposureModeAccess = decodedExposureModeAccess.value();
+        gainModeAccess = decodedGainModeAccess.value();
+    }
+
     camera::CameraCapabilities result{std::move(formats),
-        {roiMinimum.value(), roiMaximum.value(), roiIncrement.value()},
+        {roiMinimum.value(), roiMaximum.value(), roiIncrement.value(), roiAccess},
         frameRate.value(), exposure.value(), std::move(exposureModes), gain.value(),
-        std::move(gainModes)};
+        std::move(gainModes), pixelFormatAccess, exposureModeAccess, gainModeAccess};
     const auto validated = application::validateCameraCapabilities(result);
     if (!validated.hasValue()) {
         return invalid<camera::CameraCapabilities>(validated.error().diagnosticDetail);

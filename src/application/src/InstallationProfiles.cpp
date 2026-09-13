@@ -17,7 +17,11 @@ bool blank(const std::string& text) {
 }
 
 core::Result<void> validateInstallationProfile(const InstallationCameraProfile& profile) {
-    if (profile.recordVersion != 1 || profile.capabilityFingerprintVersion != 1
+    if (profile.recordVersion != 1
+        || profile.capabilityFingerprintVersion
+            < LegacyCameraCapabilityFingerprintVersion
+        || profile.capabilityFingerprintVersion
+            > CurrentCameraCapabilityFingerprintVersion
         || profile.revision == 0 || !profile.confirmed
         || blank(profile.identity.manufacturer) || blank(profile.identity.model)
         || blank(profile.identity.serial)) {
@@ -33,7 +37,8 @@ core::Result<void> validateInstallationProfile(const InstallationCameraProfile& 
         return core::Result<void>::failure(invalid("installation_invalid_orientation",
             "The installation rotation is invalid."));
     }
-    const auto capabilities = validateCameraCapabilities(profile.capabilities);
+    const auto capabilities =
+        application::validateCameraCapabilities(profile.capabilities);
     if (!capabilities.hasValue()) {
         return core::Result<void>::failure(invalid("installation_invalid_capabilities",
             "The installation profile contains invalid camera capabilities."));
@@ -81,7 +86,7 @@ core::Result<std::optional<InstallationCameraProfile>> resolveInstallationProfil
     const auto valid = validateInstallationProfiles(snapshot.profiles);
     if (!valid.hasValue()) return Resolution::failure(valid.error());
     if (blank(identity.manufacturer) || blank(identity.model) || blank(identity.serial)
-        || !validateCameraCapabilities(capabilities).hasValue()) {
+        || !application::validateCameraCapabilities(capabilities).hasValue()) {
         return Resolution::failure(invalid("installation_camera_invalid",
             "The discovered camera identity or capabilities are invalid."));
     }
@@ -92,6 +97,11 @@ core::Result<std::optional<InstallationCameraProfile>> resolveInstallationProfil
         }
         return Resolution::failure(invalid("installation_profile_required",
             "An administrator must save an installation profile for this camera."));
+    }
+    if (profile->capabilityFingerprintVersion
+        != CurrentCameraCapabilityFingerprintVersion) {
+        return Resolution::failure(invalid("installation_profile_review_required",
+            "An administrator must review and save this legacy installation profile again."));
     }
     if (!cameraCapabilitiesEqual(profile->capabilities, capabilities)) {
         return Resolution::failure(invalid("installation_capabilities_changed",

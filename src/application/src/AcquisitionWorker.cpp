@@ -101,6 +101,7 @@ struct AcquisitionWorker::Impl final {
     void clearDeviceFacts() {
         status.actualIdentity.reset();
         status.capabilities.reset();
+        status.currentConfiguration.reset();
         status.appliedConfiguration.reset();
         status.appliedRevision = 0U;
         status.confirmedRevision.reset();
@@ -232,6 +233,14 @@ struct AcquisitionWorker::Impl final {
             return failAndCleanup(failure(ErrorCategory::CameraConfiguration, "camera_format_not_available",
                 "The camera does not support the prepared native source format."), E::CapabilitiesFailed);
         }
+        auto validCapabilities = camera::validateCameraCapabilities(capabilities.value());
+        if (!validCapabilities.hasValue()) return failAndCleanup(validCapabilities.error(), E::CapabilitiesFailed);
+        auto current = device->readConfiguration();
+        if (stopping()) return cancelled();
+        if (!current.hasValue()) return failAndCleanup(current.error(), E::CapabilitiesFailed);
+        auto validReadback = camera::validateCameraConfigurationReadback(current.value(), capabilities.value());
+        if (!validReadback.hasValue()) return failAndCleanup(validReadback.error(), E::CapabilitiesFailed);
+        status.currentConfiguration = std::move(current.value());
         status.capabilities = std::move(capabilities.value());
         status.actualIdentity = id;
         status.consecutiveTimeouts = 0U;
@@ -243,22 +252,31 @@ struct AcquisitionWorker::Impl final {
         status.restoreEligible = false;
         reconfigurationRequiresApply = true;
         if (!previous) return failAndCleanup(std::move(error), E::DisconnectFailed);
-        auto restored = device->applyConfiguration(previous->actual);
+        auto current = device->readConfiguration();
+        if (!current.hasValue()) return failAndCleanup(current.error(), E::DisconnectFailed);
+        auto restoreRequest = previous->actual;
+        if (restoreRequest.exposure.mode == camera::ExposureMode::Auto) restoreRequest.exposure.requestedMicroseconds.reset();
+        if (restoreRequest.gain.mode == camera::GainMode::Auto) restoreRequest.gain.requestedDb.reset();
+        auto plan = camera::planCameraConfigurationChange(restoreRequest, current.value(), *status.capabilities, false);
+        if (!plan.hasValue()) return failAndCleanup(plan.error(), E::DisconnectFailed);
+        auto restored = device->applyConfiguration(restoreRequest);
         if (!restored.hasValue()) return failAndCleanup(restored.error(), E::DisconnectFailed);
         const auto& actual = restored.value().actual;
         const auto& expected = previous->actual;
-        auto valid = camera::validateCameraConfiguration(actual, *status.capabilities);
+        auto valid = camera::validateCameraConfigurationReadback(actual, *status.capabilities);
         if (valid.hasValue()) valid = validateMode(actual);
         const bool exact = sameMode(actual, expected)
             && actual.requestedFps == expected.requestedFps
             && actual.exposure.mode == expected.exposure.mode
-            && actual.exposure.requestedMicroseconds == expected.exposure.requestedMicroseconds
+            && (expected.exposure.mode != camera::ExposureMode::Manual
+                || actual.exposure.requestedMicroseconds == expected.exposure.requestedMicroseconds)
             && actual.gain.mode == expected.gain.mode
-            && actual.gain.requestedDb == expected.gain.requestedDb
+            && (expected.gain.mode != camera::GainMode::Manual || actual.gain.requestedDb == expected.gain.requestedDb)
             && actual.acquisitionMode == expected.acquisitionMode;
         if (!valid.hasValue() || !exact)
             return failAndCleanup(failure(ErrorCategory::CameraConfiguration,
                 "camera_restore_mismatch", "The previous camera configuration could not be verified."), E::DisconnectFailed);
+        status.currentConfiguration = actual;
         (void)event(E::ApplyFailed);
         return Result::failure(std::move(error));
     }
@@ -282,6 +300,18 @@ struct AcquisitionWorker::Impl final {
         deferredPriority = commands.tryPopPriority();
         if (deferredPriority || stopping()) return cancelled();
         const auto previous = status.appliedConfiguration;
+        auto current = device->readConfiguration();
+        if (stopping()) return cancelled();
+        if (!current.hasValue()) return failAndCleanup(current.error(), E::DisconnectFailed);
+        valid = camera::validateCameraConfigurationReadback(current.value(), *status.capabilities);
+        if (!valid.hasValue()) return failAndCleanup(valid.error(), E::DisconnectFailed);
+        status.currentConfiguration = std::move(current.value());
+        auto plan = camera::planCameraConfigurationChange(
+            request.configuration, *status.currentConfiguration, *status.capabilities, false);
+        if (!plan.hasValue()) { (void)event(E::ApplyFailed); return Result::failure(plan.error()); }
+        // Reads can block; honor priority intents again before the first write.
+        deferredPriority = commands.tryPopPriority();
+        if (deferredPriority || stopping()) return cancelled();
         auto result = device->applyConfiguration(request.configuration);
         if (stopping()) return cancelled();
         if (!result.hasValue()) {
@@ -291,7 +321,7 @@ struct AcquisitionWorker::Impl final {
             (void)event(E::ApplyFailed);
             return Result::failure(result.error());
         }
-        valid = camera::validateCameraConfiguration(result.value().actual, *status.capabilities);
+        valid = camera::validateCameraConfigurationReadback(result.value().actual, *status.capabilities);
         if (valid.hasValue()) valid = reconfiguration
             ? validateMode(result.value().actual, &reconfiguration->mode, *reconfiguration->context->rawPool)
             : validateMode(result.value().actual);
@@ -310,6 +340,7 @@ struct AcquisitionWorker::Impl final {
             fixedMode = reconfiguration->mode;
             ++status.sessionGeneration;
         } else if (!fixedMode) fixedMode = result.value().actual;
+        status.currentConfiguration = result.value().actual;
         status.appliedConfiguration = std::move(result.value());
         status.appliedRevision = request.requestRevision;
         status.confirmedRevision.reset();
@@ -322,7 +353,9 @@ struct AcquisitionWorker::Impl final {
         if (!valid.hasValue()) { return valid; }
         valid = event(E::ConfirmRequested);
         if (!valid.hasValue()) { return valid; }
-        if (reconfigurationRequiresApply || !status.appliedConfiguration || request.appliedRequestRevision != status.appliedRevision) {
+        if (reconfigurationRequiresApply || !status.appliedConfiguration
+            || status.requestedRevision != status.appliedRevision
+            || request.appliedRequestRevision != status.appliedRevision) {
             return rejected("configuration_not_applied", "Confirm the current successfully applied configuration.");
         }
         status.confirmedRevision = request.appliedRequestRevision;
@@ -335,6 +368,7 @@ struct AcquisitionWorker::Impl final {
         valid = event(E::StartRequested);
         if (!valid.hasValue()) { return valid; }
         if (!status.appliedConfiguration || !status.confirmedRevision
+            || status.requestedRevision != status.appliedRevision
             || *status.confirmedRevision != status.appliedRevision
             || request.confirmedAppliedRequestRevision != status.appliedRevision) {
             return rejected("configuration_not_confirmed", "Review and confirm actual settings before Start.");
@@ -592,7 +626,8 @@ Result AcquisitionWorker::start() {
     auto machine = CameraSessionStateMachine::fromInitialState(impl_->status.state);
     if (!machine.hasValue()) { return Result::failure(machine.error()); }
     const auto& status = impl_->status;
-    if (status.actualIdentity || status.capabilities || status.appliedConfiguration || status.appliedRevision != 0U
+    if (status.actualIdentity || status.capabilities || status.currentConfiguration
+        || status.appliedConfiguration || status.appliedRevision != 0U
         || status.confirmedRevision || status.restoreEligible || status.desiredStreaming
         || status.sourceReplacementRequired || status.requestedRevision != 0U
         || (status.desiredIdentity && status.desiredIdentity->value.empty())) {
