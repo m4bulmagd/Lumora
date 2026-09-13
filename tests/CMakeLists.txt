@@ -1,4 +1,5 @@
 if(LUMORA_BUILD_QML_UI)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/qml/RendererTests.cmake")
   qt_add_executable(
     lumora_qml_tests
     MANUAL_FINALIZATION
