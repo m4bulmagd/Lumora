@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**UI direction update (2026-09-13):** [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) records Qt Quick/QML as the selected frontend. The [migration proposal](../specs/2026-09-13-qt-quick-qml-migration-design.md) and [handoff](../../PROGRESS.md#next-session-qt-quickqml) start from completed local M9 Task 4E on `codex/m09-camera-controls`. The next session should plan and verify the initial QML integration before continuing M9 Task 5 fullscreen/sidebar/preferences on that frontend. The proposal's targets and stages are unimplemented; existing build commands still describe Widgets. Milestone order and external acceptance gates remain unchanged.
+**UI direction update (2026-09-13):** [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) records Qt Quick/QML as the selected frontend. The [migration proposal](../specs/2026-09-13-qt-quick-qml-migration-design.md) and [handoff](../../PROGRESS.md#next-session-qt-quickqml) continue from [local main at `e2de210`](../../architecture/milestones/m09-camera-controls.md#local-main-integration), which includes completed M9 Task 4E. The integration has not been pushed and has no PR or hosted CI result. The next session should plan and verify the initial QML integration before continuing M9 Task 5 fullscreen/sidebar/preferences on that frontend. The proposal's targets and stages are unimplemented; existing build commands still describe Widgets. Milestone order and external acceptance gates remain unchanged.
 
 ## Global Constraints
 

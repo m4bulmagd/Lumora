@@ -12,7 +12,7 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Next-session direction (2026-09-13):** [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) records the owner's Qt Quick/QML choice. Continue from completed local Task 4E using the [migration proposal](../specs/2026-09-13-qt-quick-qml-migration-design.md) and [handoff](../../PROGRESS.md#next-session-qt-quickqml). Plan the initial shared-presentation and renderer work first. Existing Widgets behavior is the parity baseline; remaining Task 5 functionality should be implemented in the selected frontend after its plan is refined.
+**Next-session direction (2026-09-13):** [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) records the owner's Qt Quick/QML choice. Continue from Task 4E, now [integrated into local main at `e2de210`](../../architecture/milestones/m09-camera-controls.md#local-main-integration), using the [migration proposal](../specs/2026-09-13-qt-quick-qml-migration-design.md) and [handoff](../../PROGRESS.md#next-session-qt-quickqml). Plan the initial shared-presentation and renderer work first. Existing Widgets behavior is the parity baseline; remaining Task 5 functionality should be implemented in the selected frontend after its plan is refined.
 
 ## Global Constraints
 

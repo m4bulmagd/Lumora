@@ -46,10 +46,10 @@ Fresh build trees reuse the retained pinned dependency installation at `/home/mo
 
 The independent final evidence/documentation audit approves the source and log/hash chains, retained failures, capture pixel identities, native runtime provenance, local links and limits of the claims. Its report is retained as `final-evidence-audit.md` in both QA and execution-record directories.
 
-No push, PR or hosted CI run is included in this local continuation. Root `main` preserves the previous local documentation and integrated PR #21 source; the isolated branch contains this slice. Documentation-only completion follows the verified source above.
+No push, PR or hosted CI run is included in this original local-continuation evidence. At that checkpoint, root `main` preserved the previous local documentation and integrated PR #21 source; the isolated branch contained this slice. Tasks 4C–4E subsequently entered [local main at `e2de210`](m09-camera-controls.md#local-main-integration). The verification above remains tied to its original source.
 
 ## Remaining work
 
-This completes the bounded stopped ROI/format slice. Richer camera capability metadata, per-camera profiles, administrator-managed installation orientation and the remaining camera panel workflow are subsequent Task 4 work; fullscreen and persisted UI preferences remain Task 5. M10 capture follows those remaining M9 tasks.
+This completes the bounded stopped ROI/format slice. At this checkpoint, richer camera capability metadata, per-camera profiles, administrator-managed installation orientation and the remaining camera panel workflow were subsequent Task 4 work. Tasks 4D–4E now complete that implementation and are [integrated on local main](m09-camera-controls.md#local-main-integration). Fullscreen and persisted UI preferences remain Task 5, following the selected QML migration; M10 capture follows remaining M9 work.
 
 The inherited intermittent lifecycle/context-retirement timeout and previously recorded scripted-test acknowledgement concern remain unresolved. No processing algorithm or performance benchmark was changed. The recorded Linux 2048 Standard result remains below the 30 FPS target. Native Windows 11 visual/DPI checks, designated Windows/reference/performance work, the M6 hardware profile and separate milestone acceptance remain open.

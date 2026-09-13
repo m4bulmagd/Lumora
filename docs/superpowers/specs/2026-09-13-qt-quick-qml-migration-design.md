@@ -8,7 +8,7 @@ Original inspection: `cd4c8038195f9f313b0305d0229d4cdae05c8b8d` on `main`. This 
 
 ## Next-session handoff
 
-Continue from `codex/m09-camera-controls` in the existing `.worktrees/m09-camera-profiles` worktree. The directory retains its older name; the branch contains the completed camera work. `main` does not yet include Tasks 4C–4E. Read the [current progress](../../PROGRESS.md#next-session-qt-quickqml) and [Task 4E evidence](../../architecture/milestones/m09-camera-controls.md) before planning the migration.
+Continue from local `main` in `/home/mo/code/Lumora`. The [local integration at `e2de210`](../../architecture/milestones/m09-camera-controls.md#local-main-integration) includes Tasks 4C–4E and this QML handoff; it has not been pushed and has no PR or hosted CI result. The former `codex/m09-camera-controls` branch and `.worktrees/m09-camera-profiles` worktree remain retained with their verification records. Read the [current progress](../../PROGRESS.md#next-session-qt-quickqml) and [Task 4E evidence](../../architecture/milestones/m09-camera-controls.md) before planning the migration.
 
 The first action in the new session is to refine this proposal into a bounded Stage 1 implementation plan, including shared presentation boundaries and a renderer experiment with explicit pass/fail criteria. No QML target, option, application or migration implementation plan exists yet. The theme, exact stage boundaries and proposed target names below remain design choices to validate during that work.
 
