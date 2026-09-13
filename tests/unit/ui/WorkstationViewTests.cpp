@@ -227,6 +227,41 @@ TEST(WorkstationView, PauseAndResumeControlsEmitIntentWithoutChangingState) {
     EXPECT_EQ(view.viewerState(), ViewerState::Paused);
 }
 
+TEST(WorkstationView, PausingStatusDisablesToggleUntilTheExactPaintSettles) {
+    WorkstationView view;
+    view.show();
+    QCoreApplication::processEvents();
+    auto* pauseLive =
+        view.findChild<QPushButton*>(QStringLiteral("pauseLiveButton"));
+    auto* shortcut =
+        view.findChild<QAction*>(QStringLiteral("pauseLiveShortcut"));
+    auto* overlay =
+        view.findChild<QLabel*>(QStringLiteral("frameStateOverlay"));
+    ASSERT_NE(pauseLive, nullptr);
+    ASSERT_NE(shortcut, nullptr);
+    ASSERT_NE(overlay, nullptr);
+
+    int pauseRequests = 0;
+    int resumeRequests = 0;
+    QObject::connect(&view, &WorkstationView::pauseRequested,
+        [&pauseRequests] { ++pauseRequests; });
+    QObject::connect(&view, &WorkstationView::resumeRequested,
+        [&resumeRequests] { ++resumeRequests; });
+
+    view.setStatus({ViewerState::Pausing, FrameFreshness::Current,
+        std::nullopt, std::chrono::milliseconds{0}, std::nullopt});
+
+    EXPECT_FALSE(pauseLive->isEnabled());
+    EXPECT_FALSE(shortcut->isEnabled());
+    EXPECT_EQ(pauseLive->text(), QStringLiteral("Pausing…"));
+    EXPECT_TRUE(overlay->isVisible());
+    EXPECT_EQ(overlay->text(), QStringLiteral("PAUSING\nWaiting for current image"));
+    pauseLive->click();
+    shortcut->trigger();
+    EXPECT_EQ(pauseRequests, 0);
+    EXPECT_EQ(resumeRequests, 0);
+}
+
 TEST(WorkstationView, PausedStatusShowsFrozenUtcTimestampAndSuppliedAge) {
     using namespace std::chrono;
     WorkstationView view;

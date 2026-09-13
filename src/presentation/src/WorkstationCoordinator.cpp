@@ -5,13 +5,35 @@
 #include <lumora/configuration/PresetCodec.hpp>
 #include <lumora/application/CameraSettingsPolicy.hpp>
 #include <lumora/camera/CameraConfigurationValidator.hpp>
+#ifdef LUMORA_WORKSTATION_COORDINATOR_TEST_HOOKS
+#include "WorkstationCoordinatorTestHook.hpp"
+#endif
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 namespace lumora::presentation {
+#ifdef LUMORA_WORKSTATION_COORDINATOR_TEST_HOOKS
+namespace testing {
+namespace {
+thread_local ContextAcknowledgementHook contextAcknowledgementHook{};
+}
+
+ContextAcknowledgementHook exchangeContextAcknowledgementHook(
+    ContextAcknowledgementHook hook) noexcept {
+    return std::exchange(contextAcknowledgementHook, hook);
+}
+}  // namespace testing
+#endif
 namespace {
 using Result=core::Result<void>;
 using Intent=CameraStartupIntent;
+void contextAcknowledgementCheckpoint() {
+#ifdef LUMORA_WORKSTATION_COORDINATOR_TEST_HOOKS
+    if(testing::contextAcknowledgementHook)
+        testing::contextAcknowledgementHook();
+#endif
+}
 Result rejected() { return Result::failure({core::ErrorCategory::CameraConfiguration,
     "startup_action_unavailable","The camera action is unavailable.","Wait for the current operation or review settings.",false}); }
 }
@@ -557,6 +579,7 @@ Result WorkstationCoordinator::completeContextHandoff(std::uint64_t id) {
     // Retain the renderer's newly bound source even if acknowledgement races
     // a backend replacement; a later handoff must retire that owner too.
     if(d.handoff->candidate) {
+        contextAcknowledgementCheckpoint();
         auto acknowledged=d.pipeline.acknowledgeContext(d.handoff->candidate->generation);
         if(!acknowledged.hasValue()) {
             d.presentation.contextBound=false;

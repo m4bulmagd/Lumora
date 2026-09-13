@@ -577,7 +577,7 @@ TEST(FramePresenter, DestructionClearsObserverAndDisconnectsViewIntents) {
     view.pauseRequested();
     view.resumeRequested();
 
-    EXPECT_EQ(view.imageViewport()->presentedFrameId(), 1U);
+    EXPECT_EQ(view.imageViewport()->presentedFrameId(), std::nullopt);
 }
 
 TEST(FramePresenter, ResetSourceAcceptsLowerIdAndResetsSessionState) {
@@ -689,7 +689,7 @@ TEST(FramePresenter, ModeSwitchPaintsSameBundleWithoutCountingAnotherFrame) {
     EXPECT_EQ(presenter.displayedFrameCount(), 1U);
 }
 
-TEST(FramePresenter, ModeChangesUseNewestPendingBundleAndCompleteOnlyItsLastMode) {
+TEST(FramePresenter, ModeChangesSerializeBehindTheExactAdmittedTicket) {
     LatestValueSlot<FrameBundle> slot;
     WorkstationView view;
     ManualClock clock;
@@ -697,21 +697,23 @@ TEST(FramePresenter, ModeChangesUseNewestPendingBundleAndCompleteOnlyItsLastMode
     view.show();
     QCoreApplication::processEvents();
     FramePresenter presenter(slot, view, clock);
-    (void)slot.publish(makeEnhancedBundle(1U, clock));
-    presenter.refresh();
-    paint(view);
-    const auto newer = makeEnhancedBundle(2U, clock);
-    (void)slot.publish(newer);
+    const auto bundle = makeEnhancedBundle(1U, clock);
+    (void)slot.publish(bundle);
     presenter.refresh();
     presenter.setDisplayMode(lumora::ui::DisplayMode::Compare);
     presenter.setDisplayMode(lumora::ui::DisplayMode::Original);
-    EXPECT_EQ(presenter.presentedBundle()->sourceFrameId(), 1U);
-    EXPECT_EQ(presenter.displayedFrameCount(), 1U);
-    const auto image = lumora::test::paintWidget(*view.imageViewport());
-    EXPECT_EQ(image.pixelColor(image.width() / 2, image.height() / 2).red(), 128);
-    EXPECT_EQ(presenter.presentedBundle(), newer);
+    EXPECT_EQ(presenter.presentedBundle(), nullptr);
+    EXPECT_EQ(presenter.displayedFrameCount(), 0U);
+
+    const auto admitted = lumora::test::paintWidget(*view.imageViewport());
+    EXPECT_EQ(admitted.pixelColor(admitted.width() / 2, admitted.height() / 2).red(), 224);
+    EXPECT_EQ(presenter.presentedBundle(), bundle);
+    EXPECT_EQ(presenter.displayMode(), lumora::ui::DisplayMode::Enhanced);
+    presenter.refresh();
+    const auto coalesced = lumora::test::paintWidget(*view.imageViewport());
+    EXPECT_EQ(coalesced.pixelColor(coalesced.width() / 2, coalesced.height() / 2).red(), 128);
     EXPECT_EQ(presenter.displayMode(), lumora::ui::DisplayMode::Original);
-    EXPECT_EQ(presenter.displayedFrameCount(), 2U);
+    EXPECT_EQ(presenter.displayedFrameCount(), 1U);
 }
 
 TEST(FramePresenter, PausedCompareKeepsFrozenPairAcrossNewerFallbackAndResume) {

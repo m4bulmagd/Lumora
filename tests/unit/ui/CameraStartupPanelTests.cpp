@@ -542,6 +542,12 @@ TEST(CameraStartupPanel, CameraAndViewerStatesRemainIndependent) {
     presentation.workstationStatus.freshness = FrameFreshness::Current;
     panel.setPresentation(presentation);
     EXPECT_TRUE(viewerState->text().contains("Live", Qt::CaseInsensitive));
+
+    presentation.workstationStatus.viewerState = ViewerState::Pausing;
+    panel.setPresentation(presentation);
+    EXPECT_EQ(viewerState->text(), QStringLiteral("Viewer: Pausing — waiting for current image"));
+    EXPECT_FALSE(viewerState->text().contains("Paused", Qt::CaseInsensitive));
+    EXPECT_FALSE(viewerState->text().contains("Live", Qt::CaseInsensitive));
 }
 
 }  // namespace

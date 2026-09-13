@@ -85,6 +85,10 @@ target_link_libraries(
     GTest::gtest_main
 )
 target_include_directories(lumora_presentation_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+target_compile_definitions(lumora_presentation PRIVATE
+  LUMORA_WORKSTATION_COORDINATOR_TEST_HOOKS)
+target_include_directories(lumora_presentation PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/support")
 lumora_enable_warnings(lumora_presentation_tests)
 add_test(NAME SharedFramePresenter COMMAND lumora_presentation_tests --gtest_filter=SharedFramePresenter.*)
 add_test(NAME PresentationProtocol COMMAND lumora_presentation_tests --gtest_filter=PresentationProtocol.*)

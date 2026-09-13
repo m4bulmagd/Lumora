@@ -382,9 +382,13 @@ void WorkstationView::updateStatusPresentation() {
     const bool frameAvailable =
         status_.freshness != FrameFreshness::WaitingForFrame;
     const bool paused = status_.viewerState == ViewerState::Paused;
+    const bool pausing = status_.viewerState == ViewerState::Pausing;
 
-    pauseLiveButton->setEnabled(frameAvailable || paused);
-    if (paused) {
+    pauseLiveButton->setEnabled(!pausing && (frameAvailable || paused));
+    if (pausing) {
+        pauseLiveButton->setText(tr("Pausing…"));
+        pauseLiveButton->setAccessibleName(tr("Pause pending"));
+    } else if (paused) {
         pauseLiveButton->setText(tr("Live"));
         pauseLiveButton->setAccessibleName(tr("Resume live viewer"));
     } else {
@@ -402,7 +406,13 @@ void WorkstationView::updateStatusPresentation() {
             ->setEnabled(frameAvailable);
     }
     findChild<QAction*>(QStringLiteral("pauseLiveShortcut"))
-        ->setEnabled(frameAvailable || paused);
+        ->setEnabled(!pausing && (frameAvailable || paused));
+
+    if (pausing) {
+        frameStateOverlay->setText(tr("PAUSING\nWaiting for current image"));
+        frameStateOverlay->show();
+        return;
+    }
 
     if (paused) {
         QString text = tr("PAUSED");

@@ -19,6 +19,9 @@ class FramePresenter final {
 public:
     FramePresenter(core::LatestValueSlot<core::FrameBundle>& slot,
                    WorkstationView& view, core::IClock& clock);
+    FramePresenter(core::LatestValueSlot<core::FrameBundle>& slot,
+                   WorkstationView& view, core::IClock& clock,
+                   std::uint64_t sessionGeneration);
     ~FramePresenter();
     FramePresenter(const FramePresenter&) = delete;
     FramePresenter& operator=(const FramePresenter&) = delete;
@@ -28,11 +31,15 @@ public:
     void pause();
     void resume();
     void resetSource(core::LatestValueSlot<core::FrameBundle>& freshSlot);
+    void resetSource(core::LatestValueSlot<core::FrameBundle>& freshSlot,
+                     std::uint64_t sessionGeneration);
+    void retire();
     void setDisplayMode(DisplayMode mode);
     [[nodiscard]] DisplayMode displayMode() const noexcept;
     [[nodiscard]] std::uint64_t displayedFrameCount() const noexcept;
     [[nodiscard]] std::shared_ptr<const core::FrameBundle> presentedBundle()
         const noexcept;
+    [[nodiscard]] bool retirementComplete() const noexcept;
 
 private:
     class Impl;

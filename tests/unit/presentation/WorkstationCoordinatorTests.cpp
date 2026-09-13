@@ -3,6 +3,7 @@
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
 #include <lumora/core/Clock.hpp>
+#include "WorkstationCoordinatorTestHook.hpp"
 #include <gtest/gtest.h>
 #include <atomic>
 #include <condition_variable>
@@ -160,6 +161,48 @@ struct Fixture {
     }
 };
 
+struct AcknowledgementRace final {
+    application::LivePipeline* pipeline{nullptr};
+    std::uint64_t candidateGeneration{0U};
+    bool replacementCompleted{false};
+};
+
+thread_local AcknowledgementRace* acknowledgementRace{nullptr};
+
+bool waitForPipeline(const std::function<bool()>& condition) {
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    do {
+        if (condition()) return true;
+        std::this_thread::yield();
+    } while (std::chrono::steady_clock::now() < deadline);
+    return false;
+}
+
+void replaceContextBeforeAcknowledgement() {
+    auto& race = *acknowledgementRace;
+    auto& pipeline = *race.pipeline;
+    if (!pipeline.acknowledgeContext(race.candidateGeneration).hasValue()) return;
+    if (!pipeline.post({9'001U, application::Connect{{"SIM-LIVE"}}}).hasValue()) return;
+    if (!waitForPipeline([&] {
+            const auto outcome = pipeline.snapshot().ordinaryOutcome;
+            return outcome && outcome->requestId == 9'001U && !outcome->error;
+        })) return;
+    if (!pipeline.post({9'002U, application::Disconnect{}}).hasValue()) return;
+    if (!waitForPipeline([&] {
+            const auto outcome = pipeline.snapshot().priorityOutcome;
+            return outcome && outcome->requestId == 9'002U && !outcome->error;
+        })) return;
+    if (!pipeline.post({9'003U, application::Connect{{"SIM-LIVE"}}}).hasValue()) return;
+    race.replacementCompleted = waitForPipeline([&] {
+        const auto snapshot = pipeline.snapshot();
+        return snapshot.context &&
+            snapshot.context->generation != race.candidateGeneration &&
+            snapshot.ordinaryOutcome &&
+            snapshot.ordinaryOutcome->requestId == 9'003U &&
+            !snapshot.ordinaryOutcome->error;
+    });
+}
+
 TEST(WorkstationCoordinator, DirectCommandsRejectUnavailableActions) {
     Fixture f; ASSERT_TRUE(f.initialize());
     EXPECT_FALSE(f.coordinator.dispatch(Intent::Connect).hasValue());
@@ -207,6 +250,43 @@ TEST(WorkstationCoordinator, ReplacementRetainsOldContextAndRejectsStaleHandoff)
     EXPECT_FALSE(oldContext.expired());
     ASSERT_TRUE(f.coordinator.completeContextHandoff(replacement->id).hasValue());
     ASSERT_TRUE(f.wait([&]{return oldContext.expired();}));
+}
+
+TEST(WorkstationCoordinator,
+    AcknowledgementRaceRetainsBoundCandidateUntilLaterRendererRetirement) {
+    Fixture f;
+    ASSERT_TRUE(f.initialize(false));
+    auto handoff = f.coordinator.pendingContextHandoff();
+    ASSERT_TRUE(handoff);
+    ASSERT_TRUE(handoff->candidate);
+    const auto staleHandoffId = handoff->id;
+    std::weak_ptr<application::LiveSessionContext> retained = handoff->candidate;
+    AcknowledgementRace race{&f.pipeline, handoff->candidate->generation};
+    const auto raced = [&] {
+        acknowledgementRace = &race;
+        presentation::testing::ScopedContextAcknowledgementHook hook(
+            replaceContextBeforeAcknowledgement);
+        auto result = f.coordinator.completeContextHandoff(staleHandoffId);
+        acknowledgementRace = nullptr;
+        return result;
+    }();
+    EXPECT_TRUE(race.replacementCompleted);
+    ASSERT_FALSE(raced.hasValue());
+    EXPECT_EQ(raced.error().code, "stale_camera_session");
+    EXPECT_FALSE(f.coordinator.state().contextBound);
+    EXPECT_FALSE(f.coordinator.dispatch(Intent::Start).hasValue());
+    handoff.reset();
+    EXPECT_FALSE(retained.expired());
+
+    f.coordinator.poll();
+    auto replacement = f.coordinator.pendingContextHandoff();
+    ASSERT_TRUE(replacement);
+    EXPECT_NE(replacement->id, staleHandoffId);
+    EXPECT_FALSE(f.coordinator.completeContextHandoff(staleHandoffId).hasValue());
+    EXPECT_FALSE(retained.expired());
+    ASSERT_TRUE(f.coordinator.completeContextHandoff(replacement->id).hasValue());
+    replacement.reset();
+    ASSERT_TRUE(f.wait([&] { return retained.expired(); }));
 }
 
 TEST(WorkstationCoordinator, ShutdownRetainsContextUntilRendererRetires) {

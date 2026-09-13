@@ -1,155 +1,203 @@
 #include <lumora/ui/FramePresenter.hpp>
 
 #include <lumora/core/Clock.hpp>
+#include <lumora/presentation/FramePresenter.hpp>
 #include <lumora/ui/ImageViewport.hpp>
 #include <lumora/ui/WorkstationView.hpp>
 
 #include <QMetaObject>
 #include <QTimer>
 
-#include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
-#include <cmath>
+#include <functional>
 #include <optional>
 #include <utility>
 
 namespace lumora::ui {
 namespace {
 
-[[nodiscard]] bool staleFor(
-    std::chrono::steady_clock::duration age,
-    double actualFps) noexcept {
-    if (age < std::chrono::milliseconds{500}) {
-        return false;
+[[nodiscard]] std::uint64_t compatibilityGeneration() noexcept {
+    static std::atomic<std::uint64_t> next{0U};
+    auto generation = next.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    if (generation == 0U) {
+        generation = next.fetch_add(1U, std::memory_order_relaxed) + 1U;
     }
-    const auto seconds = std::chrono::duration<long double>{age}.count();
-    return seconds * static_cast<long double>(actualFps) >= 3.0L;
+    return generation;
 }
+
+[[nodiscard]] core::Error sinkBusyError() {
+    return {
+        core::ErrorCategory::ResourceExhaustion,
+        "widgets_presentation_busy",
+        "The image viewer is still completing the previous image.",
+        "WidgetsPresentationSink accepts one ticket until its terminal event is drained.",
+        true,
+    };
+}
+
+class WidgetsPresentationSink final : public presentation::IPresentationSink {
+public:
+    WidgetsPresentationSink(
+        ImageViewport& imageViewport,
+        core::IClock& monotonicClock)
+        : viewport(imageViewport), clock(monotonicClock) {
+        viewport.setCompletionObserver(
+            [this](const ViewportPresentation& completed) {
+                complete(completed);
+            });
+    }
+
+    ~WidgetsPresentationSink() override {
+        viewport.setCompletionObserver({});
+    }
+
+    [[nodiscard]] bool ready() const override {
+        return !pending && eventCount == 0U;
+    }
+
+    core::Result<void> submit(
+        presentation::PresentationSubmission submission) override {
+        if (!ready()) {
+            return core::Result<void>::failure(sinkBusyError());
+        }
+        const auto token = submission.ticket.presentationRevision;
+        auto result = viewport.present(ViewportPresentation{
+            token,
+            submission.mode,
+            submission.bundle->originalDisplay,
+            submission.bundle->enhancedDisplay,
+        });
+        if (!result.hasValue()) {
+            return result;
+        }
+        pending = std::move(submission);
+        return core::Result<void>::success();
+    }
+
+    bool cancelPending(presentation::PresentationTicket ticket) override {
+        if (!pending || pending->ticket != ticket) {
+            return false;
+        }
+        viewport.discardPendingPresentation();
+        pending.reset();
+        return true;
+    }
+
+    void retire(std::uint64_t retirementId) override {
+        viewport.clear();
+        pending.reset();
+        clearEvents();
+        pushEvent(presentation::PresentationRetired{retirementId});
+    }
+
+    std::optional<presentation::PresentationEvent> takeEvent() override {
+        if (eventCount == 0U) {
+            return std::nullopt;
+        }
+        auto event = std::move(events[eventHead]);
+        events[eventHead].reset();
+        eventHead = (eventHead + 1U) % events.size();
+        --eventCount;
+        return event;
+    }
+
+    void setEventObserver(std::function<void()> observer) {
+        eventObserver = std::move(observer);
+    }
+
+private:
+    void complete(const ViewportPresentation& completed) {
+        if (!pending ||
+            completed.token != pending->ticket.presentationRevision ||
+            completed.mode != pending->mode ||
+            completed.originalDisplay != pending->bundle->originalDisplay ||
+            completed.enhancedDisplay != pending->bundle->enhancedDisplay) {
+            return;
+        }
+        const auto completedAt = clock.steadyNow();
+        const auto ticket = pending->ticket;
+        pending.reset();
+        pushEvent(presentation::PresentationReceipt{ticket, completedAt});
+        if (eventObserver) {
+            eventObserver();
+        }
+    }
+
+    void pushEvent(presentation::PresentationEvent event) {
+        if (eventCount == events.size()) {
+            return;
+        }
+        const auto index = (eventHead + eventCount) % events.size();
+        events[index] = std::move(event);
+        ++eventCount;
+    }
+
+    void clearEvents() {
+        for (auto& event : events) {
+            event.reset();
+        }
+        eventHead = 0U;
+        eventCount = 0U;
+    }
+
+    ImageViewport& viewport;
+    core::IClock& clock;
+    std::optional<presentation::PresentationSubmission> pending;
+    std::array<std::optional<presentation::PresentationEvent>, 2U> events;
+    std::size_t eventHead{0U};
+    std::size_t eventCount{0U};
+    std::function<void()> eventObserver;
+};
 
 }  // namespace
 
 class FramePresenter::Impl final {
 public:
     Impl(core::LatestValueSlot<core::FrameBundle>& sourceSlot,
-         WorkstationView& workstationView, core::IClock& sourceClock)
-        : slot(&sourceSlot), view(&workstationView), clock(&sourceClock) {}
+         WorkstationView& workstationView, core::IClock& sourceClock,
+         std::uint64_t sessionGeneration)
+        : view(workstationView), clock(sourceClock),
+          sink(*workstationView.imageViewport(), sourceClock),
+          presenter(std::make_unique<presentation::FramePresenter>(
+              sourceSlot, sink, sourceClock, sessionGeneration)) {}
 
-    [[nodiscard]] std::shared_ptr<const core::FrameBundle> modeSource() const {
-        return paused || !pending ? completed : pending;
+    void publish() {
+        view.setDisplayModeAvailability(
+            presenter->originalAvailable(), presenter->enhancedAvailable());
+        view.setPresentedDisplayMode(presenter->displayMode());
+        view.setStatus(presenter->status());
     }
 
-    void updateAvailability() {
-        const auto source = modeSource();
-        view->setDisplayModeAvailability(source != nullptr,
-            source && source->enhancedDisplay != nullptr);
-    }
-
-    [[nodiscard]] bool submit(
-        std::shared_ptr<const core::FrameBundle> bundle, DisplayMode mode) {
-        const auto token = ++nextToken;
-        auto result = view->imageViewport()->present(ViewportPresentation{
-            token, mode, bundle->originalDisplay, bundle->enhancedDisplay});
-        if (!result.hasValue()) {
-            return false;
-        }
-        pending = std::move(bundle);
-        pendingMode = mode;
-        pendingToken = token;
-        requestedMode = mode;
-        updateAvailability();
-        return true;
-    }
-
-    void updateStatus() {
-        WorkstationStatus status;
-        status.viewerState = paused ? ViewerState::Paused : ViewerState::Live;
-        if (!completed) {
-            status.freshness = FrameFreshness::WaitingForFrame;
-            view->setStatus(status);
-            return;
-        }
-
-        const auto now = clock->steadyNow();
-        const auto hostAge = std::max(
-            now - completed->raw->metadata.hostReceiptTime,
-            std::chrono::steady_clock::duration::zero());
-        status.frameUtc = completed->raw->metadata.acquisitionUtcTime;
-        status.presentationOrientation = completed->originalDisplay->presentationOrientation;
-        status.frameAge = std::chrono::duration_cast<std::chrono::milliseconds>(hostAge);
-        if (paused) {
-            status.freshness = FrameFreshness::Current;
-        } else {
-            const auto paintAge = now - *completedAt;
-            const auto actualFps =
-                completed->raw->metadata.acquisitionSettings.actualFps;
-            status.freshness =
-                staleFor(hostAge, actualFps) || staleFor(paintAge, actualFps)
-                    ? FrameFreshness::Stale
-                    : FrameFreshness::Current;
-        }
-        view->setStatus(status);
-    }
-
-    void accept(const core::PublishedValue<core::FrameBundle>& publication) {
-        examinedRevision = publication.revision;
-        if (paused) {
-            return;
-        }
-        const auto id = publication.value->sourceFrameId();
-        const auto actualFps =
-            publication.value->raw->metadata.acquisitionSettings.actualFps;
-        if (!std::isfinite(actualFps) || actualFps <= 0.0) {
-            return;
-        }
-        if (acceptedId && id <= *acceptedId) {
-            return;
-        }
-        const auto mode = publication.value->enhancedDisplay
-            ? requestedMode : DisplayMode::Original;
-        if (!submit(publication.value, mode)) {
-            return;
-        }
-        acceptedId = id;
-    }
-
-    void readLatest(std::uint64_t afterRevision) {
-        if (auto publication = slot->consumeAfter(afterRevision)) {
-            accept(*publication);
-        }
-    }
-
-    core::LatestValueSlot<core::FrameBundle>* slot;
-    WorkstationView* view;
-    core::IClock* clock;
+    WorkstationView& view;
+    core::IClock& clock;
     QTimer timer;
     QMetaObject::Connection pauseConnection;
     QMetaObject::Connection resumeConnection;
     QMetaObject::Connection modeConnection;
-    std::shared_ptr<const core::FrameBundle> completed;
-    std::shared_ptr<const core::FrameBundle> pending;
-    DisplayMode requestedMode{DisplayMode::Enhanced};
-    DisplayMode pendingMode{DisplayMode::Enhanced};
-    DisplayMode completedMode{DisplayMode::Enhanced};
-    std::uint64_t nextToken{0U};
-    std::uint64_t pendingToken{0U};
-    std::optional<std::uint64_t> acceptedId;
-    std::optional<std::chrono::steady_clock::time_point> completedAt;
     std::optional<std::chrono::steady_clock::time_point> lastTimerDelivery;
-    std::uint64_t examinedRevision{0U};
-    std::uint64_t displayedCount{0U};
-    bool paused{false};
+    WidgetsPresentationSink sink;
+    std::unique_ptr<presentation::FramePresenter> presenter;
 };
 
 FramePresenter::FramePresenter(
     core::LatestValueSlot<core::FrameBundle>& slot,
     WorkstationView& view,
     core::IClock& clock)
-    : impl_(std::make_unique<Impl>(slot, view, clock)) {
+    : FramePresenter(slot, view, clock, compatibilityGeneration()) {}
+
+FramePresenter::FramePresenter(
+    core::LatestValueSlot<core::FrameBundle>& slot,
+    WorkstationView& view,
+    core::IClock& clock,
+    std::uint64_t sessionGeneration)
+    : impl_(std::make_unique<Impl>(slot, view, clock, sessionGeneration)) {
     impl_->timer.setInterval(17);
     impl_->timer.setTimerType(Qt::PreciseTimer);
     QObject::connect(&impl_->timer, &QTimer::timeout, &view, [this] {
         constexpr auto minimumCadence = std::chrono::nanoseconds{1'000'000'000 / 60};
-        const auto now = impl_->clock->steadyNow();
+        const auto now = impl_->clock.steadyNow();
         if (impl_->lastTimerDelivery &&
             now - *impl_->lastTimerDelivery < minimumCadence) {
             return;
@@ -157,26 +205,7 @@ FramePresenter::FramePresenter(
         impl_->lastTimerDelivery = now;
         refresh();
     });
-    view.imageViewport()->setCompletionObserver(
-        [this](const ViewportPresentation& receipt) {
-            if (!impl_->pending || receipt.token != impl_->pendingToken ||
-                receipt.mode != impl_->pendingMode ||
-                receipt.originalDisplay != impl_->pending->originalDisplay ||
-                receipt.enhancedDisplay != impl_->pending->enhancedDisplay) {
-                return;
-            }
-            if (impl_->pending != impl_->completed) {
-                impl_->completedAt = impl_->clock->steadyNow();
-                ++impl_->displayedCount;
-            }
-            impl_->completed = std::move(impl_->pending);
-            impl_->pending.reset();
-            impl_->completedMode = receipt.mode;
-            impl_->pendingToken = 0U;
-            impl_->updateAvailability();
-            impl_->view->setPresentedDisplayMode(impl_->completedMode);
-            impl_->updateStatus();
-        });
+    impl_->sink.setEventObserver([this] { refresh(); });
     impl_->pauseConnection = QObject::connect(
         &view, &WorkstationView::pauseRequested, &view, [this] { pause(); });
     impl_->resumeConnection = QObject::connect(
@@ -184,7 +213,7 @@ FramePresenter::FramePresenter(
     impl_->modeConnection = QObject::connect(
         &view, &WorkstationView::displayModeRequested, &view,
         [this](DisplayMode mode) { setDisplayMode(mode); });
-    impl_->updateAvailability();
+    impl_->publish();
 }
 
 FramePresenter::~FramePresenter() {
@@ -192,7 +221,10 @@ FramePresenter::~FramePresenter() {
     QObject::disconnect(impl_->pauseConnection);
     QObject::disconnect(impl_->resumeConnection);
     QObject::disconnect(impl_->modeConnection);
-    impl_->view->imageViewport()->setCompletionObserver({});
+    impl_->sink.setEventObserver({});
+    impl_->presenter->retire();
+    impl_->presenter->refresh();
+    impl_->presenter.reset();
 }
 
 void FramePresenter::start() {
@@ -202,81 +234,52 @@ void FramePresenter::start() {
 }
 void FramePresenter::stop() { impl_->timer.stop(); }
 void FramePresenter::setDisplayMode(DisplayMode mode) {
-    if (mode != DisplayMode::Original && mode != DisplayMode::Enhanced &&
-        mode != DisplayMode::Compare) {
-        return;
-    }
-    const auto source = impl_->modeSource();
-    if (!source || (mode != DisplayMode::Original && !source->enhancedDisplay)) {
-        return;
-    }
-    if (impl_->requestedMode == mode &&
-        ((impl_->pending && impl_->pendingMode == mode) ||
-         (!impl_->pending && impl_->completedMode == mode))) {
-        return;
-    }
-    static_cast<void>(impl_->submit(source, mode));
+    impl_->presenter->setDisplayMode(mode);
+    impl_->publish();
 }
 
 DisplayMode FramePresenter::displayMode() const noexcept {
-    return impl_->completed ? impl_->completedMode : impl_->requestedMode;
+    return impl_->presenter->displayMode();
 }
 void FramePresenter::refresh() {
-    impl_->readLatest(impl_->examinedRevision);
-    impl_->updateStatus();
+    impl_->presenter->refresh();
+    impl_->publish();
 }
 void FramePresenter::pause() {
-    if (impl_->paused) {
-        return;
-    }
-    impl_->paused = true;
-    impl_->view->imageViewport()->discardPendingPresentation();
-    impl_->pending.reset();
-    impl_->pendingToken = 0U;
-    impl_->requestedMode = impl_->completed ? impl_->completedMode : DisplayMode::Enhanced;
-    impl_->updateAvailability();
-    impl_->view->setPresentedDisplayMode(impl_->requestedMode);
-    impl_->updateStatus();
+    impl_->presenter->pause();
+    impl_->publish();
 }
 void FramePresenter::resume() {
-    if (!impl_->paused) {
-        return;
-    }
-    impl_->paused = false;
-    impl_->acceptedId = impl_->completed
-        ? std::optional<std::uint64_t>{impl_->completed->sourceFrameId()}
-        : std::nullopt;
-    impl_->readLatest(0U);
-    impl_->updateAvailability();
-    impl_->updateStatus();
+    impl_->presenter->resume();
+    impl_->publish();
 }
 void FramePresenter::resetSource(
     core::LatestValueSlot<core::FrameBundle>& freshSlot) {
-    impl_->view->imageViewport()->clear();
-    impl_->slot = &freshSlot;
-    impl_->pending.reset();
-    impl_->completed.reset();
-    impl_->completedMode = impl_->requestedMode;
-    impl_->pendingMode = impl_->requestedMode;
-    impl_->pendingToken = 0U;
-    impl_->acceptedId.reset();
-    impl_->completedAt.reset();
+    resetSource(freshSlot, compatibilityGeneration());
+}
+void FramePresenter::resetSource(
+    core::LatestValueSlot<core::FrameBundle>& freshSlot,
+    std::uint64_t sessionGeneration) {
     impl_->lastTimerDelivery.reset();
-    impl_->examinedRevision = 0U;
-    impl_->displayedCount = 0U;
-    impl_->paused = false;
-    impl_->updateAvailability();
-    impl_->view->setPresentedDisplayMode(impl_->requestedMode);
-    impl_->updateStatus();
+    impl_->presenter->resetSource(freshSlot, sessionGeneration);
+    refresh();
+}
+void FramePresenter::retire() {
+    impl_->presenter->retire();
+    refresh();
 }
 
 std::uint64_t FramePresenter::displayedFrameCount() const noexcept {
-    return impl_->displayedCount;
+    return impl_->presenter->displayedFrameCount();
 }
 
 std::shared_ptr<const core::FrameBundle>
 FramePresenter::presentedBundle() const noexcept {
-    return impl_->completed;
+    return impl_->presenter->presentedBundle();
+}
+
+bool FramePresenter::retirementComplete() const noexcept {
+    return impl_->presenter->retirementComplete();
 }
 
 }  // namespace lumora::ui

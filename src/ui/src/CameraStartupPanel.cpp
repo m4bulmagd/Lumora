@@ -329,7 +329,9 @@ void CameraStartupPanel::updatePresentation() {
     findChild<QLabel*>(QStringLiteral("cameraStartupStateLabel"))->setText(stateText);
     const auto& workstation = presentation_.workstationStatus;
     QString viewerText;
-    if (workstation.viewerState == ViewerState::Paused) {
+    if (workstation.viewerState == ViewerState::Pausing) {
+        viewerText = tr("Viewer: Pausing — waiting for current image");
+    } else if (workstation.viewerState == ViewerState::Paused) {
         switch (workstation.freshness) {
         case FrameFreshness::Current: viewerText = tr("Viewer: Paused — current image retained"); break;
         case FrameFreshness::Stale: viewerText = tr("Viewer: Paused — stale image retained"); break;

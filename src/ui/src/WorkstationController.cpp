@@ -8,6 +8,8 @@
 #include <QLabel>
 #include <QTimer>
 
+#include <optional>
+
 namespace lumora::ui {
 namespace {
 using Result=core::Result<void>;
@@ -22,6 +24,7 @@ struct WorkstationController::Impl {
     std::unique_ptr<FramePresenter> presenter;
     std::unique_ptr<ProcessingPanel> processingPanel;
     std::unique_ptr<QLabel> processingLoadStatus;
+    std::optional<std::uint64_t> activeHandoff;
     bool stopped{false};
 
     Impl(application::LivePipeline& pipeline,configuration::StartupPreferencesService& preferences,
@@ -93,19 +96,31 @@ void WorkstationController::poll() {
     if(d.stopped) return;
     d.coordinator.poll();
     if(auto handoff=d.coordinator.pendingContextHandoff()) {
-        if(handoff->candidate) {
-            if(d.presenter) d.presenter->resetSource(handoff->candidate->bundleSlot);
-            else {
-                d.presenter=std::make_unique<FramePresenter>(handoff->candidate->bundleSlot,d.view,d.clock);
-                d.presenter->start();
+        if(d.activeHandoff!=handoff->id) {
+            d.activeHandoff=handoff->id;
+            if(handoff->candidate) {
+                if(d.presenter) {
+                    d.presenter->resetSource(
+                        handoff->candidate->bundleSlot,
+                        handoff->candidate->generation);
+                } else {
+                    d.presenter=std::make_unique<FramePresenter>(
+                        handoff->candidate->bundleSlot,d.view,d.clock,
+                        handoff->candidate->generation);
+                    d.presenter->start();
+                }
+            } else if(d.presenter) {
+                d.presenter->retire();
+            } else {
+                d.view.imageViewport()->clear();
             }
-        } else {
-            d.presenter.reset();
-            d.view.imageViewport()->clear();
         }
-        // Widgets resetSource clears its viewport and retained bundles before
-        // returning, so this adapter can complete retirement synchronously.
-        (void)d.coordinator.completeContextHandoff(handoff->id);
+        const bool rendererRetired=!d.presenter || d.presenter->retirementComplete();
+        if(rendererRetired) {
+            if(!handoff->candidate) d.presenter.reset();
+            if(d.coordinator.completeContextHandoff(handoff->id).hasValue())
+                d.activeHandoff.reset();
+        }
     }
     if(d.presenter) d.presenter->refresh();
     if(!d.processingPanel) {
@@ -136,9 +151,14 @@ void WorkstationController::shutdown() noexcept {
     d.stopped=true; d.timer.stop();
     d.coordinator.beginShutdown();
     if(d.processingPanel) d.processingPanel->setEnabled(false);
-    d.presenter.reset();
-    d.view.imageViewport()->clear();
-    d.coordinator.completeRendererShutdown();
+    bool rendererRetired=true;
+    if(d.presenter) {
+        d.presenter->stop();
+        d.presenter->retire();
+        rendererRetired=d.presenter->retirementComplete();
+        if(rendererRetired) d.presenter.reset();
+    } else d.view.imageViewport()->clear();
+    if(rendererRetired) d.coordinator.completeRendererShutdown();
     try { d.publish(); } catch(...) {}
 }
 } // namespace lumora::ui

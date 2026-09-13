@@ -664,6 +664,10 @@ TEST(LivePipeline, IndependentCameraProcessingAndPresentationStallsUseCompletedP
         ASSERT_TRUE(f.next(boundary==0 ? &sourceClock : nullptr));
         ASSERT_TRUE(f.wait([&]{auto frame=f.latest();return frame && frame->raw->metadata.hostReceiptTime==f.clock.steadyNow();}));
         ASSERT_TRUE(f.paint());
+        auto latestAtFirstPaint=f.latest();
+        ASSERT_TRUE(latestAtFirstPaint);
+        if(f.controller.presenter()->presentedBundle()!=latestAtFirstPaint) { ASSERT_TRUE(f.paint()); }
+        ASSERT_EQ(f.controller.presenter()->presentedBundle(),latestAtFirstPaint);
         auto contextual=f.controller.presenter()->presentedBundle();const auto paintedAt=f.clock.steadyNow();
         ASSERT_TRUE(f.wait([&]{auto camera=f.pipeline.snapshot().camera;
             return camera && camera->acquisitionCounters.acquired>=contextual->sourceFrameId();}));
@@ -691,9 +695,13 @@ TEST(LivePipeline, IndependentCameraProcessingAndPresentationStallsUseCompletedP
                 return frame && frame->sourceFrameId()>contextual->sourceFrameId();}));
         }
         ASSERT_TRUE(f.paint());
+        auto latestAtRecovery=f.latest();
+        ASSERT_TRUE(latestAtRecovery);
+        if(f.controller.presenter()->presentedBundle()!=latestAtRecovery) { ASSERT_TRUE(f.paint()); }
+        ASSERT_EQ(f.controller.presenter()->presentedBundle(),latestAtRecovery);
         EXPECT_EQ(f.view.status().freshness,ui::FrameFreshness::Current);
         auto raw=f.pipeline.snapshot().context->rawPool;auto display=f.pipeline.snapshot().context->displayPool;
-        contextual.reset();f.controller.shutdown();
+        contextual.reset();latestAtFirstPaint.reset();latestAtRecovery.reset();f.controller.shutdown();
         EXPECT_EQ(raw->stats().inUse,0U);EXPECT_EQ(display->stats().inUse,0U);
     }
 }
@@ -891,6 +899,7 @@ TEST(LivePipeline, StoppedRoiAndFormatApplyResetsPresentationAndKeepsDeviceFrame
     ASSERT_TRUE(f.wait([&]{return f.preferences.latestStatus()->latestSavedPresetRevision.has_value();}));
     f.controller.presenter()->setDisplayMode(ui::DisplayMode::Compare);
     ASSERT_TRUE(f.paint());
+    if(f.controller.presenter()->displayMode()!=ui::DisplayMode::Compare) { ASSERT_TRUE(f.paint()); }
     ASSERT_EQ(f.controller.presenter()->displayMode(),ui::DisplayMode::Compare);
     const auto old=f.pipeline.snapshot();
     const auto oldFrame=f.controller.presenter()->presentedBundle();
