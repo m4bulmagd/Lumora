@@ -52,7 +52,7 @@ CI cache keys separate operating systems and architectures. Each run saves a new
 
 ## Configure, build, and test
 
-The commands below build the current Widgets workstation. An opt-in [QML interface preview](#optional-qml-interface-preview) is also available. The preview implements the first foundation checkpoint; shared controller policy, live image rendering and camera/processing integration remain later [migration work](../superpowers/plans/2026-09-13-qml-stage-one.md). Existing `minimal` smoke tests do not verify Quick rendering.
+The commands below build the current Widgets workstation. An opt-in [QML interface preview](#optional-qml-interface-preview) and a separate [renderer experiment](#qml-renderer-experiment) are also available. Shared C++ workstation and presentation policy serves the Widgets frontend; camera/processing integration into QML remains later [migration work](../superpowers/plans/2026-09-13-qml-stage-one.md). Existing `minimal` smoke tests do not verify Quick rendering.
 
 Debug simulator build:
 
@@ -101,7 +101,40 @@ LUMORA_QML_CAPTURE_DIR="$PWD/out/qa/qml-preview" \
   out/build/linux-gcc-debug-sim-qml/tests/lumora_qml_tests
 ```
 
-Use the matching Qt platform-plugin path if required by the installed prefix. An Xvfb/software pass checks an actual Qt Quick window but does not establish accelerated image rendering, physical-display appearance or native Windows/DPI acceptance. The renderer/ownership experiment remains a separate checkpoint.
+Use the matching Qt platform-plugin path if required by the installed prefix. An Xvfb/software pass checks an actual Qt Quick window but does not establish accelerated image rendering, physical-display appearance or native Windows/DPI acceptance.
+
+## QML renderer experiment
+
+With QML and tests enabled, `Qml.ImageRenderer` exercises the C++ image sink in
+an actual offscreen/software Quick window. It is separate from the preview and
+does not attach a camera. Full regressions include both QML test registrations:
+
+```bash
+ctest --preset linux-gcc-debug-sim-qml -LE 'hardware|desktop' --output-on-failure
+```
+
+For native Linux checks, use the matching Qt platform plugins and run the image
+test executable directly. Select a render backend explicitly; the diagnostic
+output records the actual graphics implementation:
+
+```bash
+xvfb-run -a -s '-screen 0 2560x2160x24' env \
+  QT_QPA_PLATFORM=xcb QSG_RHI_BACKEND=opengl QSG_RENDER_LOOP=threaded QSG_INFO=1 \
+  out/build/linux-gcc-debug-sim-qml/tests/lumora_quick_image_tests
+```
+
+Use `QSG_RENDER_LOOP=basic` for the basic OpenGL loop, or replace
+`QSG_RHI_BACKEND=opengl` with `QT_QUICK_BACKEND=software` for software rendering.
+Use `QT_SCALE_FACTOR=2` for the DPR 2 fixture. Xvfb can select Mesa llvmpipe;
+successful OpenGL tests on it do not establish physical GPU or display behavior.
+
+`lumora_quick_renderer_benchmark` prints bounded synthetic-frame measurements as
+JSON. Build and run its Release target with the same explicit environment. Set
+`LUMORA_RENDERER_CAPTURE_DIR` to capture separate 900×600 and 1280×800 Compare
+windows outside the timed samples. The [benchmark description](../../benchmarks/presentation/README.md)
+defines the timestamp and storage boundaries; the [checkpoint record](../architecture/milestones/qml-renderer-experiment.md)
+records verification, measured costs and remaining limits. Do not interpret this
+experiment as live processing throughput or complete session/GPU memory accounting.
 
 ## Launch the desktop application
 

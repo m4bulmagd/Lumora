@@ -10,7 +10,7 @@
 
 **Spec:** [Qt Quick/QML migration design](../specs/2026-09-13-qt-quick-qml-migration-design.md).
 
-**Status:** Checkpoints 1 and 2 are implemented locally on `codex/qml-foundation`, continuing from `e4520dd`. See the [foundation record](../../architecture/milestones/qml-foundation.md) and [shared-policy record](../../architecture/milestones/qml-shared-policy.md) for source-bound verification and remaining limits. Checkpoints 3–4 remain planned. The preview does not complete the integrated Stage 1 workstation.
+**Status:** Checkpoints 1–3 are implemented locally on `codex/qml-foundation`, continuing from `e4520dd`. See the [foundation record](../../architecture/milestones/qml-foundation.md), [shared-policy record](../../architecture/milestones/qml-shared-policy.md) and [renderer experiment record](../../architecture/milestones/qml-renderer-experiment.md) for source-bound verification and remaining limits. Checkpoint 4 remains planned. The preview and standalone renderer experiment do not complete the integrated Stage 1 workstation.
 
 ## Global constraints
 
@@ -88,11 +88,11 @@ Register QML test execution explicitly; do not inherit `QT_QPA_PLATFORM=minimal`
 
 ## Checkpoint 3: Presentation protocol and renderer feasibility
 
-Implementation is in progress from `42c2340`; the [renderer experiment plan](2026-09-13-qml-renderer-experiment.md) defines its task interfaces, lifecycle rules and verification sequence.
+Implemented and locally verified through `60b7542`, continuing from `42c2340`. The [renderer experiment plan](2026-09-13-qml-renderer-experiment.md) defines its interfaces and lifecycle rules; the [checkpoint record](../../architecture/milestones/qml-renderer-experiment.md) records Debug/Release 75/75 suites, native renderer/Widgets verification, measurements and the explicit remaining limits.
 
 **Files:** Create `src/presentation/include/lumora/presentation/PresentationProtocol.hpp` and shared `FramePresenter` files. Adapt `src/ui/src/FramePresenter.cpp`, `ImageViewport.cpp` and `WorkstationController.cpp` to that contract. Create `src/qml/QuickImageItem.hpp/.cpp`, `tests/unit/presentation/PresentationProtocolTests.cpp`, `tests/support/ControlledPresentationSink.hpp` and `tests/qml/QuickImageItemTests.cpp`. Record measurements in `docs/architecture/milestones/qml-renderer-experiment.md`.
 
-Proposed C++ ticket values, kept outside QML:
+Implemented C++ ticket values, kept outside QML:
 
 ```cpp
 struct PresentationTicket {
@@ -109,13 +109,13 @@ struct PresentationReceipt {
 
 The submission carries one retained `shared_ptr<const FrameBundle>` and a display mode. The renderer validates both planes before admitting a submission. Completion and retirement are separate events; a canceled ticket can release owners without counting as presentation.
 
-- [ ] First implement the shared protocol against a deterministic controlled sink. Serialize submissions while a ticket is in flight. Keep at most one in-flight and one completed/frozen bundle in the presenter; leave the newest candidate in the existing slot until capacity is available. Coalesce mode intent without creating a frame backlog.
-- [ ] Capture completion time at the renderer boundary, then deliver the receipt to the GUI. Accept only the current session and exact admitted ticket. Count/refresh only a new source frame, never a mode-only repaint or duplicate receipt.
-- [ ] Define Pause as an ordered barrier: close source admission immediately, cancel unsynchronized work where possible, and settle work already consumed by rendering before publishing Paused. Show a pending Pause indication until the barrier proves the frozen visible bundle equals the reported bundle. A late receipt cannot replace that frozen bundle. Resume reads the newest available source.
-- [ ] Retire old scene-graph/upload owners before acknowledging replacement context; retain the old context handle until retirement completes. Cover close/invalidation even when no further frame will render. Do not wait indefinitely for a hidden window's next swap to release owners.
-- [ ] Implement one C++ image item rendering prepared Gray8 through public scene-graph texture facilities. Prove grayscale/channel handling and padded stride before selecting the final upload representation. Compare uses one validated submission, one shared transform and one receipt; QML never carries pixel arrays or independent plane URLs.
-- [ ] Correlate the item's consumed ticket with `QQuickWindow::frameSwapped`, capturing monotonic time on that render-thread boundary. A window frame caused only by another control must not complete an image ticket. This measures presentation submission, not physical display scan-out.
-- [ ] Inventory retained pool leases, texture pairs, staging/conversion copies and measured upload/display latency at 640×480 and representative larger workloads including 2048². Reserve known external storage through existing preparation options where applicable. Report GPU/driver overhead separately; the 512 MiB default session accounting and existing CPU allocation evidence do not already cover it. Do not expand pools or claim zero allocation without evidence.
+- [x] First implement the shared protocol against a deterministic controlled sink. Serialize submissions while a ticket is in flight. Keep at most one in-flight and one completed/frozen bundle in the presenter; leave the newest candidate in the existing slot until capacity is available. Coalesce mode intent without creating a frame backlog.
+- [x] Capture completion time at the renderer boundary, then deliver the receipt to the GUI. Accept only the current session and exact admitted ticket. Count/refresh only a new source frame, never a mode-only repaint or duplicate receipt.
+- [x] Define Pause as an ordered barrier: close source admission immediately, cancel unsynchronized work where possible, and settle work already consumed by rendering before publishing Paused. Show a pending Pause indication until the barrier proves the frozen visible bundle equals the reported bundle. A late receipt cannot replace that frozen bundle. Resume reads the newest available source.
+- [x] Retire old scene-graph/upload owners before acknowledging replacement context; retain the old context handle until retirement completes. Cover close/invalidation even when no further frame will render. Do not wait indefinitely for a hidden window's next swap to release owners.
+- [x] Implement one C++ image item rendering prepared Gray8 through public scene-graph texture facilities. Prove grayscale/channel handling and padded stride before selecting the final upload representation. Compare uses one validated submission, one shared transform and one receipt; QML never carries pixel arrays or independent plane URLs.
+- [x] Correlate the item's consumed ticket with `QQuickWindow::frameSwapped`, capturing monotonic time on that render-thread boundary. A window frame caused only by another control must not complete an image ticket. This measures presentation submission, not physical display scan-out.
+- [x] Inventory retained pool leases, texture pairs, staging/conversion copies and measured upload/display latency at 640×480 and representative larger workloads including 2048². Reserve known external storage through existing preparation options where applicable. Report GPU/driver overhead separately; the 512 MiB default session accounting and existing CPU allocation evidence do not already cover it. Do not expand pools or claim zero allocation without evidence.
 
 **Required pass/fail cases:**
 
@@ -135,7 +135,7 @@ Use shared deterministic tests, a software/offscreen path where supported, and a
 
 **Files:** Extend `src/qml/main.cpp` and `qml/Main.qml`; create `CameraAdapter.hpp/.cpp`, `ProcessingAdapter.hpp/.cpp`, `ViewerAdapter.hpp/.cpp`, `qml/CameraStartup.qml`, `qml/ViewingToolbar.qml`, `qml/WindowLevelControls.qml`, `qml/StatusStrip.qml` and `tests/integration/QmlWorkstationTests.cpp`. Update build guides, dependency inventory and `docs/PROGRESS.md` with scoped evidence.
 
-- [ ] Register small typed adapters in the QML module and inject application-owned instances through required root properties. Keep request/session/revision handling in C++ and numeric window/level editing precise.
+- [ ] Register small typed adapters in the QML module and inject application-owned instances through required root properties. Keep request/session/revision handling in C++ and numeric window/level editing precise. Project the Quick sink’s pre-ticket `initializationError()` diagnostic into workstation status as well as shared ticket errors.
 - [ ] Compose the existing simulator, installation/preferences services and `LivePipeline`. Connect shared startup, Stop/Disconnect/Retry and explicit eligible saved Resume. Show authoritative readback and active processing state.
 - [ ] Connect Original/Enhanced/Compare, Pause/Resume, Fit, logical 100%, zoom/pan and evaluation/paused/stale/orientation/error indications to shared state and the proven renderer.
 - [ ] Implement only window/level editing through the existing model → admission → completion → acknowledged persistence route. Reopen using isolated development preferences and verify only successfully activated settings were saved.
