@@ -88,6 +88,8 @@ Register QML test execution explicitly; do not inherit `QT_QPA_PLATFORM=minimal`
 
 ## Checkpoint 3: Presentation protocol and renderer feasibility
 
+Implementation is in progress from `42c2340`; the [renderer experiment plan](2026-09-13-qml-renderer-experiment.md) defines its task interfaces, lifecycle rules and verification sequence.
+
 **Files:** Create `src/presentation/include/lumora/presentation/PresentationProtocol.hpp` and shared `FramePresenter` files. Adapt `src/ui/src/FramePresenter.cpp`, `ImageViewport.cpp` and `WorkstationController.cpp` to that contract. Create `src/qml/QuickImageItem.hpp/.cpp`, `tests/unit/presentation/PresentationProtocolTests.cpp`, `tests/support/ControlledPresentationSink.hpp` and `tests/qml/QuickImageItemTests.cpp`. Record measurements in `docs/architecture/milestones/qml-renderer-experiment.md`.
 
 Proposed C++ ticket values, kept outside QML:
