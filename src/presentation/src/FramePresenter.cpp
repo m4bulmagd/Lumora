@@ -28,7 +28,7 @@ public:
 
     std::shared_ptr<const core::FrameBundle> modeSource() const noexcept {
         if (retirement || !slot) return {};
-        return state == ViewerState::Live && pending ? pending->bundle
+        return pending ? pending->bundle
             : retained ? retained->bundle : nullptr;
     }
 
@@ -181,7 +181,8 @@ void FramePresenter::pause() {
             impl_->pending.reset();
             impl_->acceptedId = impl_->countedId;
             impl_->examinedRevision = 0;
-            impl_->requestedMode = impl_->retained ? impl_->retained->mode : DisplayMode::Enhanced;
+            // Cancellation freezes the last completed source, but preserves
+            // explicit mode intent. Automatic fallback commits only on receipt.
         } else {
             impl_->state = ViewerState::Pausing;
         }

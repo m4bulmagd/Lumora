@@ -1,5 +1,6 @@
 #pragma once
 #include <lumora/presentation/PresentationProtocol.hpp>
+#include <algorithm>
 #include <utility>
 #include <array>
 #include <stdexcept>
@@ -15,7 +16,12 @@ public:
     bool consumed{false};
     bool reject{false};
     bool available{true};
-    bool ready() const override { return available && !pending && !retiring; }
+    bool ready() const override {
+        const auto occupied = [](const auto& event) { return event.has_value(); };
+        return available && !pending && !retiring &&
+            !std::ranges::any_of(rendered_, occupied) &&
+            !std::ranges::any_of(delivered_, occupied);
+    }
     core::Result<void> submit(presentation::PresentationSubmission submission) override {
         auto validation = presentation::validatePresentation(submission);
         if (!validation.hasValue()) return validation;

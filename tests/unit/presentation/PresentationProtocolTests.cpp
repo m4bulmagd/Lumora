@@ -1,5 +1,6 @@
 #include <lumora/presentation/PresentationProtocol.hpp>
 #include "PresentationTestFrames.hpp"
+#include "ControlledPresentationSink.hpp"
 #include <gtest/gtest.h>
 namespace {
 using namespace lumora::presentation;
@@ -43,5 +44,32 @@ TEST(PresentationProtocol, CoreFactoriesRejectMalformedSecondPlaneBeforePresenta
         first->enhanced, second->enhancedDisplay, *frames.objects).hasValue());
     EXPECT_FALSE(lumora::core::FrameBundle::create(first->raw, first->originalDisplay,
         first->enhanced, {}, *frames.objects).hasValue());
+}
+}
+
+namespace {
+TEST(PresentationProtocol, ControlledSinkRequiresAllTerminalEventsDrainedBeforeAdmission) {
+    lumora::core::ManualClock clock;
+    lumora::test::PresentationTestFrames frames;
+    lumora::test::ControlledPresentationSink sink;
+    PresentationSubmission first{{1, 1, 1}, frames.frame(1, clock), DisplayMode::Enhanced};
+    PresentationSubmission next{{1, 2, 2}, frames.frame(2, clock), DisplayMode::Enhanced};
+    ASSERT_TRUE(sink.submit(first).hasValue());
+    sink.consume(); sink.complete(clock.steadyNow()); sink.fail(false);
+    EXPECT_FALSE(sink.ready());
+    EXPECT_FALSE(sink.submit(next).hasValue());
+    sink.deliver();
+    EXPECT_FALSE(sink.ready());
+    EXPECT_FALSE(sink.submit(next).hasValue());
+    auto receipt = sink.takeEvent();
+    ASSERT_TRUE(receipt);
+    EXPECT_TRUE(std::holds_alternative<PresentationReceipt>(*receipt));
+    EXPECT_FALSE(sink.ready());
+    EXPECT_FALSE(sink.submit(next).hasValue());
+    auto failure = sink.takeEvent();
+    ASSERT_TRUE(failure);
+    EXPECT_TRUE(std::holds_alternative<PresentationFailure>(*failure));
+    EXPECT_TRUE(sink.ready());
+    EXPECT_TRUE(sink.submit(next).hasValue());
 }
 }

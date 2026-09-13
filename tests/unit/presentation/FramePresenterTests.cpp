@@ -385,3 +385,81 @@ TEST_F(SharedFramePresenter, InvalidModeRequestCannotCreatePresentationWork) {
     EXPECT_FALSE(sink.pending); EXPECT_EQ(presenter.displayMode(), DisplayMode::Enhanced);
 }
 }
+namespace {
+TEST_F(SharedFramePresenter, PauseCancellationPreservesExplicitModeOnFrozenSource) {
+    // A future host time isolates the source-completion deadline from host age.
+    lumora::core::ManualClock sourceClock{clock.steadyNow() + 10s};
+    auto frozen = frames.frame(1, sourceClock);
+    (void)slot.publish(frozen); presenter.refresh(); complete();
+    publish(2); ASSERT_TRUE(sink.pending);
+    const auto cancelled = sink.pending->ticket;
+    presenter.setDisplayMode(DisplayMode::Original);
+    presenter.pause(); presenter.refresh();
+    EXPECT_EQ(presenter.status().viewerState, ViewerState::Paused);
+    EXPECT_EQ(presenter.displayMode(), DisplayMode::Enhanced);
+    ASSERT_TRUE(sink.pending);
+    EXPECT_EQ(sink.pending->bundle, frozen);
+    EXPECT_EQ(sink.pending->mode, DisplayMode::Original);
+    EXPECT_GT(sink.pending->ticket.presentationRevision, cancelled.presentationRevision);
+    clock.advance(499ms); complete();
+    EXPECT_EQ(presenter.presentedBundle(), frozen);
+    EXPECT_EQ(presenter.displayMode(), DisplayMode::Original);
+    EXPECT_EQ(presenter.displayedFrameCount(), 1U);
+    clock.advance(1ms); sink.available = false; presenter.resume();
+    EXPECT_EQ(presenter.status().frameAge, 0ms);
+    EXPECT_EQ(presenter.status().freshness, FrameFreshness::Stale);
+}
+
+TEST_F(SharedFramePresenter, PauseCancellationPreservesModeRepaintIntent) {
+    publish(1); complete(); auto frozen = presenter.presentedBundle();
+    presenter.setDisplayMode(DisplayMode::Original);
+    ASSERT_TRUE(sink.pending); const auto cancelled = sink.pending->ticket;
+    presenter.pause(); presenter.refresh();
+    ASSERT_TRUE(sink.pending);
+    EXPECT_EQ(sink.pending->bundle, frozen);
+    EXPECT_EQ(sink.pending->mode, DisplayMode::Original);
+    EXPECT_GT(sink.pending->ticket.presentationRevision, cancelled.presentationRevision);
+    complete();
+    EXPECT_EQ(presenter.displayMode(), DisplayMode::Original);
+    EXPECT_EQ(presenter.displayedFrameCount(), 1U);
+}
+
+TEST_F(SharedFramePresenter, PausingFirstConsumedFrameCoalescesOriginalUntilReceipt) {
+    publish(1); ASSERT_TRUE(sink.pending); const auto admitted = sink.pending->ticket;
+    sink.consume(); presenter.pause(); presenter.setDisplayMode(DisplayMode::Original);
+    presenter.refresh();
+    EXPECT_EQ(presenter.status().viewerState, ViewerState::Pausing);
+    ASSERT_TRUE(sink.pending);
+    EXPECT_EQ(sink.pending->ticket, admitted);
+    EXPECT_EQ(sink.pending->mode, DisplayMode::Enhanced);
+    complete();
+    EXPECT_EQ(presenter.status().viewerState, ViewerState::Paused);
+    ASSERT_TRUE(sink.pending);
+    EXPECT_EQ(sink.pending->ticket.sourceFrameId, 1U);
+    EXPECT_GT(sink.pending->ticket.presentationRevision, admitted.presentationRevision);
+    EXPECT_EQ(sink.pending->mode, DisplayMode::Original);
+    complete();
+    EXPECT_EQ(presenter.displayMode(), DisplayMode::Original);
+    EXPECT_EQ(presenter.displayedFrameCount(), 1U);
+}
+
+TEST_F(SharedFramePresenter, PausingUsesConsumedPairAvailabilityForCompareIntent) {
+    publish(1, false); complete(); EXPECT_FALSE(presenter.compareAvailable());
+    publish(2); ASSERT_TRUE(sink.pending); const auto admitted = sink.pending->ticket;
+    sink.consume(); presenter.pause(); presenter.setDisplayMode(DisplayMode::Compare);
+    presenter.refresh();
+    EXPECT_EQ(presenter.status().viewerState, ViewerState::Pausing);
+    ASSERT_TRUE(sink.pending);
+    EXPECT_EQ(sink.pending->ticket, admitted);
+    EXPECT_EQ(sink.pending->mode, DisplayMode::Original);
+    complete();
+    EXPECT_EQ(presenter.status().viewerState, ViewerState::Paused);
+    ASSERT_TRUE(sink.pending);
+    EXPECT_EQ(sink.pending->ticket.sourceFrameId, 2U);
+    EXPECT_GT(sink.pending->ticket.presentationRevision, admitted.presentationRevision);
+    EXPECT_EQ(sink.pending->mode, DisplayMode::Compare);
+    complete();
+    EXPECT_EQ(presenter.displayMode(), DisplayMode::Compare);
+    EXPECT_EQ(presenter.displayedFrameCount(), 2U);
+}
+}
