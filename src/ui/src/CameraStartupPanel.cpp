@@ -1,4 +1,5 @@
 #include <lumora/ui/CameraStartupPanel.hpp>
+#include <lumora/presentation/CameraActionPolicy.hpp>
 #include <lumora/ui/CameraSettingsDialog.hpp>
 #include <lumora/ui/InstallationSettingsDialog.hpp>
 #include <lumora/ui/OrientationPresentation.hpp>
@@ -13,7 +14,6 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-#include <algorithm>
 #include <utility>
 
 namespace lumora::ui {
@@ -408,33 +408,20 @@ void CameraStartupPanel::updatePresentation() {
             : QString{});
     warning->setVisible(warningValue.has_value());
 
-    auto* start = findChild<QPushButton*>(QStringLiteral("startCameraButton"));
-    const bool confirmed = status && status->confirmedRevision
-        && status->appliedRevision != 0U
-        && *status->confirmedRevision == status->appliedRevision;
-    const bool applied = status && status->appliedConfiguration
-        && requestedConfiguration && status->requestedConfiguration
-        && application::cameraConfigurationsEqual(*requestedConfiguration, *status->requestedConfiguration)
-        && status->requestedRevision != 0U
-        && status->appliedRevision == status->requestedRevision;
-    const bool globallyEnabled = presentation_.controlsEnabled;
-    const bool installationPending = presentation_.installationProfilePending
-        || (presentation_.installationProfiles && presentation_.installationProfiles->savePending);
-    const bool ordinaryEnabled = globallyEnabled
-        && !presentation_.ordinaryOperationPending && !installationPending;
-    const bool connectedIdle = status
-        && cameraState == application::CameraSessionState::ConnectedIdle;
-    const bool streaming = status
-        && cameraState == application::CameraSessionState::Streaming;
-    const bool sourceMatches = status && status->actualIdentity
-        && presentation_.selectedCameraId
-        && status->actualIdentity == presentation_.selectedCameraId;
-    const bool selectedAvailable = status && presentation_.selectedCameraId
-        && std::any_of(status->discoveredDescriptors.begin(),
-            status->discoveredDescriptors.end(), [&](const auto& descriptor) {
-                return descriptor.available
-                    && descriptor.id == *presentation_.selectedCameraId;
-            });
+    const auto policy = presentation::CameraActionPolicy::evaluate(presentation_);
+    const bool confirmed = policy.confirmed;
+    const bool applied = policy.applied;
+    const bool installationPending = policy.installationPending;
+    const bool connectedIdle = policy.connectedIdle;
+    const bool streaming = policy.streaming;
+    const bool sourceMatches = policy.sourceMatches;
+    const bool selectedAvailable = policy.selectedAvailable;
+    const auto setAction = [this](const char* name,
+                               presentation::CameraActionAvailability action) {
+        auto* button = findChild<QPushButton*>(name);
+        button->setVisible(action.visible);
+        button->setEnabled(action.enabled);
+    };
 
     auto* guidance = findChild<QLabel*>(QStringLiteral("cameraGuidanceLabel"));
     QString guidanceText;
@@ -450,12 +437,8 @@ void CameraStartupPanel::updatePresentation() {
     guidance->setText(guidanceText);
     guidance->setVisible(!guidanceText.isEmpty());
 
-    auto* installation = findChild<QPushButton*>("installationSettingsButton");
     const bool installationAvailable = presentation_.installationProfiles != nullptr;
-    installation->setVisible(installationAvailable && sourceMatches
-        && (connectedIdle || streaming));
-    installation->setEnabled(globallyEnabled && installationAvailable
-        && sourceMatches && (connectedIdle || streaming));
+    setAction("installationSettingsButton", policy.installation);
     auto* installationStatus = findChild<QLabel*>("installationProfileStatusLabel");
     const bool hasInstallationStatus = installationAvailable
         || presentation_.activeOrientation.has_value()
@@ -485,52 +468,17 @@ void CameraStartupPanel::updatePresentation() {
     reviewToggle->setVisible(hasReview);
     reviewDetails->setVisible(hasReview && reviewToggle->isChecked());
 
-    auto* settings = findChild<QPushButton*>(QStringLiteral("cameraSettingsButton"));
-    settings->setVisible(sourceMatches && (connectedIdle || streaming));
-    settings->setEnabled(globallyEnabled && sourceMatches && (connectedIdle || streaming));
-    cameras->setEnabled(ordinaryEnabled);
-    auto* refresh = findChild<QPushButton*>(QStringLiteral("refreshCameraButton"));
-    const bool canDiscover = cameraState == application::CameraSessionState::Disconnected;
-    refresh->setVisible(canDiscover);
-    refresh->setEnabled(ordinaryEnabled && canDiscover);
-    auto* connectButton = findChild<QPushButton*>(QStringLiteral("connectCameraButton"));
-    connectButton->setVisible(canDiscover);
-    connectButton->setEnabled(ordinaryEnabled && selectedAvailable && canDiscover);
-    auto* apply = findChild<QPushButton*>(QStringLiteral("applyCameraButton"));
-    apply->setVisible(connectedIdle && sourceMatches && requestedConfiguration.has_value());
-    apply->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches
-        && requestedConfiguration.has_value());
-    auto* confirm = findChild<QPushButton*>(QStringLiteral("confirmCameraButton"));
-    confirm->setVisible(connectedIdle && sourceMatches && applied && !confirmed);
-    confirm->setEnabled(ordinaryEnabled && connectedIdle && sourceMatches && applied
-        && !confirmed && presentation_.installationBindingCurrent);
-    start->setVisible(connectedIdle && sourceMatches);
-    start->setEnabled(ordinaryEnabled && presentation_.installationBindingCurrent && status
-        && status->state == application::CameraSessionState::ConnectedIdle
-        && sourceMatches && confirmed && applied);
-    auto* stop = findChild<QPushButton*>(QStringLiteral("stopCameraButton"));
-    stop->setVisible(streaming);
-    stop->setEnabled(globallyEnabled && streaming);
-    auto* disconnect = findChild<QPushButton*>(QStringLiteral("disconnectCameraButton"));
-    const bool canDisconnect = status
-        && cameraState != application::CameraSessionState::Disconnected
-        && cameraState != application::CameraSessionState::ShuttingDown;
-    disconnect->setVisible(canDisconnect);
-    disconnect->setEnabled(globallyEnabled
-            && cameraState != application::CameraSessionState::ShuttingDown
-            && (presentation_.ordinaryOperationPending
-                || (status && cameraState != application::CameraSessionState::Disconnected)));
-    auto* retry = findChild<QPushButton*>(QStringLiteral("retryCameraButton"));
-    const bool canRetry = status && status->desiredIdentity
-        && (cameraState == application::CameraSessionState::Error
-            || cameraState == application::CameraSessionState::Reconnecting);
-    retry->setVisible(canRetry);
-    retry->setEnabled(ordinaryEnabled && canRetry);
-    auto* resumeLive = findChild<QPushButton*>(QStringLiteral("resumeLiveButton"));
-    resumeLive->setVisible(presentation_.resumeLiveAvailable);
-    resumeLive->setEnabled(ordinaryEnabled && connectedIdle
-        && presentation_.preferencesLoadCompleted
-        && presentation_.resumeLiveAvailable);
+    setAction("cameraSettingsButton", policy.settings);
+    cameras->setEnabled(policy.selectionEnabled);
+    setAction("refreshCameraButton", policy.refresh);
+    setAction("connectCameraButton", policy.connect);
+    setAction("applyCameraButton", policy.apply);
+    setAction("confirmCameraButton", policy.confirm);
+    setAction("startCameraButton", policy.start);
+    setAction("stopCameraButton", policy.stop);
+    setAction("disconnectCameraButton", policy.disconnect);
+    setAction("retryCameraButton", policy.retry);
+    setAction("resumeLiveButton", policy.resumeLive);
 }
 
 }  // namespace lumora::ui

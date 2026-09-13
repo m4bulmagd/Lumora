@@ -89,6 +89,29 @@ TEST(CameraStartupPanel, StartIsDisabledBeforeExplicitConfirmation) {
     EXPECT_FALSE(start->isEnabled());
 }
 
+TEST(CameraStartupPanel, StartWaitsForRendererContextBinding) {
+    CameraStartupPanel panel;
+    auto status = std::make_shared<application::CameraStatusSnapshot>();
+    status->state = application::CameraSessionState::ConnectedIdle;
+    status->actualIdentity = camera::CameraId{"camera-1"};
+    status->requestedRevision = status->appliedRevision = 7U;
+    status->confirmedRevision = 7U;
+    status->requestedConfiguration = configuration(30.0);
+    status->appliedConfiguration = camera::AppliedCameraConfiguration{
+        configuration(30.0), configuration(30.0)};
+    CameraStartupPanelPresentation presentation;
+    presentation.cameraStatus = status;
+    presentation.selectedCameraId = status->actualIdentity;
+    presentation.requestedConfiguration = configuration(30.0);
+    presentation.contextBound = false;
+    panel.setPresentation(presentation);
+    auto* start = panel.findChild<QPushButton*>("startCameraButton");
+    EXPECT_FALSE(start->isEnabled());
+    presentation.contextBound = true;
+    panel.setPresentation(presentation);
+    EXPECT_TRUE(start->isEnabled());
+}
+
 TEST(CameraStartupPanel, RequestedAndActualFixedConfigurationAreBothVisible) {
     CameraStartupPanel panel;
     auto requestedConfiguration = configuration(30.0);
@@ -259,6 +282,7 @@ TEST(CameraStartupPanel, ControlsEmitIntentsWithoutOptimisticStateChanges) {
     panel.findChild<QPushButton*>(QStringLiteral("confirmCameraButton"))->click();
     auto confirmedIdle = std::make_shared<application::CameraStatusSnapshot>(*idle);
     confirmedIdle->confirmedRevision = 4U;
+    presentation.contextBound = true;
     presentation.cameraStatus = confirmedIdle;
     panel.setPresentation(presentation);
     panel.findChild<QPushButton*>(QStringLiteral("startCameraButton"))->click();
@@ -442,6 +466,7 @@ TEST(CameraStartupPanel, ConnectionAndAcquisitionActionsAreContextual) {
 
     status = std::make_shared<application::CameraStatusSnapshot>(*status);
     status->confirmedRevision = 2U;
+    presentation.contextBound = true;
     presentation.cameraStatus = status;
     panel.setPresentation(presentation);
     EXPECT_TRUE(start->isVisibleTo(&panel));

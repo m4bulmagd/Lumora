@@ -1,10 +1,10 @@
-#include <lumora/ui/ViewportTransform.hpp>
+#include <lumora/presentation/ViewportTransform.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <optional>
 
-namespace lumora::ui {
+namespace lumora::presentation {
 namespace {
 
 constexpr double minimumManualScale = 0.05;
@@ -246,4 +246,4 @@ bool ViewportTransform::drawable() const noexcept {
     return sizesDrawable(image_, viewport_);
 }
 
-}  // namespace lumora::ui
+}  // namespace lumora::presentation

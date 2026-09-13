@@ -1,5 +1,6 @@
 #pragma once
 #include <lumora/application/LivePipeline.hpp>
+#include <lumora/presentation/WorkstationState.hpp>
 #include <QObject>
 #include <memory>
 namespace lumora::configuration { class StartupPreferencesService; }
@@ -7,8 +8,8 @@ namespace lumora::ui {
 class CameraStartupPanel;
 class FramePresenter;
 class WorkstationView;
-enum class CameraStartupIntent { Refresh, Connect, Apply, Confirm, Start, Stop, Disconnect, Retry, ResumeLive };
-// UI-thread owner of presentation and startup continuations. Composition starts
+using CameraStartupIntent = presentation::CameraStartupIntent;
+// Widgets binding for shared workstation policy and synchronous rendering. Composition starts
 // the pipeline/preferences service before start(), and keeps them and widgets
 // alive through shutdown(). It then finishes/join preferences persistence.
 class WorkstationController final : public QObject {

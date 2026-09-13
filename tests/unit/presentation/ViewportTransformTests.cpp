@@ -1,4 +1,4 @@
-#include <lumora/ui/ViewportTransform.hpp>
+#include <lumora/presentation/ViewportTransform.hpp>
 
 #include <gtest/gtest.h>
 
@@ -7,8 +7,8 @@
 
 namespace {
 
-using lumora::ui::ViewScaleMode;
-using lumora::ui::ViewportTransform;
+using lumora::presentation::ViewScaleMode;
+using lumora::presentation::ViewportTransform;
 
 TEST(ViewportTransform, FitPreservesAspectRatio) {
     auto view = ViewportTransform::fit({2048, 1024}, {1000, 800});

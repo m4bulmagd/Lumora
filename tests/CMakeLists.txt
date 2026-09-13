@@ -66,6 +66,41 @@ add_test(NAME Application.PresetRepository
   COMMAND lumora_application_tests --gtest_filter=PresetRepository.*)
 set_tests_properties(Application.PresetRepository PROPERTIES TIMEOUT 60)
 
+add_executable(
+  lumora_presentation_tests
+  unit/presentation/CameraActionPolicyTests.cpp
+  unit/presentation/ProcessingControlsModelTests.cpp
+  unit/presentation/ViewportTransformTests.cpp
+  unit/presentation/WorkstationCoordinatorTests.cpp
+)
+target_link_libraries(
+  lumora_presentation_tests
+  PRIVATE
+    lumora::presentation
+    lumora::camera_simulator
+    lumora::configuration
+    GTest::gtest_main
+)
+lumora_enable_warnings(lumora_presentation_tests)
+add_test(
+  NAME ProcessingControls
+  COMMAND lumora_presentation_tests --gtest_filter=Controls.*
+)
+add_test(
+  NAME ViewportTransform
+  COMMAND lumora_presentation_tests --gtest_filter=ViewportTransform.*
+)
+set_tests_properties(ProcessingControls ViewportTransform PROPERTIES TIMEOUT 60)
+add_test(
+  NAME CameraActionPolicy
+  COMMAND lumora_presentation_tests --gtest_filter=CameraActionPolicy.*
+)
+add_test(
+  NAME WorkstationCoordinator
+  COMMAND lumora_presentation_tests --gtest_filter=WorkstationCoordinator.*
+)
+set_tests_properties(CameraActionPolicy WorkstationCoordinator PROPERTIES TIMEOUT 60)
+
 add_executable(lumora_processing_tests
   unit/processing/ProcessingDefaultsTests.cpp
   unit/processing/Mono8PassThroughProcessorTests.cpp
@@ -103,14 +138,12 @@ add_executable(
   unit/ui/CameraStartupPanelTests.cpp
   unit/ui/CameraPanelLayoutTests.cpp
   unit/ui/ProcessingPanelTests.cpp
-  unit/ui/ProcessingControlsModelTests.cpp
   unit/ui/WorkstationControllerTests.cpp
   unit/ui/FramePresenterTests.cpp
   unit/ui/ImageViewportTests.cpp
   unit/ui/ComparisonViewportTests.cpp
   unit/ui/CompareWorkstationTests.cpp
   unit/ui/MainWindowSmokeTests.cpp
-  unit/ui/ViewportTransformTests.cpp
   unit/ui/WorkstationViewTests.cpp
 )
 
@@ -139,10 +172,6 @@ add_test(
   COMMAND lumora_ui_tests --gtest_filter=MainWindowSmoke.*
 )
 add_test(
-  NAME ViewportTransform
-  COMMAND lumora_ui_tests --gtest_filter=ViewportTransform.*
-)
-add_test(
   NAME ImageViewport
   COMMAND lumora_ui_tests --gtest_filter=ImageViewport.*
 )
@@ -156,7 +185,7 @@ add_test(
   NAME CameraStartupPanel
   COMMAND lumora_ui_tests --gtest_filter=CameraStartupPanel.*
 )
-add_test(NAME ProcessingControls COMMAND lumora_ui_tests --gtest_filter=Controls.*:ProcessingPanel.*)
+add_test(NAME ProcessingPanel COMMAND lumora_ui_tests --gtest_filter=ProcessingPanel.*)
 add_test(NAME WorkstationController COMMAND lumora_ui_tests --gtest_filter=WorkstationController.*)
 # Surface stalled Qt startup promptly on unattended CI runners.
 add_test(NAME CameraSettingsDialog COMMAND lumora_ui_tests --gtest_filter=CameraSettingsDialog.*)
@@ -166,7 +195,7 @@ add_test(NAME CameraPanelLayout COMMAND lumora_ui_tests --gtest_filter=CameraPan
 # Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
 # does not make the installed Qt platform plugins discoverable by itself.
 set_tests_properties(
-  MainWindowSmoke ViewportTransform ImageViewport ComparisonViewport CompareWorkstation WorkstationView FramePresenter CameraSettingsDialog InstallationSettingsDialog CameraStartupPanel CameraPanelLayout WorkstationController ProcessingControls
+  MainWindowSmoke ImageViewport ComparisonViewport CompareWorkstation WorkstationView FramePresenter CameraSettingsDialog InstallationSettingsDialog CameraStartupPanel CameraPanelLayout WorkstationController ProcessingPanel
   PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"

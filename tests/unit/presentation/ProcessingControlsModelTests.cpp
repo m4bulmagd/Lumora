@@ -1,11 +1,11 @@
-#include <lumora/ui/ProcessingControlsModel.hpp>
+#include <lumora/presentation/ProcessingControlsModel.hpp>
 #include <lumora/configuration/PresetCodec.hpp>
 #include <gtest/gtest.h>
 
 namespace {
 using namespace std::chrono_literals;
-using lumora::ui::ProcessingControlsModel;
-using lumora::ui::ProcessingEditPhase;
+using lumora::presentation::ProcessingControlsModel;
+using lumora::presentation::ProcessingEditPhase;
 using lumora::processing::GammaParameters;
 
 struct Controls : testing::Test {
@@ -19,7 +19,7 @@ struct Controls : testing::Test {
     }
     double draftGamma() { return std::get<GammaParameters>(model.draft().activePipeline.stages[3].parameters).gamma; }
     auto take() { return model.takeSubmission(); }
-    bool accept(const lumora::ui::ProcessingSubmission& submission) {
+    bool accept(const lumora::presentation::ProcessingSubmission& submission) {
         return model.complete(submission.sessionGeneration,submission.state.activePipeline.version.configurationRevision);
     }
     void SetUp() override {

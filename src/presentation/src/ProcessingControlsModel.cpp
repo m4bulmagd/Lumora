@@ -1,9 +1,9 @@
-#include <lumora/ui/ProcessingControlsModel.hpp>
+#include <lumora/presentation/ProcessingControlsModel.hpp>
 #include <lumora/processing/ProcessingDefaults.hpp>
 #include <limits>
 #include <utility>
 
-namespace lumora::ui {
+namespace lumora::presentation {
 namespace {
 constexpr auto dragInterval=std::chrono::nanoseconds{33'333'334};
 }

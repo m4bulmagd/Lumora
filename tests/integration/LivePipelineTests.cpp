@@ -350,7 +350,11 @@ TEST(LivePipeline, OneHundredBoundedLifecycleCyclesReleasePoolsAndResetSessions)
     for(int cycle=0;cycle<100;++cycle) {
         SCOPED_TRACE(cycle);
         f.controller.selectCamera({"SIM-LIVE"});
-        ASSERT_TRUE(f.act(Intent::Connect));
+        // Later iterations are already connected by the retirement check below.
+        // Shared command admission rejects a redundant Connect while idle.
+        if(cycle==0) {
+            ASSERT_TRUE(f.act(Intent::Connect));
+        }
         ASSERT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
         ASSERT_TRUE(f.act(Intent::Apply));ASSERT_TRUE(f.act(Intent::Confirm));ASSERT_TRUE(f.act(Intent::Start));
         ASSERT_TRUE(f.next());ASSERT_TRUE(f.paint());

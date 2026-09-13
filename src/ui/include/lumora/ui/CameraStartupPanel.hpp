@@ -1,6 +1,6 @@
 #pragma once
 
-#include <lumora/application/ApplicationState.hpp>
+#include <lumora/presentation/WorkstationState.hpp>
 #include <lumora/application/InstallationProfiles.hpp>
 #include <lumora/camera/CameraTypes.hpp>
 #include <lumora/core/Error.hpp>
@@ -17,24 +17,7 @@ namespace lumora::ui {
 class CameraSettingsDialog;
 class InstallationSettingsDialog;
 
-struct CameraStartupPanelPresentation final {
-    std::shared_ptr<const application::CameraStatusSnapshot> cameraStatus;
-    std::optional<camera::CameraId> selectedCameraId;
-    std::optional<camera::CameraConfiguration> requestedConfiguration;
-    bool controlsEnabled{true};
-    bool ordinaryOperationPending{false};
-    bool preferencesLoadCompleted{false};
-    bool resumeLiveAvailable{false};
-    std::optional<core::Error> startupWarning;
-    std::shared_ptr<const application::InstallationProfilesSnapshot> installationProfiles;
-    std::optional<application::InstallationProfileReference> activeInstallationProfile;
-    std::optional<core::Orientation> activeOrientation;
-    bool installationProfilePending{false};
-    bool installationBindingCurrent{true};
-    std::optional<application::InstallationSaveOutcome> installationProfileOutcome;
-    std::optional<core::Error> installationProfileError;
-    WorkstationStatus workstationStatus;
-};
+using CameraStartupPanelPresentation = presentation::WorkstationState;
 
 class CameraStartupPanel final : public QWidget {
     Q_OBJECT

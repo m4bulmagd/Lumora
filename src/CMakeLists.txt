@@ -255,6 +255,8 @@ if(WIN32)
   target_link_libraries(lumora_configuration PRIVATE shell32 ole32 advapi32)
 endif()
 
+add_subdirectory(presentation)
+
 add_library(
   lumora_ui
   STATIC
@@ -276,11 +278,9 @@ add_library(
   ui/include/lumora/ui/ProcessingControlsModel.hpp
   ui/include/lumora/ui/ProcessingPanel.hpp
   ui/src/ProcessingPanel.cpp
-  ui/src/ProcessingControlsModel.cpp
   ui/src/WorkstationController.cpp
   ui/src/FramePresenter.cpp
   ui/src/MainWindow.cpp
-  ui/src/ViewportTransform.cpp
   ui/src/WorkstationView.cpp
   ui/include/lumora/ui/OrientationPresentation.hpp
   ui/src/OrientationPresentation.cpp
@@ -295,7 +295,10 @@ target_include_directories(
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/ui/include>
 )
 
-target_link_libraries(lumora_ui PUBLIC lumora::application lumora::core Qt6::Widgets)
+target_link_libraries(
+  lumora_ui
+  PUBLIC lumora::application lumora::core lumora::presentation Qt6::Widgets
+)
 target_link_libraries(lumora_ui PRIVATE lumora::configuration)
 target_compile_definitions(lumora_ui PUBLIC LUMORA_RELEASE_CLASS_EVALUATION=1)
 set_target_properties(lumora_ui PROPERTIES AUTOMOC ON AUTORCC ON AUTOUIC ON)

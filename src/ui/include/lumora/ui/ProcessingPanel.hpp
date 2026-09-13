@@ -3,8 +3,8 @@
 #include <memory>
 #include <optional>
 #include <lumora/core/Error.hpp>
+#include <lumora/ui/ProcessingControlsModel.hpp>
 namespace lumora::ui {
-class ProcessingControlsModel;
 class ProcessingPanel final : public QWidget {
     Q_OBJECT
 public:

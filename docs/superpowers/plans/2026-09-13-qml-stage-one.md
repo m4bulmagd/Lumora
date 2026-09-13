@@ -10,7 +10,7 @@
 
 **Spec:** [Qt Quick/QML migration design](../specs/2026-09-13-qt-quick-qml-migration-design.md).
 
-**Status:** Checkpoint 1 implemented locally on `codex/qml-foundation`, based on `e4520dd`; see the [foundation record](../../architecture/milestones/qml-foundation.md) for verification scope. Checkpoints 2–4 remain planned. The preview does not complete the integrated Stage 1 workstation.
+**Status:** Checkpoints 1 and 2 are implemented locally on `codex/qml-foundation`, continuing from `e4520dd`. See the [foundation record](../../architecture/milestones/qml-foundation.md) and [shared-policy record](../../architecture/milestones/qml-shared-policy.md) for source-bound verification and remaining limits. Checkpoints 3–4 remain planned. The preview does not complete the integrated Stage 1 workstation.
 
 ## Global constraints
 
@@ -26,7 +26,7 @@
 
 ---
 
-## Current architecture and evidence
+## Planning baseline architecture and evidence
 
 | Module | Current responsibility | Migration treatment |
 |---|---|---|
@@ -36,6 +36,8 @@
 | `src/processing` | Native normalization to canonical U16, prepared tone/detail stages, terminal Gray8 mapping, common orientation and paired output. | Reuse algorithms and resource admission without altering output. |
 | `src/configuration` | Typed codecs, background preference writes and separate machine installation authority. | Reuse schemas/services with an isolated QML development preference location. |
 | `src/ui` | Widgets, startup/persistence coordinator, processing draft model, presenter and synchronous paint receipts. | Extract shared policy; retain Widgets controls and renderer as regression coverage. |
+
+This table describes the pre-extraction architecture at `e4520dd`; the current shared ownership is recorded in Checkpoint 2 and its milestone record.
 
 Useful seams are `WorkstationController.cpp`, `CameraStartupPanelPresentation` and the action eligibility in `CameraStartupPanel.cpp`. `ProcessingControlsModel`, `ViewportTransform`, `DisplayMode`, `WorkstationStatus` and camera draft normalization are already independent of QWidget in their behavior. Merely wrapping the current controller in a QObject would still pull Widgets into QML.
 
@@ -74,13 +76,15 @@ Register QML test execution explicitly; do not inherit `QT_QPA_PLATFORM=minimal`
 
 **Interface:** `lumora_presentation` owns startup continuations, desired requests, source/session/revision checks, priority barriers, processing submission/completion and persistence coordination. Its state has no widget pointers. Widgets binding owns panel/label creation, signal wiring and visual disclosure. Typed QML objects will project shared state and call deliberate commands; frame/session IDs are never accepted back from JavaScript as authority.
 
-- [ ] Characterize policy through the new shared test surface before moving behavior: selected/connected source mismatch; ordinary pending versus priority Stop/Disconnect; newer failed Apply versus old Confirm; legacy fingerprint review; changed Resume readback; installation save versus activation and authority.
-- [ ] Extract camera availability facts from the panel and enforcement/continuations from the controller into one shared implementation. Keep C++ rejection even if a QML caller invokes an unavailable action directly. Preserve the existing eligible startup connection probe without granting automatic stream authority.
-- [ ] Reuse processing draft/pending/acknowledged state, 30 Hz drag coalescing, exact Release submission and matching completion persistence. Verify rejection and an old completion cannot overwrite a newer draft or bind to a replacement session.
-- [ ] Make the Widgets controller a binder using shared state and commands. Leave concrete dialogs/layout in Widgets. Move only policy needed for Stage 1; camera numeric editor parity follows in Stage 2.
-- [ ] Preserve context handoff order. The shared coordinator must support waiting for renderer retirement before `acknowledgeContext(generation)`; the Widgets adapter can finish retirement synchronously. Keep Start unavailable while context binding is incomplete.
+- [x] Cover policy through the new shared test surface: selected/connected source mismatch; ordinary pending versus priority Stop/Disconnect; newer failed Apply versus old Confirm; legacy fingerprint review; changed Resume readback; installation save versus activation and authority.
+- [x] Extract camera availability facts from the panel and enforcement/continuations from the controller into one shared implementation. Keep C++ rejection even if a QML caller invokes an unavailable action directly. Preserve the existing eligible startup connection probe without granting automatic stream authority.
+- [x] Reuse processing draft/pending/acknowledged state, 30 Hz drag coalescing, exact Release submission and matching completion persistence. Verify rejection and an old completion cannot overwrite a newer draft or bind to a replacement session.
+- [x] Make the Widgets controller a binder using shared state and commands. Leave concrete dialogs/layout in Widgets. Move only policy needed for Stage 1; camera numeric editor parity follows in Stage 2.
+- [x] Preserve context handoff order. The shared coordinator must support waiting for renderer retirement before `acknowledgeContext(generation)`; the Widgets adapter can finish retirement synchronously. Keep Start unavailable while context binding is incomplete.
 
-**Exit:** Existing startup, camera settings, installation, processing controls and integration checks pass through the shared implementation. Shared tests run without linking Qt Widgets or Qt Quick. No second startup/persistence policy is introduced for QML.
+**Execution note:** Shared coordinator tests were written before extraction, but no coordinator-only red executable ran before implementation because its header/target was not yet buildable. Existing tests provided characterization; shared action policy and panel binding separately have recorded red-to-green evidence.
+
+**Exit:** Existing startup, camera settings, installation, processing controls and integration checks pass through the shared implementation. Shared tests run without linking Qt Widgets or Qt Quick. No second startup/persistence policy is introduced for QML. The shared-policy record preserves final review and verification; small UI compatibility headers retain source compatibility for relocated value/model types.
 
 ## Checkpoint 3: Presentation protocol and renderer feasibility
 

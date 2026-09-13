@@ -10,6 +10,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QDoubleSpinBox>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QLabel>
 #include <QKeyEvent>
 #include <QLayout>
@@ -57,6 +59,7 @@ CameraStartupPanelPresentation layoutPresentation(bool confirmed) {
     presentation.selectedCameraId = status->actualIdentity;
     presentation.requestedConfiguration = requested;
     presentation.preferencesLoadCompleted = true;
+    presentation.contextBound = true;
     presentation.activeOrientation = core::Orientation{true, false, core::Rotation::Degrees90};
     auto installation = std::make_shared<application::InstallationProfilesSnapshot>();
     installation->loadCompleted = true;
@@ -71,6 +74,30 @@ CameraStartupPanelPresentation layoutPresentation(bool confirmed) {
     presentation.activeInstallationProfile = application::installationProfileReference(installed);
     presentation.installationProfiles = installation;
     return presentation;
+}
+
+bool visibleControlsMeetMinimumSize(CameraStartupPanel& panel) {
+    const auto meetsMinimum = [&panel](QWidget* child) {
+        return !child->isVisibleTo(&panel)
+            || (child->width() >= child->minimumSizeHint().width()
+                && child->height() >= child->minimumSizeHint().height());
+    };
+    for (auto* child : panel.findChildren<QAbstractButton*>()) {
+        if (!meetsMinimum(child)) return false;
+    }
+    for (auto* child : panel.findChildren<QComboBox*>()) {
+        if (!meetsMinimum(child)) return false;
+    }
+    return true;
+}
+
+void waitForLayout(MainWindow& window) {
+    auto& panel = window.cameraStartupPanel();
+    QElapsedTimer timer;
+    timer.start();
+    while (!visibleControlsMeetMinimumSize(panel) && timer.elapsed() < 1000) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    }
 }
 
 void inspectLayout(MainWindow& window) {
@@ -92,6 +119,8 @@ void inspectLayout(MainWindow& window) {
         EXPECT_LE(position.x() + child->width(), panel.width())
             << child->objectName().toStdString();
         EXPECT_GE(child->width(), child->minimumSizeHint().width())
+            << child->objectName().toStdString();
+        EXPECT_GE(child->height(), child->minimumSizeHint().height())
             << child->objectName().toStdString();
     };
     for (auto* child : panel.findChildren<QAbstractButton*>()) checkWidth(child);
@@ -116,6 +145,7 @@ TEST(CameraPanelLayout, ConfirmedPanelFitsCompactlyAtSupportedWindowSizes) {
         window.cameraStartupPanel().setPresentation(layoutPresentation(true));
         window.show();
         QCoreApplication::processEvents();
+        waitForLayout(window);
         inspectLayout(window);
         EXPECT_LE(window.cameraStartupPanel().sizeHint().height(), 380);
         capture(window, QStringLiteral("confirmed-%1x%2").arg(size.width()).arg(size.height()));
@@ -136,6 +166,7 @@ TEST(CameraPanelLayout, ExpandedReviewAndWarningsPreserveImageAndPriorityControl
         window.workstationView().setProcessingStatus(processingStatus);
         window.show();
         QCoreApplication::processEvents();
+        waitForLayout(window);
         inspectLayout(window);
         auto* warning = window.workstationView().findChild<QLabel*>("processingWarning");
         ASSERT_NE(warning, nullptr);
@@ -158,6 +189,7 @@ TEST(CameraPanelLayout, PausedStaleViewRetainsItsOwnStateBesideAcquisition) {
     window.cameraStartupPanel().setPresentation(presentation);
     window.show();
     QCoreApplication::processEvents();
+    waitForLayout(window);
     inspectLayout(window);
     capture(window, QStringLiteral("paused-stale-900x600"));
 }

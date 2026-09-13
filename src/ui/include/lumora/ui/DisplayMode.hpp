@@ -1,11 +1,9 @@
 #pragma once
 
+#include <lumora/presentation/DisplayMode.hpp>
+
 namespace lumora::ui {
 
-enum class DisplayMode {
-    Original,
-    Enhanced,
-    Compare,
-};
+using presentation::DisplayMode;
 
 }  // namespace lumora::ui
