@@ -874,7 +874,10 @@ TEST(SimulatedCamera, CancellationDuringFillReleasesLeaseAndPreservesFrameId) {
         if (cancelled.hasValue()) {
             cancelled.value().reset();
         }
-        auto recovered = device->retrieve(1s, *destination);
+        // Recovery verifies lease/frame-ID preservation, not fill throughput.
+        // Match the full-frame recovery budget in the production-timeout test
+        // so instrumented 4096-square generation can complete.
+        auto recovered = device->retrieve(5s, *destination);
         return std::pair{std::move(cancelled), std::move(recovered)};
     });
 
@@ -894,7 +897,7 @@ TEST(SimulatedCamera, CancellationDuringFillReleasesLeaseAndPreservesFrameId) {
     ASSERT_FALSE(cancelled.hasValue());
     EXPECT_EQ(cancelled.error().category, core::ErrorCategory::Cancelled);
     EXPECT_EQ(cancelled.error().code, "cancelled");
-    ASSERT_TRUE(recovered.hasValue());
+    ASSERT_TRUE(recovered.hasValue()) << recovered.error().code;
     EXPECT_EQ(recovered.value()->frameId, 1U);
     recovered.value().reset();
     EXPECT_EQ(destination->stats().inUse, 0U);
