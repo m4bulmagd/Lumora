@@ -153,7 +153,7 @@ CameraStartupPanel::CameraStartupPanel(QWidget* parent)
     warning->setObjectName(QStringLiteral("startupWarningLabel"));
     warning->setTextFormat(Qt::PlainText);
     warning->setWordWrap(true);
-    warning->setStyleSheet(QStringLiteral("QLabel { color: #ffcc66; }"));
+    warning->setStyleSheet(QStringLiteral("QLabel { font-weight: 600; }"));
     layout->addWidget(warning);
 
     connect(reviewToggle, &QToolButton::toggled, this,

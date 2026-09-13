@@ -625,6 +625,42 @@ TEST(CameraSettingsDialog, StreamingMixedAccessExplainsStopBeforeEditing) {
     EXPECT_TRUE(reason->text().contains("Stop", Qt::CaseInsensitive));
 }
 
+TEST(CameraSettingsDialog, FixedAutomaticModesDoNotClaimNumericValuesAreEditable) {
+    for (const auto state : {application::CameraSessionState::ConnectedIdle,
+             application::CameraSessionState::Streaming}) {
+        auto presentation = settingsPresentation();
+        auto status = std::make_shared<application::CameraStatusSnapshot>(
+            *presentation.cameraStatus);
+        status->state = state;
+        status->capabilities->exposureModes = {camera::ExposureMode::Auto};
+        status->capabilities->exposureModeAccess = camera::ControlAccess::ReadOnly;
+        status->capabilities->exposure.access = camera::ControlAccess::WritableStopped;
+        status->capabilities->gainModes = {camera::GainMode::Auto};
+        status->capabilities->gainModeAccess = camera::ControlAccess::ReadOnly;
+        status->capabilities->gain.access = camera::ControlAccess::WritableStopped;
+        status->currentConfiguration->exposure = {camera::ExposureMode::Auto, std::nullopt};
+        status->currentConfiguration->gain = {camera::GainMode::Auto, std::nullopt};
+        presentation.cameraStatus = std::move(status);
+
+        CameraSettingsDialog dialog;
+        dialog.setPresentation(std::move(presentation));
+        auto* exposure = dialog.findChild<QDoubleSpinBox*>("cameraExposureValue");
+        auto* gain = dialog.findChild<QDoubleSpinBox*>("cameraGainValue");
+        auto* exposureReason = dialog.findChild<QLabel*>("cameraExposureReason");
+        auto* gainReason = dialog.findChild<QLabel*>("cameraGainReason");
+        ASSERT_NE(exposure, nullptr);
+        ASSERT_NE(gain, nullptr);
+        ASSERT_NE(exposureReason, nullptr);
+        ASSERT_NE(gainReason, nullptr);
+        EXPECT_FALSE(exposure->isEnabled());
+        EXPECT_FALSE(gain->isEnabled());
+        EXPECT_TRUE(exposureReason->text().contains("Automatic", Qt::CaseInsensitive));
+        EXPECT_TRUE(gainReason->text().contains("Automatic", Qt::CaseInsensitive));
+        EXPECT_FALSE(exposureReason->text().contains("edit", Qt::CaseInsensitive));
+        EXPECT_FALSE(gainReason->text().contains("edit", Qt::CaseInsensitive));
+    }
+}
+
 TEST(CameraSettingsDialog, SourceAndCapabilityReplacementPermanentlyInvalidateOpenDraft) {
     using Change = std::function<void(CameraStartupPanelPresentation&, application::CameraStatusSnapshot&)>;
     const std::vector<Change> changes{

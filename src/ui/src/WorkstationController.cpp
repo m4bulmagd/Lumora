@@ -549,13 +549,20 @@ Result WorkstationController::dispatch(Intent intent) {
     if(intent==Intent::Start && (!camera->confirmedRevision ||
         *camera->confirmedRevision!=camera->appliedRevision)) return rejected();
     if(intent==Intent::Apply) {
-        if(!camera->currentConfiguration || !camera->capabilities) return rejected();
+        const auto failPreflight=[&d](core::Error error) {
+            d.presentation.startupWarning=error;
+            d.presentation.resumeLiveAvailable=false;
+            d.panel.setPresentation(d.presentation);
+            return Result::failure(std::move(error));
+        };
+        if(!camera->currentConfiguration || !camera->capabilities)
+            return failPreflight(rejected().error());
         auto normalized=normalizeCameraSettingsDraft(
             d.desired,*camera->currentConfiguration,*camera->capabilities);
-        if(!normalized.hasValue()) return Result::failure(normalized.error());
+        if(!normalized.hasValue()) return failPreflight(normalized.error());
         auto plan=camera::planCameraConfigurationChange(
             normalized.value(),*camera->currentConfiguration,*camera->capabilities,false);
-        if(!plan.hasValue()) return Result::failure(plan.error());
+        if(!plan.hasValue()) return failPreflight(plan.error());
         d.desired=std::move(normalized).value();
         d.desiredCameraId=camera->actualIdentity;
         d.presentation.requestedConfiguration=d.desired;

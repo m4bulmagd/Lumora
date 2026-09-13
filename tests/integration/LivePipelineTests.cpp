@@ -1393,8 +1393,18 @@ TEST(LivePipeline, OldMono8SavedCapabilitiesRequireReviewForShippingMono12) {
     EXPECT_EQ(f.panel.presentation().requestedConfiguration->pixelFormat.validBits,8U);
     const auto revisionBeforeRejectedApply = f.pipeline.snapshot().camera->requestedRevision;
     // Current capability validation rejects the stale saved descriptor before
-    // admitting a camera command, preserving the review requirement.
-    EXPECT_FALSE(f.controller.dispatch(Intent::Apply).hasValue());
+    // admitting a camera command. Clicking Apply must still explain the
+    // rejection, since the signal handler cannot consume a returned error.
+    auto* applyButton = f.panel.findChild<QPushButton*>("applyCameraButton");
+    auto* warning = f.panel.findChild<QLabel*>("startupWarningLabel");
+    ASSERT_NE(applyButton, nullptr);
+    ASSERT_NE(warning, nullptr);
+    ASSERT_TRUE(applyButton->isEnabled());
+    applyButton->click();
+    ASSERT_TRUE(f.panel.presentation().startupWarning);
+    EXPECT_EQ(f.panel.presentation().startupWarning->code, "pixel_format_unsupported");
+    EXPECT_FALSE(warning->isHidden());
+    EXPECT_TRUE(warning->text().contains("Review", Qt::CaseInsensitive));
     EXPECT_EQ(f.pipeline.snapshot().camera->requestedRevision, revisionBeforeRejectedApply);
     EXPECT_FALSE(f.pipeline.snapshot().camera->appliedConfiguration);
     EXPECT_EQ(f.panel.presentation().requestedConfiguration->pixelFormat.validBits,8U);

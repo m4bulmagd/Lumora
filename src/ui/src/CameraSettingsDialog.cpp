@@ -769,6 +769,9 @@ struct CameraSettingsDialog::Impl final {
                 && capabilities->exposure.access == camera::ControlAccess::Unavailable) {
                 exposureReasonText = CameraSettingsDialog::tr(
                     "Exposure is unavailable.");
+            } else if (draft && draft->exposure.mode == camera::ExposureMode::Auto) {
+                exposureReasonText = CameraSettingsDialog::tr(
+                    "Automatic exposure controls the value.");
             } else if (streaming && !exposureModeWritable && exposureValueWritable) {
                 exposureReasonText = CameraSettingsDialog::tr(
                     "Exposure mode is read-only; Stop to edit value.");
@@ -787,9 +790,6 @@ struct CameraSettingsDialog::Impl final {
             } else if (!exposureModeWritable || !exposureValueWritable) {
                 exposureReasonText = CameraSettingsDialog::tr(
                     "Exposure mode and value are read-only.");
-            } else if (draft && draft->exposure.mode != camera::ExposureMode::Manual) {
-                exposureReasonText = CameraSettingsDialog::tr(
-                    "Automatic exposure controls the value.");
             }
             const bool gainModeWritable = isWritableCameraControl(capabilities->gainModeAccess);
             const bool gainValueWritable = isWritableCameraControl(capabilities->gain.access);
@@ -797,6 +797,9 @@ struct CameraSettingsDialog::Impl final {
                 && capabilities->gain.access == camera::ControlAccess::Unavailable) {
                 gainReasonText = CameraSettingsDialog::tr(
                     "Gain is unavailable.");
+            } else if (draft && draft->gain.mode == camera::GainMode::Auto) {
+                gainReasonText = CameraSettingsDialog::tr(
+                    "Automatic gain controls the value.");
             } else if (streaming && !gainModeWritable && gainValueWritable) {
                 gainReasonText = CameraSettingsDialog::tr(
                     "Gain mode is read-only; Stop to edit value.");
@@ -814,9 +817,6 @@ struct CameraSettingsDialog::Impl final {
                     "Gain value is read-only; mode is editable.");
             } else if (!gainModeWritable || !gainValueWritable) {
                 gainReasonText = CameraSettingsDialog::tr("Gain mode and value are read-only.");
-            } else if (draft && draft->gain.mode != camera::GainMode::Manual) {
-                gainReasonText = CameraSettingsDialog::tr(
-                    "Automatic gain controls the value.");
             }
         }
         setReason(pixelFormatReason, pixelReasonText);
