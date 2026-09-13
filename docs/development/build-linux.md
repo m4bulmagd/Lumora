@@ -52,6 +52,8 @@ CI cache keys separate operating systems and architectures. Each run saves a new
 
 ## Configure, build, and test
 
+The commands below build the current Widgets frontend. The owner has selected [Qt Quick/QML](../adr/0001-qt-quick-qml-frontend.md), but its optional build, matching Qt dependencies and renderer checks remain [proposed migration work](../superpowers/specs/2026-09-13-qt-quick-qml-migration-design.md); no QML target or preset is available yet. Existing `minimal` smoke tests do not verify Quick rendering.
+
 Debug simulator build:
 
 ```bash
@@ -190,8 +192,10 @@ The camera remains open and frame IDs continue. Processing settings and display-
 
 ### Per-camera preferences and installation orientation (local continuation)
 
-The local `codex/m09-camera-profiles` branch includes the ROI/format continuation and remembers confirmed acquisition settings by manufacturer/model/serial. Selection is stored independently. Compatible requests return when the camera is discovered; changed identity, capabilities or installation binding require review before Resume.
+The local `codex/m09-camera-controls` branch in the preserved `.worktrees/m09-camera-profiles` worktree includes the ROI/format and camera-profile continuations and remembers confirmed acquisition settings by manufacturer/model/serial. Selection is stored independently. Compatible requests return when the camera is discovered; changed identity, capabilities or installation binding require review before Resume.
 
 **Camera installation** shows orientation read-only during normal launch. Editing requires deliberate `--installation` launch plus actual OS administrator authority, a stopped current camera, matching Original/Enhanced previews and explicit consent. **Save installation** persists the machine profile; follow **Apply → review → Confirm → Start** to activate it. Saving does not restart acquisition. Native Original and intermediate pixels remain unchanged, and the status follows the displayed or paused frame.
 
 Linux machine data uses `/etc/lumora/installation-profiles.json`. Startup validates the existing path authority without creating or repairing it. Unsafe ownership/write permissions require administrator correction; invalid data requires explicit preserved-backup repair. The [Task 4D record](../architecture/milestones/m09-camera-profiles.md) details local verification and remaining Windows/platform gates.
+
+The subsequent [Task 4E compact controls](../architecture/milestones/m09-camera-controls.md) show contextual camera actions and expandable requested/actual review, separately from the displayed image's Live/Paused/stale state. Settings remain inspectable while streaming; editing requires Stop. Read-only fields show current camera readback; unavailable fields are identified without blocking other writable fields. Apply opens review when confirmation is required; the workflow remains **Stop → Apply → review → Confirm → Start**. Task 4E is locally verified only, with no push, PR, hosted CI or main merge; its record distinguishes full production-source checks from the later test-fixture correction and sanitizer rerun.

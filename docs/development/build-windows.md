@@ -31,6 +31,8 @@ CI cache keys separate operating systems and architectures; vcpkg checks package
 
 ## Configure, build, and test
 
+The commands below build the current Widgets frontend. The owner has selected [Qt Quick/QML](../adr/0001-qt-quick-qml-frontend.md), but its optional build, matching Qt dependencies and renderer checks remain [proposed migration work](../superpowers/specs/2026-09-13-qt-quick-qml-migration-design.md); no QML target or preset is available yet. Existing `minimal` smoke tests do not verify Quick rendering or native Windows visual/DPI behavior.
+
 Debug simulator build:
 
 ```powershell

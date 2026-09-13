@@ -12,6 +12,8 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
+**Frontend amendment (2026-09-13):** [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) records the owner-selected Qt Quick/QML direction. The [migration design](../specs/2026-09-13-qt-quick-qml-migration-design.md) remains proposed and Widgets is still the implemented frontend. The QML inventory and staging requirements below apply when that frontend is packaged; no deployment implementation or verification is claimed here.
+
 ## Global Constraints
 
 - This milestone contributes only to the open-source evaluation release, which must display `EVALUATION — NOT FOR CLINICAL USE` and must not acquire or store real patient data.
@@ -45,6 +47,8 @@
 - [ ] **Step 1: Define dependency manifest schema**
 
 Each entry includes name, exact version, source/package identity, license, required runtime files, SHA-256, redistributable status, dynamic/static linkage, source/relink offer location, and owning CMake targets. Entries cover official VC++ x64 redistributable, dynamically linked LGPL-compatible Qt modules/plugins, OpenCV, spdlog, GoogleTest build-only, pylon build/runtime, and WiX build-only. Reject GPL-only Qt modules and unreviewed dependencies.
+
+For the selected QML frontend, include its matching Qml/Quick/Quick Controls modules, imported modules, styles, compiled application resources and required graphics-backend dependencies. Their exact versions and runtime contents must be resolved and reviewed with the rest of Qt; a developer SDK is not a deployment dependency.
 
 - [ ] **Step 2: Implement failing unknown-DLL test**
 
@@ -82,6 +86,8 @@ git commit -m "docs(release): define verified Windows runtime inventory"
 
 The test requires `Lumora.exe`, platform/imageformats plugins, default presets, Apache-2.0 license, third-party notices, source/relink information, SBOM, version/release-class manifest, and simulator resources; rejects `.pdb` in public staging, test executables, fixtures, unrelated source files, absolute build paths, debug DLLs, static Qt, and unapproved Qt modules.
 
+When packaging the QML frontend, also require its compiled application resources and matching runtime imports/styles. Missing imports and imports resolved from developer locations must fail verification.
+
 - [ ] **Step 2: Add target-scoped CMake install rules**
 
 Install the app and production resources by component. Do not install libraries that are statically linked, unit tests, benchmarks, viewer harness, soak runner, or hardware profiles.
@@ -90,9 +96,11 @@ Install the app and production resources by component. Do not install libraries 
 
 Remove only the resolved `out/package/stage/Lumora` directory after containment validation, run CMake install, run `windeployqt` with explicit release/no-translations/no-compiler-runtime policy chosen by manifest, copy approved OpenCV runtime, and run dependency verification.
 
+QML deployment must discover and stage the imports/styles used by the packaged application. Select the exact deployment arguments in the implementation plan against the pinned Qt toolchain; do not rely on development import paths.
+
 - [ ] **Step 4: Smoke-run staged application**
 
-Set a temporary `%LOCALAPPDATA%` test profile, launch staged application with `--camera-provider=simulator --smoke-test`, require clean exit and startup/shutdown logs, then inspect that no DLL was loaded from the build tree or developer Qt directory.
+Set a temporary `%LOCALAPPDATA%` test profile, launch staged application with `--camera-provider=simulator --smoke-test`, require clean exit and startup/shutdown logs, then inspect that no DLL was loaded from the build tree or developer Qt directory. For QML, verify the staged window and simulator image render with the selected graphics backend, and check that its imports/styles load without source/build-tree paths or a developer Qt installation.
 
 - [ ] **Step 5: Commit staging**
 
@@ -181,6 +189,7 @@ git commit -m "build(release): add signed release evidence workflow"
 ## Milestone 13 acceptance gate
 
 - [ ] Verified staging runs the simulator without developer tools or paths.
+- [ ] The selected QML frontend's resources, imports, styles and graphics runtime are complete; staged window/image rendering passes without developer import paths.
 - [ ] Runtime inventory, licenses, architecture, hashes, and debug-binary checks pass.
 - [ ] MSI clean install, repair, upgrade, and uninstall pass on Windows 11 x64.
 - [ ] `Lumora-Setup.exe` installs/checks the official VC++ x64 redistributable and chains the MSI; the MSI also remains separately available.

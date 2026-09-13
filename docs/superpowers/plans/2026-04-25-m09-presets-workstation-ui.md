@@ -6,11 +6,13 @@
 
 **Architecture:** Qt views bind to presentation models and publish complete application commands. Presets are versioned pipeline definitions; UI edits are coalesced but final values are exact.
 
-**Tech Stack:** C++20, Qt 6 Widgets/Core/Test, existing application/processing/configuration modules, GoogleTest/CTest.
+**Tech Stack:** C++20, Qt 6 Widgets/Core/Test in the current implementation, existing application/processing/configuration modules, GoogleTest/CTest. Qt Quick/QML is the selected frontend for the upcoming migration; its dependencies and targets are not implemented yet.
 
 **Spec:** `docs/superpowers/specs/2026-04-25-xray-imaging-workstation-design.md`
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
+
+**Next-session direction (2026-09-13):** [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) records the owner's Qt Quick/QML choice. Continue from completed local Task 4E using the [migration proposal](../specs/2026-09-13-qt-quick-qml-migration-design.md) and [handoff](../../PROGRESS.md#next-session-qt-quickqml). Plan the initial shared-presentation and renderer work first. Existing Widgets behavior is the parity baseline; remaining Task 5 functionality should be implemented in the selected frontend after its plan is refined.
 
 ## Global Constraints
 
@@ -190,7 +192,7 @@ git commit -m "feat(ui): add synchronized original enhanced comparison"
 
 ### Task 4: Camera selection and safe settings dialog
 
-The owner-authorized [Task 4A refined plan](2026-09-10-m09-camera-settings.md) and [camera-settings record](../../architecture/milestones/m09-camera-settings.md) implement stopped exposure/gain editing first, preserving the existing startup panel and preferences policy. The subsequent [Task 4B frame-rate continuation](../../architecture/milestones/m09-frame-rate.md#pr-21-integration) implements low-FPS watchdog correction and stopped numeric FPS editing, merged through PR #21 after Linux/Windows Debug/Release CI passed. The local [Task 4C ROI/format continuation](../../architecture/milestones/m09-format-roi.md) implements same-device resource rebinding, followed by [Task 4D camera profiles and installation orientation](../../architecture/milestones/m09-camera-profiles.md) at `10e1018`. Task 4D passes Linux Debug/Release 66/66, targeted sanitizers and supplemental native checks; Windows execution remains separate. The local [Task 4E camera controls continuation](../../architecture/milestones/m09-camera-controls.md) completes the compact panel and explicit capability access at `2be3a85`, including absent gain/read-only FPS, authoritative current readback and fingerprint-2 migration. The combined Task 4 implementation is locally verified on Linux; Windows, physical-camera and formal milestone acceptance remain separate. Task 5 is next.
+The owner-authorized [Task 4A refined plan](2026-09-10-m09-camera-settings.md) and [camera-settings record](../../architecture/milestones/m09-camera-settings.md) implement stopped exposure/gain editing first, preserving the existing startup panel and preferences policy. The subsequent [Task 4B frame-rate continuation](../../architecture/milestones/m09-frame-rate.md#pr-21-integration) implements low-FPS watchdog correction and stopped numeric FPS editing, merged through PR #21 after Linux/Windows Debug/Release CI passed. The local [Task 4C ROI/format continuation](../../architecture/milestones/m09-format-roi.md) implements same-device resource rebinding, followed by [Task 4D camera profiles and installation orientation](../../architecture/milestones/m09-camera-profiles.md) at `10e1018`. Task 4D passes Linux Debug/Release 66/66, targeted sanitizers and supplemental native checks; Windows execution remains separate. The local [Task 4E camera controls continuation](../../architecture/milestones/m09-camera-controls.md) completes the compact panel and explicit capability access at `2be3a85`, including absent gain/read-only FPS, authoritative current readback and fingerprint-2 migration. The combined Task 4 implementation is locally verified on Linux; Windows, physical-camera and formal milestone acceptance remain separate. The subsequent Qt Quick/QML decision redirects the next session to migration planning; Task 5 remains the next unfinished M9 product task for that frontend.
 
 Extend the [M5 startup contract](../../architecture/milestones/m05-preflight.md#3-minimal-startup-ui-and-persistence). M5 already provides minimal startup controls, typed saved preferences, capability comparison, confirmation/revision guards, and asynchronous persistence. This task replaces/expands the small `CameraStartupPanel` with the complete panel/dialog without duplicating its controller policy or stored last-camera record.
 
@@ -251,6 +253,8 @@ git commit -m "feat(ui): add capability-driven camera controls"
 ```
 
 ### Task 5: Fullscreen, collapsible sidebar, and persisted UI preferences
+
+**Unimplemented; frontend plan to be adapted.** The file list and mechanics below are the original Widgets plan. Preserve the functional checks and persistence requirements, but refine the QML ownership, files and verification in a bounded plan before implementing this task. Fullscreen and sidebar collapse do not precede the initial QML migration work described above.
 
 **Files:**
 - Create: `src/ui/include/lumora/ui/UiPreferences.hpp`

@@ -6,11 +6,13 @@
 
 **Architecture:** Build a modular C++20 monolith from independently tested libraries. Frames cross camera, processing, UI, and capture boundaries only through immutable values and fixed-capacity exchanges; Qt and pylon remain isolated adapters.
 
-**Tech Stack:** Ubuntu Linux x64/GCC for daily development, Windows 11 x64/MSVC for production, C++20, CMake, pinned vcpkg manifests, dynamically linked LGPL-compatible Qt 6 Widgets modules, optional external Basler pylon SDK/runtime, OpenCV C++, GoogleTest/CTest, spdlog, and JSON configuration.
+**Tech Stack:** Ubuntu Linux x64/GCC for daily development, Windows 11 x64/MSVC for production, C++20, CMake, pinned vcpkg manifests, dynamically linked LGPL-compatible Qt 6 (Widgets currently; Qt Quick/QML selected for migration), optional external Basler pylon SDK/runtime, OpenCV C++, GoogleTest/CTest, spdlog, and JSON configuration.
 
 **Spec:** `docs/superpowers/specs/2026-04-25-xray-imaging-workstation-design.md`
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
+
+**UI direction update (2026-09-13):** [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) records Qt Quick/QML as the selected frontend. The [migration proposal](../specs/2026-09-13-qt-quick-qml-migration-design.md) and [handoff](../../PROGRESS.md#next-session-qt-quickqml) start from completed local M9 Task 4E on `codex/m09-camera-controls`. The next session should plan and verify the initial QML integration before continuing M9 Task 5 fullscreen/sidebar/preferences on that frontend. The proposal's targets and stages are unimplemented; existing build commands still describe Widgets. Milestone order and external acceptance gates remain unchanged.
 
 ## Global Constraints
 

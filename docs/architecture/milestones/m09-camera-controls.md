@@ -40,7 +40,7 @@ Builds reuse `/home/mo/code/Lumora/out/vcpkg_installed/x64-linux-dynamic` (GCC 1
 
 ## Next and limits
 
-This completes the bounded local Task 4E implementation. The next M9 task is fullscreen, a collapsible sidebar and persisted UI preferences. M10 capture follows the remaining M9 work.
+This completes the bounded local Task 4E implementation. The owner subsequently chose Qt Quick/QML for a new session; [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) and the [migration handoff](../../superpowers/specs/2026-09-13-qt-quick-qml-migration-design.md#next-session-handoff) record that direction. Next is a bounded migration plan using this Widgets implementation as the parity baseline. Fullscreen, a collapsible sidebar and persisted UI preferences remain M9 Task 5 for the selected frontend. M10 capture follows the remaining M9 work.
 
 Windows native compilation/ACL/UAC/DPI execution, physical-camera testing, reference performance and formal milestone acceptance remain open. The inherited intermittent lifecycle/context-retirement timeout is not claimed fixed. No performance benchmark changed; the prior Linux 2048 Standard result remains below 30 FPS. Work stays on the local continuation branch: no push, PR, hosted CI or main merge.
 

@@ -72,6 +72,8 @@ Evaluation builds display `EVALUATION — NOT FOR CLINICAL USE` in normal and fu
 
 Lumora is a modular native application with a framework-independent C++ core and a thin Qt Widgets shell. The executable composition root creates concrete adapters and connects them to application services. Camera, processing, display, and storage paths communicate using explicit immutable data and bounded exchanges.
 
+**Presentation amendment (2026-09-13):** The owner selected Qt Quick/QML for the next frontend, as recorded in [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md). Widgets remains the implemented baseline and behavioral reference. The [migration design](2026-09-13-qt-quick-qml-migration-design.md) proposes a separate optional frontend using shared C++ presentation policy; its target layout, renderer protocol and staged implementation remain unimplemented. This decision preserves the camera, processing, frame ownership, startup, persistence and release contracts below and supplies no new verification or milestone acceptance.
+
 The selected approach is preferred over a Qt-centric frame pipeline because queued signal delivery can obscure backpressure and can accumulate stale frame events. It is preferred over an initial lock-free/GPU graph because that design adds complexity before profiling shows it is needed. Qt signals remain appropriate for low-frequency state notifications and commands; live frames use bounded latest-value slots.
 
 Architectural invariants are:
@@ -156,6 +158,8 @@ The source directories correspond to focused CMake library targets:
 - `lumora_application`: use cases, state machines, workers, reconnection policy, and subsystem coordination.
 - `lumora_ui`: Qt Widgets, presentation controllers, viewport, dialogs, and resource integration.
 - `lumora_app`: the executable and composition root.
+
+These UI target names describe the Widgets baseline. The proposed QML frontend and shared presentation target require a bounded implementation plan; no new target or build option is available yet. Core, application and processing must remain independent of QML, Quick and Widgets.
 
 `LUMORA_ENABLE_BASLER` defaults on for Windows production presets and off for simulator-only developer and CI presets. The Basler target is not configured or linked when the option is off. Tests link only the smallest target needed by the behavior under test.
 
@@ -302,7 +306,9 @@ Viewer state is independent from camera state:
 
 Resuming consumes the freshest available bundle. While `Live`, if no new frame is successfully presented within `max(500 ms, 3 expected frame periods)`, the last frame may remain for context but a persistent `STALE IMAGE / NOT LIVE` overlay visibly invalidates it until a fresh frame is presented. Tests separately stall the camera, processing worker, and UI presentation path.
 
-For this deadline, successful presentation is the completion of a new source frame's Qt paint path. Receiving a bundle, wrapping its pixels, scheduling an update, or repainting the same source frame does not advance the presentation timestamp. A newly painted bundle whose monotonic host-receipt age already exceeds the deadline remains stale; Resume must not make an old retained slot value appear fresh. Before the first frame, show an explicit waiting/no-image state. A stalled presentation path with a responsive event loop must still update its health indication; a completely blocked UI event loop can only repaint and reevaluate freshness when it resumes. This is an application paint-completion measurement, not a guarantee about physical monitor scan-out.
+For the existing Widgets frontend, successful presentation is the completion of a new source frame's Qt paint path. Receiving a bundle, wrapping its pixels, scheduling an update, or repainting the same source frame does not advance the presentation timestamp. A newly painted bundle whose monotonic host-receipt age already exceeds the deadline remains stale; Resume must not make an old retained slot value appear fresh. Before the first frame, show an explicit waiting/no-image state. A stalled presentation path with a responsive event loop must still update its health indication; a completely blocked UI event loop can only repaint and reevaluate freshness when it resumes. This is an application paint-completion measurement, not a guarantee about physical monitor scan-out.
+
+The QML implementation plan must define the equivalent render-completion boundary and bounded receipts carrying the actual completion timestamp. Delayed GUI receipt delivery must not renew freshness. Pause ordering must keep the visibly frozen bundle and reported bundle identical; retired-session receipts cannot replace it. These renderer checks remain future work.
 
 This separation allows instant fresh resume without coupling viewport or presentation actions to camera ownership.
 
@@ -315,7 +321,7 @@ This separation allows instant fresh resume without coupling viewport or present
 - **Processing worker:** a dedicated `std::jthread` that owns the active pipeline instance, OpenCV stage objects, lookup tables, and processing workspace.
 - **Capture worker:** a dedicated `std::jthread` that owns encoding, metadata serialization, temporary capture directories, final rename, and storage result reporting.
 
-Workers use stop tokens and condition variables rather than busy polling. Low-frequency state is forwarded to Qt using queued signals from presentation adapters. Per-frame Qt signal posting is prohibited.
+Workers use stop tokens and condition variables rather than busy polling. Low-frequency state is forwarded to Qt using queued signals from presentation adapters. Per-frame acquisition/processing delivery through Qt signals is prohibited; live frames use the bounded slots below. The proposed Quick renderer needs separately bounded presentation receipts, with explicit GUI/render-thread ownership and retirement before session release or shutdown. The existing UI-thread ownership description above remains the Widgets baseline until that protocol is implemented and verified.
 
 ### 8.2 Live frame flow
 
@@ -440,7 +446,7 @@ Extension stages for dark-frame subtraction, flat-field correction, bad-pixel co
 
 ### 11.1 UI composition
 
-The Qt Widgets interface contains:
+The Widgets baseline specifies the following workstation layout; the selected QML frontend carries forward these requirements:
 
 - A compact header with product name, camera connection state, acquisition state, selected camera, and essential FPS.
 - A fixed, collapsible left sidebar with display mode, processing controls, preset selector, capture mode/action, and reset.
@@ -448,7 +454,7 @@ The Qt Widgets interface contains:
 - A compact footer with Fit, 100%, zoom, fullscreen, and optional health information.
 - Separate camera configuration and diagnostics dialogs/panels for less frequent operations.
 
-`MainWindow` owns layout. `WorkstationController` translates UI intent to application commands and exposes immutable presentation state. `ImageViewport` owns painting and viewport transforms. `ProcessingPanel` edits complete pipeline definitions. `CameraPanel` consumes only camera descriptors, capabilities, and application configurations.
+In the Widgets design, `MainWindow` owns layout. `WorkstationController` translates UI intent to application commands and exposes immutable presentation state. `ImageViewport` owns painting and viewport transforms. `ProcessingPanel` edits complete pipeline definitions. `CameraPanel` consumes only camera descriptors, capabilities, and application configurations. The QML migration proposes extracting shared C++ policy before replacing these widget adapters; QML must not duplicate command admission, confirmation or persistence rules.
 
 ### 11.2 Viewer behavior
 
@@ -463,7 +469,7 @@ The Qt Widgets interface contains:
 - Live presentation applies the mandatory stale-frame deadline and `STALE IMAGE / NOT LIVE` overlay.
 - Fullscreen hides nonessential controls but retains evaluation, paused/stale, orientation, and live/error state; Escape exits.
 
-The initial `ImageViewport` uses `QPainter` with `QImage::Format_Grayscale8`. Each `QImage` external-memory view retains the owning display-buffer lease for the full paint lifetime. The renderer is behind a format-aware interface so a future calibrated 10-bit/OpenGL replacement does not affect application or processing code. The evaluation renderer is not represented as diagnostic-grade; a future clinical release must validate the monitor, renderer, calibration, ambient light, and viewing conditions.
+The existing Widgets `ImageViewport` uses `QPainter` with `QImage::Format_Grayscale8`. Each `QImage` external-memory view retains the owning display-buffer lease for the full paint lifetime. The proposed Quick adapter must retain the same immutable Gray8 source contract and verify its upload, ownership and completion behavior before replacement. It must not apply a second tonal or orientation transform. The format-aware rendering boundary keeps application and processing code independent of the adapter. The evaluation renderer is not represented as diagnostic-grade; a future clinical release must validate the monitor, renderer, calibration, ambient light, and viewing conditions.
 
 ### 11.3 Controls and presets
 
