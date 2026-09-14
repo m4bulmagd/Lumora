@@ -1,9 +1,6 @@
 #include <lumora/ui/CameraSettingsDialog.hpp>
 #include <lumora/ui/CameraSettingsModel.hpp>
-
-#include <lumora/application/CameraSettingsPolicy.hpp>
-#include <lumora/application/StartupPreferences.hpp>
-#include <lumora/camera/CameraConfigurationValidator.hpp>
+#include <lumora/presentation/CameraSettingsDraft.hpp>
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -77,16 +74,6 @@ bool samePixelFormat(
         && left.applicationStorage == right.applicationStorage;
 }
 
-bool sameSourceMode(
-    const camera::CameraConfiguration& actual,
-    const camera::CameraConfiguration& requested) {
-    return samePixelFormat(actual.pixelFormat, requested.pixelFormat)
-        && actual.roi.x == requested.roi.x
-        && actual.roi.y == requested.roi.y
-        && actual.roi.width == requested.roi.width
-        && actual.roi.height == requested.roi.height;
-}
-
 QString storageName(core::StorageType storage) {
     switch (storage) {
     case core::StorageType::UInt8: return CameraSettingsDialog::tr("8-bit storage");
@@ -142,20 +129,12 @@ bool roiCapabilityFitsSignedEditors(const camera::RegionOfInterestCapability& ca
 
 struct CameraSettingsDialog::Impl final {
     CameraSettingsDialog& dialog;
-    CameraStartupPanelPresentation presentation;
-    std::shared_ptr<const application::CameraStatusSnapshot> source;
-    std::optional<camera::CameraConfiguration> draft;
-    std::optional<camera::CameraConfiguration> observedRequest;
-    std::optional<camera::CameraConfiguration> submitted;
-    std::uint64_t observedRevision{0};
+    presentation::CameraSettingsDraft settings;
+    const CameraStartupPanelPresentation& presentation = settings.presentation();
+    const std::shared_ptr<const application::CameraStatusSnapshot>& source = settings.source();
+    const std::optional<camera::CameraConfiguration>& draft = settings.configuration();
     bool initialized{false};
-    bool normalizationFailed{false};
-    bool editingIntentReported{false};
-    bool submissionAdmitted{false};
-    bool invalidated{false};
-    bool rebindCompleted{false};
     bool roiEditorsRepresentable{false};
-    std::optional<std::uint64_t> completedGeneration;
     QComboBox* pixelFormat;
     QSpinBox* roiX;
     QSpinBox* roiY;
@@ -235,10 +214,11 @@ struct CameraSettingsDialog::Impl final {
         QObject::connect(close, &QPushButton::clicked, &dialog, &QDialog::reject);
         QObject::connect(apply, &QPushButton::clicked, &dialog, [this] {
             refresh();
-            if (!apply->isEnabled() || !draft || !source || !source->actualIdentity) return;
-            submitted = draft;
-            submissionAdmitted = false;
-            emit dialog.settingsApplyRequested(source->sessionGeneration, *source->actualIdentity, *draft);
+            if (!apply->isEnabled()) return;
+            if (const auto request = settings.prepareApply()) {
+                emit dialog.settingsApplyRequested(request->source.sessionGeneration,
+                    request->source.cameraId, request->requested);
+            }
         });
         QObject::connect(pixelFormat, &QComboBox::currentIndexChanged, &dialog, [this](int index) {
             if (!draft || !source || !source->capabilities || index < 0
@@ -246,14 +226,18 @@ struct CameraSettingsDialog::Impl final {
                 return;
             }
             reportEditingIntent();
-            draft->pixelFormat = source->capabilities->pixelFormats[static_cast<std::size_t>(index)];
+            auto candidate = *draft;
+            candidate.pixelFormat = source->capabilities->pixelFormats[static_cast<std::size_t>(index)];
+            settings.setConfiguration(std::move(candidate));
             refresh();
         });
         const auto bindRoi = [this](QSpinBox* entry, std::uint32_t core::RegionOfInterest::* field) {
             QObject::connect(entry, &QSpinBox::valueChanged, &dialog, [this, field](int value) {
                 if (!draft || value < 0) return;
                 reportEditingIntent();
-                draft->roi.*field = static_cast<std::uint32_t>(value);
+                auto candidate = *draft;
+                candidate.roi.*field = static_cast<std::uint32_t>(value);
+                settings.setConfiguration(std::move(candidate));
                 refresh();
             });
         };
@@ -264,62 +248,72 @@ struct CameraSettingsDialog::Impl final {
         QObject::connect(frameRateValue, &QDoubleSpinBox::valueChanged, &dialog, [this](double value) {
             if (draft) {
                 reportEditingIntent();
-                draft->requestedFps = value;
+                auto candidate = *draft;
+                candidate.requestedFps = value;
+                settings.setConfiguration(std::move(candidate));
                 refresh();
             }
         });
         QObject::connect(exposureValue, &QDoubleSpinBox::valueChanged, &dialog, [this](double value) {
             if (draft && draft->exposure.mode == camera::ExposureMode::Manual) {
                 reportEditingIntent();
-                draft->exposure.requestedMicroseconds = value;
+                auto candidate = *draft;
+                candidate.exposure.requestedMicroseconds = value;
+                settings.setConfiguration(std::move(candidate));
                 refresh();
             }
         });
         QObject::connect(gainValue, &QDoubleSpinBox::valueChanged, &dialog, [this](double value) {
             if (draft && draft->gain.mode == camera::GainMode::Manual) {
                 reportEditingIntent();
-                draft->gain.requestedDb = value;
+                auto candidate = *draft;
+                candidate.gain.requestedDb = value;
+                settings.setConfiguration(std::move(candidate));
                 refresh();
             }
         });
         QObject::connect(exposureMode, &QComboBox::currentIndexChanged, &dialog, [this](int index) {
             if (!draft || index < 0) return;
             reportEditingIntent();
-            draft->exposure.mode = static_cast<camera::ExposureMode>(exposureMode->currentData().toInt());
-            if (draft->exposure.mode == camera::ExposureMode::Manual) {
+            auto candidate = *draft;
+            candidate.exposure.mode = static_cast<camera::ExposureMode>(exposureMode->currentData().toInt());
+            if (candidate.exposure.mode == camera::ExposureMode::Manual) {
                 const auto& capabilities = source->capabilities->exposure;
                 if (isWritableCameraControl(capabilities.access)) {
-                    draft->exposure.requestedMicroseconds = exposureValue->value();
+                    candidate.exposure.requestedMicroseconds = exposureValue->value();
                 } else if (presentation.cameraStatus
                     && presentation.cameraStatus->currentConfiguration) {
-                    draft->exposure.requestedMicroseconds = presentation.cameraStatus
+                    candidate.exposure.requestedMicroseconds = presentation.cameraStatus
                         ->currentConfiguration->exposure.requestedMicroseconds;
                 } else {
-                    draft->exposure.requestedMicroseconds.reset();
+                    candidate.exposure.requestedMicroseconds.reset();
                 }
             } else {
-                draft->exposure.requestedMicroseconds.reset();
+                candidate.exposure.requestedMicroseconds.reset();
             }
+            settings.setConfiguration(std::move(candidate));
             refresh();
         });
         QObject::connect(gainMode, &QComboBox::currentIndexChanged, &dialog, [this](int index) {
             if (!draft || index < 0) return;
             reportEditingIntent();
-            draft->gain.mode = static_cast<camera::GainMode>(gainMode->currentData().toInt());
-            if (draft->gain.mode == camera::GainMode::Manual) {
+            auto candidate = *draft;
+            candidate.gain.mode = static_cast<camera::GainMode>(gainMode->currentData().toInt());
+            if (candidate.gain.mode == camera::GainMode::Manual) {
                 const auto& capabilities = source->capabilities->gain;
                 if (isWritableCameraControl(capabilities.access)) {
-                    draft->gain.requestedDb = gainValue->value();
+                    candidate.gain.requestedDb = gainValue->value();
                 } else if (presentation.cameraStatus
                     && presentation.cameraStatus->currentConfiguration) {
-                    draft->gain.requestedDb = presentation.cameraStatus
+                    candidate.gain.requestedDb = presentation.cameraStatus
                         ->currentConfiguration->gain.requestedDb;
                 } else {
-                    draft->gain.requestedDb.reset();
+                    candidate.gain.requestedDb.reset();
                 }
             } else {
-                draft->gain.requestedDb.reset();
+                candidate.gain.requestedDb.reset();
             }
+            settings.setConfiguration(std::move(candidate));
             refresh();
         });
         // Numeric entries commit on Enter/focus change. Protect their draft
@@ -333,15 +327,9 @@ struct CameraSettingsDialog::Impl final {
     }
 
     void reportEditingIntent() {
-        const auto& current=presentation.cameraStatus;
-        if(editingIntentReported || !initialized || invalidated || rebindCompleted || !draft ||
-            !source || !source->actualIdentity || !current ||
-            current->state!=application::CameraSessionState::ConnectedIdle ||
-            current->sessionGeneration!=source->sessionGeneration || current->actualIdentity!=source->actualIdentity ||
-            presentation.selectedCameraId!=source->actualIdentity || !presentation.controlsEnabled ||
-            presentation.ordinaryOperationPending) return;
-        editingIntentReported=true;
-        emit dialog.settingsEditingStarted(source->sessionGeneration,*source->actualIdentity);
+        if (const auto source = settings.beginEditing()) {
+            emit dialog.settingsEditingStarted(source->sessionGeneration, source->cameraId);
+        }
     }
 
     QLabel* label(const char* name, const QString& accessibleName) {
@@ -473,26 +461,8 @@ struct CameraSettingsDialog::Impl final {
     }
 
     void initialize() {
-        source = presentation.cameraStatus;
-        draft = presentation.requestedConfiguration;
-        if (!draft && source) draft = source->requestedConfiguration;
-        observedRequest = presentation.requestedConfiguration
-            ? presentation.requestedConfiguration
-            : source ? source->requestedConfiguration : std::nullopt;
-        observedRevision = source ? source->requestedRevision : 0;
-        if (!source || !source->actualIdentity || !source->capabilities || !draft
-            || !source->currentConfiguration) {
-            normalizationFailed = true;
-            return;
-        }
+        if (settings.normalizationError() || !source || !source->capabilities || !draft) return;
         const auto& capabilities = *source->capabilities;
-        auto normalized = normalizeCameraSettingsDraft(
-            *draft, *source->currentConfiguration, capabilities);
-        if (!normalized.hasValue()) {
-            normalizationFailed = true;
-            return;
-        }
-        draft = std::move(normalized).value();
         const QSignalBlocker formatBlock(pixelFormat), exposureBlock(exposureMode), gainBlock(gainMode);
         for (std::size_t index = 0; index < capabilities.pixelFormats.size(); ++index) {
             const auto& format = capabilities.pixelFormats[index];
@@ -525,111 +495,13 @@ struct CameraSettingsDialog::Impl final {
         initializeNumeric(frameRateValue, capabilities.frameRate, draft->requestedFps);
         initializeNumeric(exposureValue, capabilities.exposure, draft->exposure.requestedMicroseconds);
         initializeNumeric(gainValue, capabilities.gain, draft->gain.requestedDb);
-        if (presentation.selectedCameraId != source->actualIdentity)
-            invalidated = true;
     }
 
     void update(CameraStartupPanelPresentation next) {
-        presentation = std::move(next);
+        settings.update(next);
         if (!initialized) {
             initialized = true;
             initialize();
-        } else if (source) {
-            const auto& current = presentation.cameraStatus;
-            const auto request = presentation.requestedConfiguration
-                ? presentation.requestedConfiguration
-                : current ? current->requestedConfiguration : std::nullopt;
-            const bool sameCamera = current && source->actualIdentity
-                && current->actualIdentity == source->actualIdentity
-                && presentation.selectedCameraId == source->actualIdentity;
-            const bool sameCapabilities = current && source->capabilities && current->capabilities
-                && application::cameraCapabilitiesEqual(*source->capabilities, *current->capabilities);
-            if (sameCamera && sameCapabilities && draft) {
-                if (!current->currentConfiguration) {
-                    invalidated = true;
-                } else {
-                    const auto validReadback = camera::validateCameraConfigurationReadback(
-                        *current->currentConfiguration, *current->capabilities);
-                    if (!validReadback.hasValue()
-                        || !cameraSettingsFixedFieldsMatchCurrent(
-                            *draft, *current->currentConfiguration, *current->capabilities)) {
-                        invalidated = true;
-                    }
-                }
-            }
-            if (submitted && !submissionAdmitted) {
-                submissionAdmitted = sameCamera && sameCapabilities
-                    && current->sessionGeneration == source->sessionGeneration
-                    && presentation.ordinaryOperationPending && request
-                    && application::cameraConfigurationsEqual(*request, *submitted);
-                if (!submissionAdmitted) submitted.reset();
-            }
-            const bool ownSuccessfulRebind = !invalidated && !rebindCompleted
-                && submitted && submissionAdmitted
-                && sameCamera && sameCapabilities && !current->sourceReplacementRequired
-                && current->state == application::CameraSessionState::ConnectedIdle
-                && source->sessionGeneration != std::numeric_limits<std::uint64_t>::max()
-                && current->sessionGeneration == source->sessionGeneration + 1U
-                && request && current->requestedConfiguration && current->appliedConfiguration
-                && current->currentConfiguration
-                && current->requestedRevision > observedRevision
-                && current->requestedRevision == current->appliedRevision
-                && application::cameraConfigurationsEqual(*request, *submitted)
-                && application::cameraConfigurationsEqual(
-                    *current->requestedConfiguration, *submitted)
-                && application::cameraConfigurationsEqual(
-                    current->appliedConfiguration->requested, *submitted)
-                && sameSourceMode(current->appliedConfiguration->actual, *submitted)
-                && sameSourceMode(*current->currentConfiguration, *submitted);
-            if (ownSuccessfulRebind) {
-                rebindCompleted = true;
-                completedGeneration = current->sessionGeneration;
-                observedRequest = request;
-                observedRevision = current->requestedRevision;
-            } else if (rebindCompleted) {
-                if (!current || !completedGeneration
-                    || current->sessionGeneration != *completedGeneration
-                    || !sameCamera || !sameCapabilities || !submitted || !request
-                    || current->sourceReplacementRequired
-                    || current->state != application::CameraSessionState::ConnectedIdle
-                    || !current->requestedConfiguration || !current->appliedConfiguration
-                    || !current->currentConfiguration
-                    || current->requestedRevision != observedRevision
-                    || current->appliedRevision != observedRevision
-                    || !application::cameraConfigurationsEqual(*request, *submitted)
-                    || !application::cameraConfigurationsEqual(
-                        *current->requestedConfiguration, *submitted)
-                    || !application::cameraConfigurationsEqual(
-                        current->appliedConfiguration->requested, *submitted)
-                    || !sameSourceMode(current->appliedConfiguration->actual, *submitted)
-                    || !sameSourceMode(*current->currentConfiguration, *submitted)) {
-                    rebindCompleted = false;
-                    invalidated = true;
-                }
-            } else if (!current || !source->actualIdentity
-                || current->actualIdentity != source->actualIdentity
-                || current->sessionGeneration != source->sessionGeneration
-                || current->sourceReplacementRequired
-                || !sameCapabilities
-                || presentation.selectedCameraId != source->actualIdentity) {
-                invalidated = true;
-            } else {
-                const bool changed = current->requestedRevision != observedRevision
-                    || request.has_value() != observedRequest.has_value()
-                    || (request && observedRequest
-                        && !application::cameraConfigurationsEqual(*request, *observedRequest));
-                if (changed) {
-                    if (!submitted || !request || !application::cameraConfigurationsEqual(*request, *submitted)) {
-                        invalidated = true;
-                    } else {
-                        observedRequest = request;
-                        if (current->requestedRevision != observedRevision) submitted.reset();
-                        observedRevision = current->requestedRevision;
-                    }
-                }
-            }
-        } else {
-            invalidated = true;
         }
         refresh();
     }
@@ -690,18 +562,10 @@ struct CameraSettingsDialog::Impl final {
             fixedFields->setText(CameraSettingsDialog::tr("Requested camera settings unavailable"));
         }
         const auto& current = presentation.cameraStatus;
-        // Never show a replacement camera's readback beside this draft.
-        const bool currentSourceReadback = source && current
-            && current->actualIdentity == source->actualIdentity
-            && current->sessionGeneration == source->sessionGeneration;
-        const bool completedRebindReadback = rebindCompleted && source && current
-            && completedGeneration && current->actualIdentity == source->actualIdentity
-            && current->sessionGeneration == *completedGeneration;
-        if ((currentSourceReadback || completedRebindReadback)
-            && current->currentConfiguration) {
-            actual->setText(describeActual(*current->currentConfiguration));
-            const auto details = pixelFormatDescription(
-                current->currentConfiguration->pixelFormat);
+        // The shared draft only exposes readback from its bound source.
+        if (const auto readback = settings.readback()) {
+            actual->setText(describeActual(*readback));
+            const auto details = pixelFormatDescription(readback->pixelFormat);
             actual->setAccessibleDescription(details);
             actual->setToolTip(details);
         } else {
@@ -711,11 +575,11 @@ struct CameraSettingsDialog::Impl final {
         }
         QString message;
         bool editable = false;
-        if (rebindCompleted) {
+        if (settings.rebindCompleted()) {
             message = CameraSettingsDialog::tr("Source settings were applied. Review the actual readback, then close and reopen this dialog before Confirm and Start.");
-        } else if (invalidated) {
+        } else if (settings.invalidated()) {
             message = CameraSettingsDialog::tr("Camera, session, or fixed readback changed. Review the actual readback, then close and reopen this dialog before editing.");
-        } else if (normalizationFailed) {
+        } else if (settings.normalizationError()) {
             message = CameraSettingsDialog::tr("Fresh camera readback is unavailable or invalid. Close and reopen this dialog after the camera reports its current settings.");
         } else if (!source || !source->actualIdentity || !source->capabilities || !draft || !current) {
             message = CameraSettingsDialog::tr("Camera settings unavailable. Connect a camera, then close and reopen this dialog.");
@@ -726,7 +590,7 @@ struct CameraSettingsDialog::Impl final {
         } else if (!presentation.controlsEnabled || presentation.ordinaryOperationPending) {
             message = CameraSettingsDialog::tr("Wait for the current camera operation to finish.");
         } else {
-            editable = true;
+            editable = settings.editable();
         }
         const auto accessReason = [current](camera::ControlAccess access,
                                       const QString& control) {
@@ -836,16 +700,9 @@ struct CameraSettingsDialog::Impl final {
         const bool gainSelectionValid = draft && capabilities
             && (draft->gain.mode ? gainMode->currentIndex() >= 0
                 : capabilities->gainModeAccess == camera::ControlAccess::Unavailable);
-        const bool planValid = draft && current && current->currentConfiguration && capabilities
-            && camera::planCameraConfigurationChange(
-                *draft, *current->currentConfiguration, *capabilities, false).hasValue();
-        const bool valid = draft && capabilities && frameRatePrecisionSupported
-            && draft->requestedFps && std::isfinite(*draft->requestedFps) && *draft->requestedFps > 0.0
+        const bool valid = settings.canApply() && frameRatePrecisionSupported
             && pixelFormat->currentIndex() >= 0 && roiEditorSupported
-            && exposureSelectionValid && gainSelectionValid
-            && application::isSupportedLiveCameraConfiguration(*draft)
-            && camera::validateCameraConfiguration(*draft, *capabilities).hasValue()
-            && planValid;
+            && exposureSelectionValid && gainSelectionValid;
         if (editable && capabilities && isWritableCameraControl(capabilities->frameRate.access)
             && validRange(capabilities->frameRate)
             && capabilities->frameRate.minimum > 0.0 && !frameRatePrecisionSupported) {

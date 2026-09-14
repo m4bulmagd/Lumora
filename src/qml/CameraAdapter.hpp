@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CameraSettingsAdapter.hpp"
 #include <lumora/presentation/CameraActionPolicy.hpp>
 #include <QObject>
 #include <QVariantList>
@@ -12,6 +13,9 @@ class CameraAdapter final : public QObject {
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("The workstation owns camera controls")
+    Q_PROPERTY(lumora::qml::CameraSettingsAdapter* settings READ settings CONSTANT FINAL)
+    Q_PROPERTY(bool settingsVisible READ settingsVisible NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool settingsEnabled READ settingsEnabled NOTIFY stateChanged FINAL)
     Q_PROPERTY(QVariantList devices READ devices NOTIFY devicesChanged FINAL)
     Q_PROPERTY(QString selectedCameraId READ selectedCameraId NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool selectionEnabled READ selectionEnabled NOTIFY stateChanged FINAL)
@@ -46,6 +50,10 @@ class CameraAdapter final : public QObject {
     Q_PROPERTY(bool resumeLiveEnabled READ resumeLiveEnabled NOTIFY stateChanged FINAL)
 public:
     explicit CameraAdapter(presentation::WorkstationCoordinator&, QObject* parent = nullptr);
+    [[nodiscard]] CameraSettingsAdapter* settings() { return &settings_; }
+    [[nodiscard]] const CameraSettingsAdapter* settings() const { return &settings_; }
+    [[nodiscard]] bool settingsVisible() const { return policy_.settings.visible; }
+    [[nodiscard]] bool settingsEnabled() const { return !closing_ && policy_.settings.enabled; }
     void refresh();
     void setClosing();
     Q_INVOKABLE bool selectCamera(const QString& id);
@@ -96,6 +104,7 @@ signals:
 private:
     bool dispatch(presentation::CameraStartupIntent);
     presentation::WorkstationCoordinator& coordinator_;
+    CameraSettingsAdapter settings_;
     presentation::WorkstationState state_;
     presentation::CameraActionPolicy policy_;
     QString commandError_;

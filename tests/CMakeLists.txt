@@ -33,7 +33,7 @@ if(LUMORA_BUILD_QML_UI)
       ENVIRONMENT
         "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>;QT_QUICK_BACKEND=software"
   )
-  foreach(adapter IN ITEMS Runtime ProcessingAdapter)
+  foreach(adapter IN ITEMS Runtime ProcessingAdapter CameraSettingsAdapter)
     string(TOLOWER "${adapter}" adapter_lower)
     set(adapter_target "lumora_qml_${adapter_lower}_tests")
     qt_add_executable(${adapter_target} MANUAL_FINALIZATION
@@ -92,6 +92,7 @@ add_executable(
   unit/presentation/PresentationProtocolTests.cpp
   unit/presentation/FramePresenterTests.cpp
   unit/presentation/CameraActionPolicyTests.cpp
+  unit/presentation/CameraSettingsDraftTests.cpp
   unit/presentation/ProcessingControlsModelTests.cpp
   unit/presentation/ViewportTransformTests.cpp
   unit/presentation/WorkstationCoordinatorTests.cpp
@@ -113,6 +114,9 @@ lumora_enable_warnings(lumora_presentation_tests)
 add_test(NAME SharedFramePresenter COMMAND lumora_presentation_tests --gtest_filter=SharedFramePresenter.*)
 add_test(NAME PresentationProtocol COMMAND lumora_presentation_tests --gtest_filter=PresentationProtocol.*)
 set_tests_properties(SharedFramePresenter PresentationProtocol PROPERTIES TIMEOUT 60)
+add_test(NAME Presentation.CameraSettingsDraft
+  COMMAND lumora_presentation_tests --gtest_filter=CameraSettingsDraft.*)
+set_tests_properties(Presentation.CameraSettingsDraft PROPERTIES TIMEOUT 60)
 add_test(
   NAME ProcessingControls
   COMMAND lumora_presentation_tests --gtest_filter=Controls.*

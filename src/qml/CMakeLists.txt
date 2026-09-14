@@ -5,7 +5,7 @@ target_link_libraries(lumora_quick_renderer PUBLIC lumora::presentation Qt6::Qui
 lumora_enable_warnings(lumora_quick_renderer)
 
 set(lumora_qml_files
-  qml/Main.qml qml/Theme.qml qml/CameraStartup.qml qml/ViewingToolbar.qml
+  qml/Main.qml qml/Theme.qml qml/CameraStartup.qml qml/CameraSettings.qml qml/ViewingToolbar.qml
   qml/PresetControls.qml qml/WindowLevelControls.qml qml/StatusStrip.qml
   qml/ExactProcessingField.qml qml/ToneControls.qml qml/ProcessingControls.qml
   qml/LocalContrastControls.qml qml/DenoiseControls.qml qml/SharpenControls.qml)
@@ -23,6 +23,7 @@ qt_add_qml_module(lumora_qml_ui
   QML_FILES ${lumora_qml_files}
   SOURCES
     QmlWorkstation.hpp QmlWorkstation.cpp CameraAdapter.hpp CameraAdapter.cpp
+    CameraSettingsAdapter.hpp CameraSettingsAdapter.cpp
     ViewerAdapter.hpp ViewerAdapter.cpp ViewerSurface.hpp ViewerSurface.cpp
     ProcessingAdapter.hpp ProcessingAdapter.cpp)
 target_include_directories(lumora_qml_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

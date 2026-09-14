@@ -1,11 +1,13 @@
 #include "QmlWorkstation.hpp"
 #include "CameraAdapter.hpp"
+#include "CameraSettingsAdapter.hpp"
 #include "ProcessingAdapter.hpp"
 #include "ViewerAdapter.hpp"
 #include "QuickImageItem.hpp"
 #include "SimulatorComposition.hpp"
 #include "FrameEngineTestAccess.hpp"
 #include <atomic>
+#include <algorithm>
 #include <lumora/application/LivePipeline.hpp>
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
 #include <lumora/configuration/ConfigurationStore.hpp>
@@ -46,6 +48,7 @@ class QmlWorkstationTests final : public QObject {
 private slots:
     void initTestCase();
     void requiresGuardedStartupThroughRealControls();
+    void stoppedCameraSettingsRequireExplicitApplyReviewAndConfirmation();
     void completedViewingAndExactNumericEditing();
     void keyboardCanReturnToViewportWithoutStealingNumericInput();
     void presetsAndResetPreserveCameraPausedFrameAndViewport();
@@ -62,7 +65,18 @@ private slots:
     void closesWithRenderingOwnersOutstanding();
     void cleanupTestCase();
 private:
-    QQuickItem* item(const char* name) const { return window_->findChild<QQuickItem*>(QString::fromLatin1(name)); }
+    QQuickItem* item(const char* name) const {
+        const auto wanted=QString::fromLatin1(name);
+        if(auto* result=window_->findChild<QQuickItem*>(wanted)) return result;
+        // Popup content belongs to the overlay visual tree; its QObject owner
+        // need not be a descendant of the application window.
+        const auto find=[&](const auto& self,QQuickItem* parent)->QQuickItem* {
+            if(parent->objectName()==wanted) return parent;
+            for(auto* child:parent->childItems()) if(auto* result=self(self,child)) return result;
+            return nullptr;
+        };
+        return find(find,window_->contentItem());
+    }
     void click(const char* name) {
         auto* control=item(name);
         QVERIFY2(control, name);
@@ -214,6 +228,202 @@ void QmlWorkstationTests::requiresGuardedStartupThroughRealControls() {
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame(),15000);
     QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
     capture("live");
+}
+void QmlWorkstationTests::stoppedCameraSettingsRequireExplicitApplyReviewAndConfirmation() {
+    QVERIFY(item("cameraSettingsButton"));
+    auto* camera=runtime_->camera();
+    auto* settings=camera->settings();
+    const auto readPreferences=[&] {
+        QFile file(directory_.filePath("pilot.json"));
+        return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};
+    };
+    const auto savedCameraMatches=[&](const camera::CameraConfiguration& requested,
+                                     const camera::CameraConfiguration& actual) {
+        const auto loaded=configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()}.load();
+        if(!loaded.hasValue()) return false;
+        const auto& profiles=loaded.value().cameraProfiles.profiles;
+        const auto found=std::find_if(profiles.begin(),profiles.end(),[](const auto& profile) {
+            return profile.cameraId.value=="SIM-LIVE";
+        });
+        return found!=profiles.end() && found->confirmed &&
+            application::cameraConfigurationsEqual(found->requested,requested) &&
+            application::cameraConfigurationsEqual(found->lastApplied,actual);
+    };
+    const auto typeSetting=[&](const char* name,const QString& text) {
+        auto* field=item(name);
+        QVERIFY2(field,name);
+        QVERIFY(field->isVisible() && field->isEnabled());
+        QVERIFY(QQuickTest::qWaitForPolish(window_));
+        const QRectF rectangle=field->mapRectToScene(QRectF(0,0,field->width(),field->height()));
+        QVERIFY(window_->contentItem()->boundingRect().contains(rectangle));
+        QTest::mouseClick(window_,Qt::LeftButton,Qt::NoModifier,rectangle.center().toPoint());
+        QVERIFY(field->hasActiveFocus());
+        QTest::keyClick(window_,Qt::Key_A,Qt::ControlModifier);
+        for(const QChar character:text)
+            QTest::keyClick(window_,static_cast<Qt::Key>(character.unicode()));
+        QCOMPARE(field->property("text").toString(),text);
+    };
+    const auto defaults=app::simulatorConfiguration();
+    QTRY_VERIFY_WITH_TIMEOUT(savedCameraMatches(defaults,defaults),5000);
+    click("stopButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(),5000);
+    click("cameraSettingsButton");
+    QTRY_VERIFY(settings->isOpen() && settings->editable());
+    auto* dialog=window_->findChild<QObject*>(QStringLiteral("cameraSettingsDialog"));
+    QVERIFY(dialog);
+    QVERIFY(!dialog->property("modal").toBool());
+    QCOMPARE(item("cameraExposureValue")->property("text").toString(),QStringLiteral("1000"));
+    QCOMPARE(item("cameraGainValue")->property("text").toString(),QStringLiteral("0"));
+    capture("camera-settings-stopped");
+    const auto before=*pipeline_->snapshot().camera;
+    const auto requestBefore=camera->requestedConfiguration();
+    const auto currentBefore=camera->currentConfiguration();
+    const auto preferencesBefore=readPreferences();
+    QVERIFY(!preferencesBefore.isEmpty());
+    const auto savesBefore=*preferences_->latestStatus();
+    const auto processingBefore=QJsonDocument::fromJson(preferencesBefore).object().value("presets");
+    const QString exposure=QStringLiteral("2345.678912345678");
+    const QString gain=QStringLiteral("3.456789123456789");
+    typeSetting("cameraExposureValue",exposure);
+    QTest::keyClick(window_,Qt::Key_Tab);
+    typeSetting("cameraGainValue",gain);
+    QTest::keyClick(window_,Qt::Key_Return);
+    QCOMPARE(settings->exposureText(),exposure);
+    QCOMPARE(settings->gainText(),gain);
+    QVERIFY(settings->applyEnabled());
+    // Local draft edits, focus loss and Enter must not post camera commands or
+    // save a profile, including an accidental same-value Apply.
+    for(int poll=0;poll<10;++poll) {
+        QCoreApplication::processEvents();
+        QTest::qWait(10);
+        const auto now=pipeline_->snapshot().camera;
+        QCOMPARE(now->sessionGeneration,before.sessionGeneration);
+        QCOMPARE(now->appliedRevision,before.appliedRevision);
+        QCOMPARE(now->confirmedRevision,before.confirmedRevision);
+        QCOMPARE(now->latestOutcome.has_value(),before.latestOutcome.has_value());
+        if(before.latestOutcome) QCOMPARE(now->latestOutcome->requestId,before.latestOutcome->requestId);
+        QCOMPARE(camera->requestedConfiguration(),requestBefore);
+        QCOMPARE(camera->currentConfiguration(),currentBefore);
+        QCOMPARE(preferences_->latestStatus()->latestAttemptedSaveRevision,savesBefore.latestAttemptedSaveRevision);
+        QCOMPARE(preferences_->latestStatus()->latestSavedRevision,savesBefore.latestSavedRevision);
+        QCOMPARE(readPreferences(),preferencesBefore);
+    }
+    capture("camera-settings-draft");
+    click("closeCameraSettingsButton");
+    QTRY_VERIFY(!settings->isOpen());
+    QCOMPARE(readPreferences(),preferencesBefore);
+    click("cameraSettingsButton");
+    QTRY_VERIFY(settings->editable());
+    QCOMPARE(settings->exposureText(),QStringLiteral("1000"));
+    QCOMPARE(settings->gainText(),QStringLiteral("0"));
+    typeSetting("cameraExposureValue",QStringLiteral("10000.5"));
+    QVERIFY(!settings->applyEnabled());
+    QVERIFY(!settings->apply());
+    QCOMPARE(camera->requestedConfiguration(),requestBefore);
+    QCOMPARE(readPreferences(),preferencesBefore);
+    capture("camera-settings-invalid");
+    typeSetting("cameraExposureValue",exposure);
+    typeSetting("cameraGainValue",gain);
+    QVERIFY(settings->applyEnabled());
+    click("applyCameraSettingsButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->confirmEnabled(),10000);
+    QVERIFY(!camera->startLive());
+    auto expectedRequest=defaults;
+    expectedRequest.exposure.requestedMicroseconds=exposure.toDouble();
+    expectedRequest.gain.requestedDb=gain.toDouble();
+    auto expectedActual=defaults;
+    expectedActual.exposure.requestedMicroseconds=2346.0;
+    expectedActual.gain.requestedDb=3.0;
+    const auto applied=pipeline_->snapshot().camera;
+    QVERIFY(applied->appliedConfiguration);
+    QVERIFY(application::cameraConfigurationsEqual(applied->appliedConfiguration->requested,expectedRequest));
+    QVERIFY(application::cameraConfigurationsEqual(applied->appliedConfiguration->actual,expectedActual));
+    QVERIFY(!applied->confirmedRevision);
+    QCOMPARE(readPreferences(),preferencesBefore);
+    capture("camera-settings-review");
+    click("closeCameraSettingsButton");
+    click("cameraSettingsButton");
+    QTRY_VERIFY(settings->isOpen());
+    QVERIFY(settings->currentSummary().contains(QStringLiteral("2346")));
+    click("closeCameraSettingsButton");
+    click("confirmButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(),5000);
+    QTRY_VERIFY_WITH_TIMEOUT(savedCameraMatches(expectedRequest,expectedActual),5000);
+    QVERIFY(preferences_->latestStatus()->latestSavedRevision!=savesBefore.latestSavedRevision);
+    QCOMPARE(QJsonDocument::fromJson(readPreferences()).object().value("presets"),processingBefore);
+    click("startButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame(),10000);
+    click("cameraSettingsButton");
+    QTRY_VERIFY(settings->isOpen());
+    QVERIFY(!settings->editable() && !settings->applyEnabled());
+    QVERIFY(!item("cameraExposureValue")->isEnabled());
+    QVERIFY(!item("cameraGainValue")->isEnabled());
+    QVERIFY(!item("applyCameraSettingsButton")->isEnabled());
+    const auto streamingRequest=camera->requestedConfiguration();
+    const auto streamingRevision=pipeline_->snapshot().camera->appliedRevision;
+    QVERIFY(!settings->editExposureText(QStringLiteral("4444")));
+    QVERIFY(!settings->editGainText(QStringLiteral("7")));
+    QVERIFY(!settings->apply());
+    QCOMPARE(camera->requestedConfiguration(),streamingRequest);
+    QCOMPARE(pipeline_->snapshot().camera->appliedRevision,streamingRevision);
+    capture("camera-settings-streaming");
+    // A nonmodal dialog must leave the actual viewer/priority controls usable.
+    click("pauseButton");
+    QTRY_COMPARE(runtime_->viewer()->playbackState(),QStringLiteral("Paused"));
+    QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
+    QVERIFY(!settings->editable() && !settings->applyEnabled());
+    const auto pausedFrame=runtime_->viewer()->sourceFrameId();
+    capture("camera-settings-paused");
+    QCOMPARE(runtime_->viewer()->sourceFrameId(),pausedFrame);
+    click("stopButton");
+    QTRY_COMPARE_WITH_TIMEOUT(pipeline_->snapshot().camera->state,application::CameraSessionState::ConnectedIdle,5000);
+    QVERIFY(!pipeline_->snapshot().camera->desiredStreaming);
+    QVERIFY(item("disconnectButton")->isEnabled());
+    capture("camera-settings-after-stop");
+    click("disconnectButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->connectEnabled(),5000);
+    QVERIFY(!settings->editable());
+    QVERIFY(!settings->apply());
+    QCOMPARE(QJsonDocument::fromJson(readPreferences()).object().value("presets"),processingBefore);
+    // A new runtime must load the exact requested profile and independently
+    // rounded actual facts; merely inspecting already-written bytes is weak.
+    destroyRuntime();
+    createRuntime();
+    camera=runtime_->camera();
+    settings=camera->settings();
+    QTRY_VERIFY_WITH_TIMEOUT(camera->resumeLiveEnabled(),10000);
+    QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
+    QVERIFY(!runtime_->viewer()->hasFrame());
+    QCOMPARE(camera->requestedConfiguration().value("exposureMicroseconds").toDouble(),exposure.toDouble());
+    QCOMPARE(camera->requestedConfiguration().value("gainDb").toDouble(),gain.toDouble());
+    click("cameraSettingsButton");
+    QTRY_VERIFY(settings->isOpen() && settings->editable());
+    QCOMPARE(settings->exposureText(),exposure);
+    QCOMPARE(settings->gainText(),gain);
+    capture("camera-settings-reopened");
+    click("closeCameraSettingsButton");
+    click("resumeLiveButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame(),15000);
+    QVERIFY(application::cameraConfigurationsEqual(*pipeline_->snapshot().camera->currentConfiguration,expectedActual));
+    // Restore the established fixture contract for every subsequent scene.
+    click("stopButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(),5000);
+    click("cameraSettingsButton");
+    QTRY_VERIFY(settings->editable());
+    typeSetting("cameraExposureValue",QStringLiteral("1000"));
+    typeSetting("cameraGainValue",QStringLiteral("0"));
+    click("applyCameraSettingsButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->confirmEnabled(),10000);
+    click("closeCameraSettingsButton");
+    click("confirmButton");
+    QTRY_VERIFY_WITH_TIMEOUT(savedCameraMatches(defaults,defaults),5000);
+    QCOMPARE(QJsonDocument::fromJson(readPreferences()).object().value("presets"),processingBefore);
+    const auto stoppedFrame=runtime_->viewer()->sourceFrameId();
+    click("startButton");
+    QTRY_COMPARE_WITH_TIMEOUT(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming,5000);
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame()
+        && runtime_->viewer()->sourceFrameId()!=stoppedFrame,15000);
+    QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
 void QmlWorkstationTests::completedViewingAndExactNumericEditing() {
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->compareAvailable(),10000);
@@ -1220,6 +1430,34 @@ void QmlWorkstationTests::keepsLiveContentUsable() {
     revealProcessing("gammaField");
     revealProcessing("brightnessField");
     capture(mode == "compare" ? "live-compare" : "live");
+    click("cameraSettingsButton");
+    QTRY_VERIFY(runtime_->camera()->settings()->isOpen());
+    QVERIFY(!runtime_->camera()->settings()->editable());
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    auto* dialog=window_->findChild<QObject*>(QStringLiteral("cameraSettingsDialog"));
+    QVERIFY(dialog);
+    QVERIFY(!dialog->property("modal").toBool());
+    const QRectF dialogRect(dialog->property("x").toDouble(),dialog->property("y").toDouble(),
+        dialog->property("width").toDouble(),dialog->property("height").toDouble());
+    QVERIFY(window_->contentItem()->boundingRect().contains(dialogRect));
+    for(const auto* name:{"cameraExposureMode","cameraGainMode","cameraExposureValue","cameraGainValue",
+                         "cameraSettingsActual","cameraSettingsStatus","applyCameraSettingsButton","closeCameraSettingsButton"}) {
+        auto* control=item(name);
+        QVERIFY2(control,name);
+        QVERIFY2(control->isVisible(),name);
+        const auto rect=control->mapRectToScene(QRectF(0,0,control->width(),control->height()));
+        QVERIFY2(rect.width()>0 && rect.height()>0 && dialogRect.contains(rect),name);
+    }
+    for(const auto* name:{"stopButton","disconnectButton"}) {
+        auto* control=item(name);
+        QVERIFY(control && control->isVisible() && control->isEnabled());
+        const auto rect=control->mapRectToScene(QRectF(0,0,control->width(),control->height()));
+        QVERIFY(window_->contentItem()->boundingRect().contains(rect));
+        QVERIFY(!dialogRect.intersects(rect));
+    }
+    capture(mode == "compare" ? "camera-settings-layout-compare" : "camera-settings-layout-original");
+    click("closeCameraSettingsButton");
+    QTRY_VERIFY(!runtime_->camera()->settings()->isOpen());
     QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
 void QmlWorkstationTests::stopDisconnectAndExplicitSavedResume() {
@@ -1303,9 +1541,17 @@ void QmlWorkstationTests::capture(const QString& state) {
     const auto basename=QStringLiteral("%1-%2x%3").arg(state).arg(window_->width()).arg(window_->height());
     QVERIFY(image.save(QDir(path).filePath(basename + ".png")));
     QJsonObject items;
-    for(const auto* control:window_->findChildren<QQuickItem*>()) {
+    auto controls=window_->findChildren<QQuickItem*>();
+    const auto collect=[&](const auto& self,QQuickItem* parent)->void {
+        if(!controls.contains(parent)) controls.append(parent);
+        for(auto* child:parent->childItems()) self(self,child);
+    };
+    collect(collect,window_->contentItem());
+    for(const auto* control:controls) {
         if(control->objectName().isEmpty()) continue;
-        const auto rect=control->mapRectToScene(control->boundingRect());
+        const bool cameraInput=control->objectName()=="cameraExposureValue" || control->objectName()=="cameraGainValue";
+        const auto rect=control->mapRectToScene(cameraInput
+            ? QRectF(0,0,control->width(),control->height()) : control->boundingRect());
         QJsonObject details{{"x",rect.x()},{"y",rect.y()},
             {"width",rect.width()},{"height",rect.height()},
             {"visible",control->isVisible()},{"enabled",control->isEnabled()},
@@ -1317,7 +1563,21 @@ void QmlWorkstationTests::capture(const QString& state) {
         }
         items.insert(control->objectName(),details);
     }
-    const QJsonObject geometry{{"window",QJsonObject{{"width",window_->width()},{"height",window_->height()}}},{"items",items}};
+    if(auto* dialog=window_->findChild<QObject*>(QStringLiteral("cameraSettingsDialog"))) {
+        items.insert("cameraSettingsDialog",QJsonObject{{"x",dialog->property("x").toDouble()},
+            {"y",dialog->property("y").toDouble()},{"width",dialog->property("width").toDouble()},
+            {"height",dialog->property("height").toDouble()},{"visible",dialog->property("visible").toBool()},
+            {"enabled",dialog->property("enabled").toBool()},{"modal",dialog->property("modal").toBool()}});
+    }
+    const auto* camera=runtime_->camera();
+    const auto* settings=camera->settings();
+    const QJsonObject geometry{{"window",QJsonObject{{"width",window_->width()},{"height",window_->height()}}},{"items",items},
+        {"camera",QJsonObject{{"requested",QJsonObject::fromVariantMap(camera->requestedConfiguration())},
+            {"current",QJsonObject::fromVariantMap(camera->currentConfiguration())},
+            {"applied",QJsonObject::fromVariantMap(camera->appliedConfiguration())}}},
+        {"cameraSettings",QJsonObject{{"open",settings->isOpen()},{"editable",settings->editable()},
+            {"applyEnabled",settings->applyEnabled()},{"exposureText",settings->exposureText()},
+            {"gainText",settings->gainText()},{"status",settings->status()},{"actual",settings->currentSummary()}}}};
     QFile output(QDir(path).filePath(basename + ".json"));
     QVERIFY(output.open(QIODevice::WriteOnly));
     QVERIFY(output.write(QJsonDocument(geometry).toJson())>0);

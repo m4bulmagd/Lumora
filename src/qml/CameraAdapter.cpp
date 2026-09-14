@@ -55,11 +55,12 @@ QVariantList descriptors(const presentation::WorkstationState& state) {
 }
 }
 CameraAdapter::CameraAdapter(presentation::WorkstationCoordinator& coordinator, QObject* parent)
-    : QObject(parent), coordinator_(coordinator) { refresh(); }
+    : QObject(parent), coordinator_(coordinator), settings_(coordinator, this) { refresh(); }
 
 void CameraAdapter::refresh() {
     state_ = coordinator_.state();
     policy_ = presentation::CameraActionPolicy::evaluate(state_);
+    settings_.refresh();
     auto nextDevices = descriptors(state_);
     if (nextDevices != devices_) {
         devices_ = std::move(nextDevices);
@@ -67,7 +68,7 @@ void CameraAdapter::refresh() {
     }
     emit stateChanged();
 }
-void CameraAdapter::setClosing() { closing_ = true; refresh(); }
+void CameraAdapter::setClosing() { closing_ = true; settings_.setClosing(); refresh(); }
 bool CameraAdapter::selectCamera(const QString& id) {
     const auto& current = coordinator_.state();
     const auto policy = presentation::CameraActionPolicy::evaluate(current);

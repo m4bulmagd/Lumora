@@ -3,6 +3,7 @@ add_library(
   STATIC
   include/lumora/presentation/CameraActionPolicy.hpp
   include/lumora/presentation/CameraSettingsModel.hpp
+  include/lumora/presentation/CameraSettingsDraft.hpp
   include/lumora/presentation/DisplayMode.hpp
   include/lumora/presentation/ProcessingControlsModel.hpp
   include/lumora/presentation/ViewportTransform.hpp
@@ -14,6 +15,7 @@ add_library(
   src/PresentationProtocol.cpp
   src/FramePresenter.cpp
   src/CameraActionPolicy.cpp
+  src/CameraSettingsDraft.cpp
   src/ProcessingControlsModel.cpp
   src/ViewportTransform.cpp
   src/WorkstationCoordinator.cpp
