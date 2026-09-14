@@ -51,6 +51,7 @@ private slots:
     void presetsAndResetPreserveCameraPausedFrameAndViewport();
     void toneEditingPreservesExactValuesPausedPixelsAndResetAuthority();
     void localContrastEditingPreservesPausedFrameAndExactSettings();
+    void denoiseEditingNormalizesModesAndPreservesPausedFrame();
     void renderedPixelsStayInsideViewport();
     void keepsLiveContentUsable_data();
     void keepsLiveContentUsable();
@@ -79,6 +80,8 @@ private:
     QString diagnostics() const { return warnings_.join('\n'); }
     void capture(const QString& state);
     void choosePreset(const QString& id);
+    void chooseDenoiseOption(const char* name,int index);
+    bool denoiseSaved(processing::DenoiseMode mode,int kernel,double sigma,bool enabled=true) const;
     void revealProcessing(const char* name);
     void enterText(const char* name,const QString& text,bool commit=true);
     QImage viewportPixels() const;
@@ -136,6 +139,12 @@ void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> faul
         saved.description="Exact saved local contrast fixture";
         saved.pipeline.stages[4].enabled=true;
         saved.pipeline.stages[4].parameters=processing::ClaheParameters{2.3456789123456,4};
+        settings.presets.customPresets.push_back(saved);
+        saved.id={"saved-denoise"};
+        saved.name="Saved denoise";
+        saved.description="Exact saved denoise fixture";
+        saved.pipeline.stages[5].enabled=true;
+        saved.pipeline.stages[5].parameters=processing::DenoiseParameters{processing::DenoiseMode::Gaussian,7,1.234567891234567};
         settings.presets.customPresets.push_back(saved);
         QVERIFY(configuration::ConfigurationStore{preferencePath.toStdString()}.save(settings).hasValue());
     }
@@ -293,6 +302,163 @@ bool QmlWorkstationTests::localContrastSaved(double clip,int grid,bool enabled) 
     const auto& parameters=std::get<processing::ClaheParameters>(stage.parameters);
     return state.selectedId.value=="custom" && stage.enabled==enabled
         && parameters.clipLimit==clip && parameters.tileGridSize==static_cast<std::uint32_t>(grid);
+}
+void QmlWorkstationTests::chooseDenoiseOption(const char* name,int index) {
+    revealProcessing(name);
+    auto* control=item(name);
+    QVERIFY(control->isEnabled());
+    QTest::keyClick(window_,Qt::Key_Space);
+    QTest::keyClick(window_,Qt::Key_Home);
+    for(int row=0;row<index;++row) QTest::keyClick(window_,Qt::Key_Down);
+    QTest::keyClick(window_,Qt::Key_Return);
+    QTRY_COMPARE(control->property("currentIndex").toInt(),index);
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending(),10000);
+}
+bool QmlWorkstationTests::denoiseSaved(processing::DenoiseMode mode,int kernel,double sigma,bool enabled) const {
+    const auto loaded=configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()}.load();
+    if(!loaded.hasValue()) return false;
+    const auto& state=loaded.value().presets;
+    const auto& stage=state.activePipeline.stages[5];
+    const auto& parameters=std::get<processing::DenoiseParameters>(stage.parameters);
+    return state.selectedId.value=="custom" && stage.enabled==enabled && parameters.mode==mode
+        && parameters.kernelSize==static_cast<std::uint32_t>(kernel) && parameters.sigma==sigma;
+}
+void QmlWorkstationTests::denoiseEditingNormalizesModesAndPreservesPausedFrame() {
+    // Missing controls, non-atomic mode normalization, stale edited sigma, or
+    // changed paused pixels must fail this real scene and persistence route.
+    for(const auto* name:{"denoiseEnabled","denoiseMode","denoiseKernel","denoiseSigmaField"})
+        QVERIFY2(item(name),name);
+    choosePreset(QStringLiteral("saved-denoise"));
+    revealProcessing("denoiseSigmaField");
+    QCOMPARE(item("denoiseSigmaField")->property("text").toString(),QStringLiteral("1.234567891234567"));
+    QCOMPARE(item("denoiseKernel")->property("count").toInt(),3);
+    QCOMPARE(item("denoiseMode")->property("currentText").toString(),QStringLiteral("Gaussian"));
+    QCOMPARE(item("denoiseMode")->property("currentValue").toString(),QStringLiteral("gaussian"));
+    QCOMPARE(item("denoiseKernel")->property("currentText").toString(),QStringLiteral("7"));
+    QCOMPARE(item("denoiseKernel")->property("currentValue").toInt(),7);
+    QVERIFY(item("denoiseSigmaSlider"));
+    QVERIFY(!item("denoiseSigmaSlider")->isVisible());
+    chooseDenoiseOption("denoiseMode",0);
+    chooseDenoiseOption("denoiseKernel",2);
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("saved-denoise"));
+    auto expected=runtime_->coordinator().processingControls()->draft().activePipeline;
+    constexpr double liveSigma=3.123456789012345;
+    enterText("denoiseSigmaField",QStringLiteral("3.123456789012345"),false);
+    QTest::keyClick(window_,Qt::Key_Tab);
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending()
+        && denoiseSaved(processing::DenoiseMode::Gaussian,7,liveSigma),10000);
+    expected.stages[5].parameters=processing::DenoiseParameters{processing::DenoiseMode::Gaussian,7,liveSigma};
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,expected));
+    capture("denoise-live");
+
+    click("compareButton");
+    QTRY_COMPARE(runtime_->viewer()->displayMode(),QStringLiteral("compare"));
+    click("pauseButton");
+    QTRY_COMPARE(runtime_->viewer()->playbackState(),QStringLiteral("Paused"));
+    auto* viewer=runtime_->viewer();
+    QVERIFY(viewer->fit());
+    QVERIFY(viewer->zoomAt(viewer->imageItem().width()/4,viewer->imageItem().height()/2,1.1));
+    QVERIFY(viewer->panBy(13,17));
+    const auto frozenId=viewer->sourceFrameId();
+    const auto rectangles=viewer->imageItem().imageRects();
+    const auto camera=*pipeline_->snapshot().camera;
+    const auto readback=runtime_->camera()->currentSummary();
+    const auto frozen=viewportPixels();
+    QVERIFY(!frozen.isNull());
+    for(const auto* invalid:{"-1","5.1","."}) {
+        enterText("denoiseSigmaField",QString::fromLatin1(invalid));
+        QVERIFY(!runtime_->processing()->validationError().isEmpty());
+        QCOMPARE(runtime_->processing()->property("denoiseSigma").toDouble(),liveSigma);
+        QVERIFY(denoiseSaved(processing::DenoiseMode::Gaussian,7,liveSigma));
+    }
+    capture("denoise-invalid-sigma");
+    enterText("denoiseSigmaField",QStringLiteral("3.123456789012345"));
+    chooseDenoiseOption("denoiseMode",1);
+    QTRY_VERIFY_WITH_TIMEOUT(denoiseSaved(processing::DenoiseMode::Median,5,0),10000);
+    QCOMPARE(item("denoiseKernel")->property("count").toInt(),2);
+    QCOMPARE(item("denoiseMode")->property("currentText").toString(),QStringLiteral("Median"));
+    QCOMPARE(item("denoiseMode")->property("currentValue").toString(),QStringLiteral("median"));
+    QCOMPARE(item("denoiseKernel")->property("currentText").toString(),QStringLiteral("5"));
+    QCOMPARE(item("denoiseKernel")->property("currentValue").toInt(),5);
+    QVERIFY(!item("denoiseSigmaField")->isEnabled());
+    QCOMPARE(item("denoiseSigmaField")->property("text").toString(),QStringLiteral("0"));
+    chooseDenoiseOption("denoiseKernel",0);
+    QTRY_VERIFY_WITH_TIMEOUT(denoiseSaved(processing::DenoiseMode::Median,3,0),10000);
+    capture("denoise-median-paused");
+    chooseDenoiseOption("denoiseMode",0);
+    QTRY_VERIFY_WITH_TIMEOUT(denoiseSaved(processing::DenoiseMode::Gaussian,3,0),10000);
+    QVERIFY(item("denoiseSigmaField")->isEnabled());
+
+    // An external mode replacement arrives before focus loss, just like a
+    // preset/reset replacement. It must cancel the old Gaussian field buffer.
+    enterText("denoiseSigmaField",QStringLiteral("4.5"),false);
+    bool changed=false;
+    QVERIFY(QMetaObject::invokeMethod(runtime_->processing(),"setDenoiseMode",
+        Q_RETURN_ARG(bool,changed),Q_ARG(QString,QStringLiteral("median"))));
+    QVERIFY(changed);
+    item("presetSelector")->forceActiveFocus();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending()
+        && denoiseSaved(processing::DenoiseMode::Median,3,0),10000);
+    QVERIFY(runtime_->processing()->validationError().isEmpty());
+    chooseDenoiseOption("denoiseMode",0);
+    enterText("denoiseSigmaField",QStringLiteral("4.5"),false);
+    QVERIFY(runtime_->processing()->selectPreset(QStringLiteral("standard")));
+    QTest::keyClick(window_,Qt::Key_Return);
+    item("presetSelector")->forceActiveFocus();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending(),10000);
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("standard"));
+    QCOMPARE(runtime_->processing()->property("denoiseSigma").toDouble(),0.0);
+
+    // A replaced draft also dismisses a dropdown so Enter cannot choose a
+    // highlighted option from the previous draft after Reset.
+    revealProcessing("denoiseKernel");
+    QTest::keyClick(window_,Qt::Key_Space);
+    QTest::keyClick(window_,Qt::Key_End);
+    auto* popup=item("denoiseKernel")->property("popup").value<QObject*>();
+    QVERIFY(popup);
+    QVERIFY(popup->property("visible").toBool());
+    QVERIFY(runtime_->processing()->resetProcessing());
+    QTRY_VERIFY(!popup->property("visible").toBool());
+    QTest::keyClick(window_,Qt::Key_Return);
+    item("presetSelector")->forceActiveFocus();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && persistedPresetIs("original"),10000);
+    QVERIFY(!item("denoiseMode")->isEnabled());
+    QVERIFY(!item("denoiseKernel")->isEnabled());
+    QVERIFY(!item("denoiseSigmaField")->isEnabled());
+    QCOMPARE(viewportPixels(),frozen);
+    capture("denoise-reset-paused");
+
+    choosePreset(QStringLiteral("saved-denoise"));
+    constexpr double finalSigma=4.23456789123456;
+    enterText("denoiseSigmaField",QStringLiteral("4.23456789123456"));
+    revealProcessing("denoiseEnabled"); click("denoiseEnabled");
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending()
+        && denoiseSaved(processing::DenoiseMode::Gaussian,7,finalSigma,false),10000);
+    QVERIFY(!item("denoiseMode")->isEnabled());
+    QVERIFY(!item("denoiseKernel")->isEnabled());
+    QVERIFY(!item("denoiseSigmaField")->isEnabled());
+    click("denoiseEnabled");
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending()
+        && denoiseSaved(processing::DenoiseMode::Gaussian,7,finalSigma),10000);
+    expected.stages[5].parameters=processing::DenoiseParameters{processing::DenoiseMode::Gaussian,7,finalSigma};
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,expected));
+    QCOMPARE(viewer->sourceFrameId(),frozenId);
+    QCOMPARE(viewer->displayMode(),QStringLiteral("compare"));
+    QCOMPARE(viewer->playbackState(),QStringLiteral("Paused"));
+    QCOMPARE(viewer->imageItem().imageRects(),rectangles);
+    QCOMPARE(viewportPixels(),frozen);
+    QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
+    QCOMPARE(pipeline_->snapshot().camera->sessionGeneration,camera.sessionGeneration);
+    QCOMPARE(pipeline_->snapshot().camera->confirmedRevision,camera.confirmedRevision);
+    QCOMPARE(runtime_->camera()->currentSummary(),readback);
+    revealProcessing("denoiseSigmaField");
+    capture("denoise-paused");
+    click("resumeButton");
+    QTRY_VERIFY_WITH_TIMEOUT(viewer->sourceFrameId()!=frozenId,5000);
+    click("originalButton");
+    QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
 void QmlWorkstationTests::localContrastEditingPreservesPausedFrameAndExactSettings() {
     // Missing bindings, fractional grid truncation, or replaced input resubmission
@@ -745,6 +911,8 @@ void QmlWorkstationTests::keepsLiveContentUsable() {
         QVERIFY(control->isEnabled());
         QVERIFY(window_->contentItem()->boundingRect().contains(control->mapRectToScene(control->boundingRect())));
     }
+    revealProcessing("denoiseSigmaField");
+    capture(mode == "compare" ? "denoise-layout-compare" : "denoise-layout-original");
     revealProcessing("tileGridField");
     capture(mode == "compare" ? "local-contrast-layout-compare" : "local-contrast-layout-original");
     revealProcessing("gammaField");
