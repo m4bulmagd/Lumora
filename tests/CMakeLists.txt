@@ -3,7 +3,8 @@ if(LUMORA_BUILD_QML_UI)
   qt_add_executable(
     lumora_qml_tests
     MANUAL_FINALIZATION
-    qml/ThemeSmokeTests.cpp
+    integration/QmlWorkstationTests.cpp
+    "${PROJECT_SOURCE_DIR}/src/app/SimulatorComposition.cpp"
   )
   set_target_properties(lumora_qml_tests PROPERTIES AUTOMOC ON)
   target_link_libraries(
@@ -11,25 +12,44 @@ if(LUMORA_BUILD_QML_UI)
     PRIVATE
       lumora_qml_ui
       lumora_qml_uiplugin
+      lumora::camera_simulator
       Qt6::Qml
       Qt6::Quick
       Qt6::QuickControls2
       Qt6::QuickTest
       Qt6::Test
   )
+  target_include_directories(lumora_qml_tests PRIVATE "${PROJECT_SOURCE_DIR}/src/app" "${PROJECT_SOURCE_DIR}/src/processing/src")
   lumora_enable_warnings(lumora_qml_tests)
   qt_import_qml_plugins(lumora_qml_tests)
   qt_finalize_executable(lumora_qml_tests)
 
-  add_test(NAME Qml.ThemeSmoke COMMAND lumora_qml_tests)
+  add_test(NAME Qml.Workstation COMMAND lumora_qml_tests)
   set_tests_properties(
-    Qml.ThemeSmoke
+    Qml.Workstation
     PROPERTIES
       LABELS qml
-      TIMEOUT 30
+      TIMEOUT 120
       ENVIRONMENT
         "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>;QT_QUICK_BACKEND=software"
   )
+  foreach(adapter IN ITEMS Runtime ProcessingAdapter)
+    string(TOLOWER "${adapter}" adapter_lower)
+    set(adapter_target "lumora_qml_${adapter_lower}_tests")
+    qt_add_executable(${adapter_target} MANUAL_FINALIZATION
+      "integration/Qml${adapter}Tests.cpp" qml/QuickRendererTestMain.cpp
+      "${PROJECT_SOURCE_DIR}/src/app/SimulatorComposition.cpp")
+    target_include_directories(${adapter_target} PRIVATE "${PROJECT_SOURCE_DIR}/src/app" "${PROJECT_SOURCE_DIR}/src/processing/src")
+    target_link_libraries(${adapter_target} PRIVATE lumora_qml_ui lumora_qml_uiplugin
+      lumora::camera_simulator Qt6::Test GTest::gtest)
+    lumora_enable_warnings(${adapter_target})
+    qt_import_qml_plugins(${adapter_target})
+    qt_finalize_executable(${adapter_target})
+    add_test(NAME Qml.${adapter} COMMAND ${adapter_target})
+    set_tests_properties(Qml.${adapter} PROPERTIES TIMEOUT 120 LABELS qml
+      ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>;QT_QUICK_BACKEND=software")
+  endforeach()
+
 endif()
 
 add_executable(lumora_application_tests

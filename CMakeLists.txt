@@ -13,7 +13,7 @@ project(
 option(LUMORA_ENABLE_BASLER "Build the Basler pylon camera adapter" OFF)
 option(LUMORA_BUILD_TESTS "Build automated tests" ON)
 option(LUMORA_BUILD_BENCHMARKS "Build benchmark executables" OFF)
-option(LUMORA_BUILD_QML_UI "Build the optional Qt Quick/QML interface preview" OFF)
+option(LUMORA_BUILD_QML_UI "Build the optional Qt Quick/QML SIM-LIVE pilot" OFF)
 option(LUMORA_ENABLE_STRESS_TESTS "Register opt-in stress tests" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
