@@ -37,7 +37,7 @@ The full-suite commands exclude `hardware` and `desktop` labels. Native QML wind
 
 ## Relevant verification commands
 
-With the matching SDK first and the existing non-Qt dependency prefix second in `CMAKE_PREFIX_PATH`, both QML presets were configured and built. Normal vcpkg build instructions are in the [Linux](../../development/build-linux.md#optional-qml-interface-preview) and [Windows](../../development/build-windows.md#optional-qml-interface-preview) guides.
+With the matching SDK first and the existing non-Qt dependency prefix second in `CMAKE_PREFIX_PATH`, both QML presets were configured and built. Normal vcpkg build instructions are in the [Linux](../../development/build-linux.md#optional-qml-sim-live-pilot) and [Windows](../../development/build-windows.md#optional-qml-sim-live-pilot) guides.
 
 ```bash
 cmake --build --preset linux-gcc-debug-sim-qml --parallel 3

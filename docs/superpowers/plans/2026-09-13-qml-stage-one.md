@@ -10,7 +10,7 @@
 
 **Spec:** [Qt Quick/QML migration design](../specs/2026-09-13-qt-quick-qml-migration-design.md).
 
-**Status:** Checkpoints 1–3 are implemented locally on `codex/qml-foundation`, continuing from `e4520dd`. See the [foundation record](../../architecture/milestones/qml-foundation.md), [shared-policy record](../../architecture/milestones/qml-shared-policy.md) and [renderer experiment record](../../architecture/milestones/qml-renderer-experiment.md) for source-bound verification and remaining limits. Checkpoint 4 remains planned. The preview and standalone renderer experiment do not complete the integrated Stage 1 workstation.
+**Status:** Checkpoints 1–4 are implemented locally on `codex/qml-foundation`, continuing from `e4520dd`. See the [foundation record](../../architecture/milestones/qml-foundation.md), [shared-policy record](../../architecture/milestones/qml-shared-policy.md), [renderer experiment record](../../architecture/milestones/qml-renderer-experiment.md) and [integrated live record](../../architecture/milestones/qml-live.md). Source `146f10a` completes the scoped Stage 1 SIM-LIVE workstation; full editor parity, layout preferences, the default switch and external acceptance remain later work.
 
 ## Global constraints
 
@@ -135,12 +135,12 @@ Use shared deterministic tests, a software/offscreen path where supported, and a
 
 **Files:** Extend `src/qml/main.cpp` and `qml/Main.qml`; create `CameraAdapter.hpp/.cpp`, `ProcessingAdapter.hpp/.cpp`, `ViewerAdapter.hpp/.cpp`, `qml/CameraStartup.qml`, `qml/ViewingToolbar.qml`, `qml/WindowLevelControls.qml`, `qml/StatusStrip.qml` and `tests/integration/QmlWorkstationTests.cpp`. Update build guides, dependency inventory and `docs/PROGRESS.md` with scoped evidence.
 
-- [ ] Register small typed adapters in the QML module and inject application-owned instances through required root properties. Keep request/session/revision handling in C++ and numeric window/level editing precise. Project the Quick sink’s pre-ticket `initializationError()` diagnostic into workstation status as well as shared ticket errors.
-- [ ] Compose the existing simulator, installation/preferences services and `LivePipeline`. Connect shared startup, Stop/Disconnect/Retry and explicit eligible saved Resume. Show authoritative readback and active processing state.
-- [ ] Connect Original/Enhanced/Compare, Pause/Resume, Fit, logical 100%, zoom/pan and evaluation/paused/stale/orientation/error indications to shared state and the proven renderer.
-- [ ] Implement only window/level editing through the existing model → admission → completion → acknowledged persistence route. Reopen using isolated development preferences and verify only successfully activated settings were saved.
-- [ ] Run the real select → Connect → Apply → review → Confirm → Start flow and negative command tests. Preserve Stop/Disconnect while work is pending. Exercise processing fallback/retry and context replacement/teardown with the same production backend.
-- [ ] Run Debug/Release regression suites, lint and QML tests; inspect both supported window sizes. Stage the compiled QML resources and required Qt imports/plugins outside the source/build trees and verify imports without development search paths. Record native Windows/DPI work separately if unavailable.
+- [x] Register small typed adapters in the QML module and inject application-owned instances through required root properties. Keep request/session/revision handling in C++ and numeric window/level editing precise. Project the Quick sink’s pre-ticket `initializationError()` diagnostic into workstation status as well as shared ticket errors.
+- [x] Compose the existing simulator, installation/preferences services and `LivePipeline`. Connect shared startup, Stop/Disconnect/Retry and explicit eligible saved Resume. Show authoritative readback and active processing state.
+- [x] Connect Original/Enhanced/Compare, Pause/Resume, Fit, logical 100%, zoom/pan and evaluation/paused/stale/orientation/error indications to shared state and the proven renderer.
+- [x] Implement only window/level editing through the existing model → admission → completion → acknowledged persistence route. Reopen using isolated development preferences and verify only successfully activated settings were saved.
+- [x] Run the real select → Connect → Apply → review → Confirm → Start flow and negative command tests. Preserve Stop/Disconnect while work is pending. Exercise processing fallback/retry and context replacement/teardown with the same production backend.
+- [x] Run Debug/Release regression suites, lint and QML tests; inspect both supported window sizes. Stage the compiled QML resources and required Qt imports/plugins outside the source/build trees and verify imports without development search paths. Record native Windows/DPI work separately if unavailable.
 
 **Exit:** A usable simulator workstation meets the Stage 1 behavior and renderer criteria. Full camera/preset editor parity, fullscreen/sidebar preferences, default launcher switch, Capture and diagnostics remain subsequent stages. No hardware, 30 FPS processing, Windows acceptance or M13 packaging gate closes from a successful pilot launch.
 

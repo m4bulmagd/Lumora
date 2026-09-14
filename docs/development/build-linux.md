@@ -52,7 +52,7 @@ CI cache keys separate operating systems and architectures. Each run saves a new
 
 ## Configure, build, and test
 
-The commands below build the current Widgets workstation. An opt-in [QML interface preview](#optional-qml-interface-preview) and a separate [renderer experiment](#qml-renderer-experiment) are also available. Shared C++ workstation and presentation policy serves the Widgets frontend; camera/processing integration into QML remains later [migration work](../superpowers/plans/2026-09-13-qml-stage-one.md). Existing `minimal` smoke tests do not verify Quick rendering.
+The commands below build the current Widgets workstation. An opt-in [QML SIM-LIVE pilot](#optional-qml-sim-live-pilot) and a separate [renderer experiment](#qml-renderer-experiment) are also available. Both frontends reuse shared C++ workstation and presentation policy; see the [migration plan](../superpowers/plans/2026-09-13-qml-stage-one.md). Existing `minimal` smoke tests do not verify Quick rendering.
 
 Debug simulator build:
 
@@ -76,7 +76,7 @@ The simulator presets force `LUMORA_ENABLE_BASLER=OFF`; pylon is neither searche
 
 CTest also selects the smoke test's plugin directory from `Qt6::QMinimalIntegrationPlugin` for the active Debug or Release configuration, without requiring a machine-wide Qt plugin-path setting.
 
-## Optional QML interface preview
+## Optional QML SIM-LIVE pilot
 
 The `-sim-qml` presets enable `LUMORA_BUILD_QML_UI` and the `qml-ui` vcpkg feature. They use separate build and dependency directories (`out/vcpkg_qml_installed`), preserving the original Widgets installation. The feature adds Qt Declarative (QML, Quick, Quick Controls and Quick Test), SVG, Shader Tools and Language Server at matching Qt 6.11.1 versions; it enables Qt's OpenGL feature on Linux. Qt libraries remain dynamically linked.
 
@@ -85,29 +85,35 @@ cmake --preset linux-gcc-debug-sim-qml \
   -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/vcpkg/scripts/buildsystems/vcpkg.cmake"
 cmake --build --preset linux-gcc-debug-sim-qml --parallel
 cmake --build --preset linux-gcc-debug-sim-qml --target all_qmllint
-ctest --preset linux-gcc-debug-sim-qml -R '^Qml.ThemeSmoke$' --output-on-failure
+ctest --preset linux-gcc-debug-sim-qml -R '^Qml\.' --output-on-failure
 cmake --build --preset linux-gcc-debug-sim-qml --target run-lumora-qml
 ```
 
 Use `linux-gcc-release-sim-qml` for Release. `lumora_app` remains the Widgets workstation and is also built by these presets. Option OFF does not search for the declarative modules. A manually supplied Qt prefix must contain matching Core, Widgets, Qml, Quick, QuickControls2 and test modules; mixing an installed Widgets runtime with unrelated Quick libraries is unsupported.
 
-The QML application is labeled **Interface preview**, uses the separate `LumoraQmlPreview` application identity, and writes no preferences. It shows the image area, source/adjustment hierarchy and evaluation banner. Camera, processing and viewing actions are disabled because this checkpoint does not attach a live session. **Preview details** supports Tab/Space/Escape keyboard interaction.
+The pilot uses the separate `LumoraQmlPilot` application identity and preference directory. Select SIM-LIVE, **Connect → Apply → review current readback → Confirm → Start Live**. Saved settings may reconnect for inspection, but streaming always requires an explicit Start or eligible **Resume saved Live** action. Stop and Disconnect can cancel pending startup. The simulator still requests 640×480 Mono12 in UInt16 at 30 FPS through the existing pipeline.
 
-The `Qml.ThemeSmoke` test loads the compiled module, checks the 900×600 and 1280×800 layouts and keyboard interaction using the explicit offscreen/software configuration. For native Linux software-rendered captures:
+The QML frontend provides Original/Enhanced/Compare, Pause/Resume, Fit and logical 100%, pointer zoom/pan, and exact window/level fields and sliders. Image pixels and frame ownership remain in C++. Processing preferences save only after matching successful activation. Full camera, preset and installation editors remain later migration work; camera readback and installation orientation are read-only here. Use the Widgets application for those existing editors.
+
+Click or Tab to the image surface before using Space=Pause/Resume, F=Fit, 1=100%, and +/-=zoom. Those keys do not intercept numeric entry. Evaluation, camera/viewer state, timestamp/age, stale/pause, orientation and errors remain visible around the image.
+
+`Qml.Workstation` drives the compiled scene through real controls and the simulator. `Qml.Runtime` and `Qml.ProcessingAdapter` cover adapter/lifetime and activation/persistence behavior. For native Linux software-rendered captures:
 
 ```bash
-LUMORA_QML_CAPTURE_DIR="$PWD/out/qa/qml-preview" \
+LUMORA_QML_CAPTURE_DIR="$PWD/out/qa/qml-live/captures" \
   xvfb-run -a cmake -E env QT_QPA_PLATFORM=xcb QT_QUICK_BACKEND=software \
   out/build/linux-gcc-debug-sim-qml/tests/lumora_qml_tests
 ```
 
-Use the matching Qt platform-plugin path if required by the installed prefix. An Xvfb/software pass checks an actual Qt Quick window but does not establish accelerated image rendering, physical-display appearance or native Windows/DPI acceptance.
+Use the matching Qt platform-plugin path if required by the installed prefix. The retained worktree uses the matching official Qt 6.11.1 SDK at `.tools/qt-official`, with non-Qt dependencies from the original vcpkg prefix. Its Debug application links Release Qt libraries. Reconfigure that cache with the recorded `CMAKE_PREFIX_PATH`; do not replace it with an unrelated Qt version. Xvfb/software or llvmpipe passes do not establish physical-display/GPU or native Windows/DPI acceptance.
+
+The Linux-only `QmlPilot` install component stages the executable, scanned QML imports, runtime libraries/plugins and existing notices outside the build tree. See the [live checkpoint record](../architecture/milestones/qml-live.md) for verified commands, dependency isolation and the scope of this internal stage. It is not an accepted installer or distribution bundle.
 
 ## QML renderer experiment
 
 With QML and tests enabled, `Qml.ImageRenderer` exercises the C++ image sink in
-an actual offscreen/software Quick window. It is separate from the preview and
-does not attach a camera. Full regressions include both QML test registrations:
+an actual offscreen/software Quick window. It is independent of the live composition and
+does not attach a camera. Full regressions include all QML test registrations:
 
 ```bash
 ctest --preset linux-gcc-debug-sim-qml -LE 'hardware|desktop' --output-on-failure
