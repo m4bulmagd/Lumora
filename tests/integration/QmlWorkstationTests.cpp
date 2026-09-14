@@ -11,6 +11,9 @@
 #include <lumora/configuration/InstallationProfilesService.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
 #include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlError>
@@ -126,8 +129,10 @@ void QmlWorkstationTests::requiresGuardedStartupThroughRealControls() {
     QTest::keyClick(window_,Qt::Key_Home);
     QTest::keyClick(window_,Qt::Key_Return);
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->connectEnabled(),3000);
+    capture("selected");
     click("connectButton");
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->applyEnabled(),5000);
+    capture("connected");
     QVERIFY(!runtime_->camera()->startLive());
     click("applyButton");
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->confirmEnabled(),10000);
@@ -136,6 +141,7 @@ void QmlWorkstationTests::requiresGuardedStartupThroughRealControls() {
     capture("review");
     click("confirmButton");
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->startEnabled(),5000);
+    capture("confirmed");
     click("startButton");
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame(),15000);
     QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
@@ -284,7 +290,21 @@ void QmlWorkstationTests::capture(const QString& state) {
     QTest::qWait(80);
     const auto image=window_->grabWindow();
     QVERIFY(!image.isNull());
-    QVERIFY(image.save(QDir(path).filePath(QStringLiteral("%1-%2x%3.png").arg(state).arg(window_->width()).arg(window_->height()))));
+    const auto basename=QStringLiteral("%1-%2x%3").arg(state).arg(window_->width()).arg(window_->height());
+    QVERIFY(image.save(QDir(path).filePath(basename + ".png")));
+    QJsonObject items;
+    for(const auto* control:window_->findChildren<QQuickItem*>()) {
+        if(control->objectName().isEmpty()) continue;
+        const auto rect=control->mapRectToScene(control->boundingRect());
+        items.insert(control->objectName(),QJsonObject{{"x",rect.x()},{"y",rect.y()},
+            {"width",rect.width()},{"height",rect.height()},
+            {"visible",control->isVisible()},{"enabled",control->isEnabled()},
+            {"text",control->property("text").toString()}});
+    }
+    const QJsonObject geometry{{"window",QJsonObject{{"width",window_->width()},{"height",window_->height()}}},{"items",items}};
+    QFile output(QDir(path).filePath(basename + ".json"));
+    QVERIFY(output.open(QIODevice::WriteOnly));
+    QVERIFY(output.write(QJsonDocument(geometry).toJson())>0);
 }
 }
 int main(int argc,char** argv) {
