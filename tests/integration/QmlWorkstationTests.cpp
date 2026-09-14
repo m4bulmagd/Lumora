@@ -238,10 +238,14 @@ void QmlWorkstationTests::presetsAndResetPreserveCameraPausedFrameAndViewport() 
     click("pauseButton");
     QTRY_COMPARE(runtime_->viewer()->playbackState(),QStringLiteral("Paused"));
     auto* viewer=runtime_->viewer();
-    QVERIFY(viewer->actualPixels());
-    QVERIFY(viewer->zoomAt(100,100,1.25));
+    // A modest zoom crops less than the moving bar's width, so the frozen
+    // image remains visibly structured at every phase of the simulator.
+    QVERIFY(viewer->fit());
+    QVERIFY(viewer->zoomAt(viewer->imageItem().width()/4,viewer->imageItem().height()/2,1.1));
+    const auto beforePan=viewer->imageItem().imageRects();
     QVERIFY(viewer->panBy(13,17));
     const auto rectangles=viewer->imageItem().imageRects();
+    QVERIFY(rectangles!=beforePan);
     const auto frozenId=viewer->sourceFrameId();
     const auto cameraBefore=*pipeline_->snapshot().camera;
     const auto readback=runtime_->camera()->currentSummary();
@@ -253,6 +257,17 @@ void QmlWorkstationTests::presetsAndResetPreserveCameraPausedFrameAndViewport() 
             qRound(viewportRect.width()*dpr),qRound(viewportRect.height()*dpr)));
     };
     const auto frozenPixels=capturePixels();
+    QVERIFY(!frozenPixels.isNull());
+    for(int pane=0;pane<2;++pane) {
+        bool bright=false;
+        bool dark=false;
+        for(int x=pane*frozenPixels.width()/2;x<(pane+1)*frozenPixels.width()/2;++x) {
+            const int gray=qGray(frozenPixels.pixel(x,frozenPixels.height()/2));
+            bright=bright || gray>192;
+            dark=dark || gray<64;
+        }
+        QVERIFY2(bright && dark,"Each frozen pane must contain visible simulator detail");
+    }
     for(const auto* id:{"original","standard","high-contrast","soft-detail","saved-fractional"}) {
         choosePreset(QString::fromLatin1(id));
         QTRY_VERIFY_WITH_TIMEOUT(persistedPresetIs(id),5000);
@@ -281,6 +296,7 @@ void QmlWorkstationTests::presetsAndResetPreserveCameraPausedFrameAndViewport() 
     QCOMPARE(viewer->imageItem().imageRects(),rectangles);
     QCOMPARE(capturePixels(),frozenPixels);
     QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
+    QCOMPARE(pipeline_->snapshot().camera->sessionGeneration,cameraBefore.sessionGeneration);
     QCOMPARE(pipeline_->snapshot().camera->confirmedRevision,cameraBefore.confirmedRevision);
     QCOMPARE(runtime_->camera()->currentSummary(),readback);
     capture("preset-reset-paused");
