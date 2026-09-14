@@ -369,9 +369,7 @@ void QmlWorkstationTests::localContrastEditingPreservesPausedFrameAndExactSettin
     QVERIFY(!item("tileGridField")->isEnabled());
     click("localContrastEnabled");
     QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && localContrastSaved(liveClip,12),5000);
-    // Dismiss the switch's hover feedback before comparing viewport pixels.
-    QTest::mouseMove(window_,item("imageArea")->mapToScene(QPointF(20,20)).toPoint());
-    QTRY_VERIFY2(viewportPixels()==frozen,"After local contrast toggles and hover exit");
+    QVERIFY2(viewportPixels()==frozen,"After local contrast toggles");
 
     revealProcessing("clipLimitSlider");
     QTest::keyClick(window_,Qt::Key_Right);

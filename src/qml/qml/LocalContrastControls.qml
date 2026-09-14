@@ -10,9 +10,7 @@ ColumnLayout {
         objectName: "localContrastEnabled"
         text: qsTr("Local contrast")
         Accessible.name: qsTr("Local contrast (CLAHE)")
-        hoverEnabled: true
-        ToolTip.visible: hovered
-        ToolTip.text: qsTr("Contrast Limited Adaptive Histogram Equalization (CLAHE)")
+        Accessible.description: qsTr("Contrast Limited Adaptive Histogram Equalization (CLAHE)")
         checked: root.processing.localContrastEnabled
         enabled: root.processing.available
         onClicked: root.processing.setLocalContrastEnabled(checked)
