@@ -2,6 +2,7 @@
 #include "CameraAdapter.hpp"
 #include "ProcessingAdapter.hpp"
 #include "ViewerAdapter.hpp"
+#include "QuickImageItem.hpp"
 #include "SimulatorComposition.hpp"
 #include "FrameEngineTestAccess.hpp"
 #include <atomic>
@@ -42,6 +43,7 @@ private slots:
     void initTestCase();
     void requiresGuardedStartupThroughRealControls();
     void completedViewingAndExactNumericEditing();
+    void keyboardCanReturnToViewportWithoutStealingNumericInput();
     void renderedPixelsStayInsideViewport();
     void keepsLiveContentUsable_data();
     void keepsLiveContentUsable();
@@ -174,6 +176,33 @@ void QmlWorkstationTests::completedViewingAndExactNumericEditing() {
     QTRY_COMPARE_WITH_TIMEOUT(runtime_->viewer()->displayMode(),QStringLiteral("original"),5000);
     click("fitButton");
     click("actualPixelsButton");
+    QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
+}
+void QmlWorkstationTests::keyboardCanReturnToViewportWithoutStealingNumericInput() {
+    auto& image=runtime_->viewer()->imageItem();
+    auto* surface=image.parentItem();
+    auto* field=item("levelField");
+    QVERIFY(surface);
+    QVERIFY(field);
+    field->forceActiveFocus();
+    const auto before=image.imageRects();
+    const auto numericText=field->property("text").toString();
+    QTest::keyClick(window_,Qt::Key_End);
+    QTest::keyClick(window_,Qt::Key_Minus);
+    QCOMPARE(field->property("text").toString(),numericText+"-");
+    QCOMPARE(image.imageRects(),before);
+    QTest::keyClick(window_,Qt::Key_Backspace);
+    for(const auto modifiers:{Qt::NoModifier,Qt::ShiftModifier}) {
+        field->forceActiveFocus();
+        for(int step=0;step<64 && !surface->hasActiveFocus();++step)
+            QTest::keyClick(window_,Qt::Key_Tab,modifiers);
+        QVERIFY2(surface->hasActiveFocus(),"Tab navigation must reach the image viewport in either direction");
+        const auto width=image.imageRects()[0].width();
+        QTest::keyClick(window_,Qt::Key_Equal);
+        QVERIFY(image.imageRects()[0].width()>width);
+        QTest::keyClick(window_,Qt::Key_Minus);
+        QVERIFY(qAbs(image.imageRects()[0].width()-width)<0.001);
+    }
     QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
 void QmlWorkstationTests::renderedPixelsStayInsideViewport() {

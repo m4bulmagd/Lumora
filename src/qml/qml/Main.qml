@@ -77,6 +77,7 @@ ApplicationWindow {
                         anchors.fill: parent
                         viewer: root.viewer
                         focus: true
+                        activeFocusOnTab: true
                         Keys.onPressed: event => {
                             if (event.key === Qt.Key_Space) {
                                 if (root.viewer.playbackState === "Paused") root.viewer.resume()
