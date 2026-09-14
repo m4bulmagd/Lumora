@@ -3,6 +3,7 @@
 #include <lumora/presentation/FramePresenter.hpp>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
+#include <QSGRectangleNode>
 #include <QtTest/QTest>
 #include <gtest/gtest.h>
 #include <functional>
@@ -44,6 +45,85 @@ protected:
         }
     }
 };
+class CanvasMarker final : public QQuickItem {
+public:
+    explicit CanvasMarker(QQuickItem* parent) : QQuickItem(parent) { setFlag(ItemHasContents); }
+protected:
+    QSGNode* updatePaintNode(QSGNode* previous, UpdatePaintNodeData*) override {
+        auto* node = static_cast<QSGRectangleNode*>(previous);
+        if (!node) node = window()->createRectangleNode();
+        node->setRect(boundingRect());
+        node->setColor(Qt::cyan);
+        return node;
+    }
+};
+TEST_F(QuickRenderer, TranslatedAncestorsPreserveImagePlacementAndClippingAcrossReplacements) {
+    window.resize(640,360);
+    CanvasMarker leftMarker(window.contentItem()), rightMarker(window.contentItem());
+    leftMarker.setPosition({10,10}); leftMarker.setSize({70,25});
+    rightMarker.setPosition({570,10}); rightMarker.setSize({50,30});
+    QQuickItem outer(window.contentItem()); outer.setPosition({63,41}); outer.setSize({480,300}); outer.setClip(true);
+    QQuickItem host(&outer); host.setPosition({37,29}); host.setSize({400,200}); host.setClip(true);
+    item.setParentItem(&host); item.setPosition({0,0}); item.setSize({400,200});
+    ASSERT_EQ(item.mapToScene({0,0}),QPointF(100,70));
+    const auto verifyCanvas=[&](bool compare,double scale,QPointF imageOrigin) {
+        const auto capture=window.grabWindow();
+        ASSERT_FALSE(capture.isNull());
+        const auto dpr=window.effectiveDevicePixelRatio();
+        unsigned mismatches=0;
+        QPoint firstMismatch;
+        for(int y=0;y<360;++y) for(int x=0;x<640;++x) {
+            QRgb expected=qRgb(255,0,255);
+            if(QRect(10,10,70,25).contains(x,y) || QRect(570,10,50,30).contains(x,y))
+                expected=qRgb(0,255,255);
+            if(QRect(100,70,400,200).contains(x,y)) {
+                const int surfaceX=x-100, surfaceY=y-70;
+                const int paneX=compare?surfaceX%200:surfaceX;
+                const double sourceX=(paneX+.5-imageOrigin.x())/scale;
+                const double sourceY=(surfaceY+.5-imageOrigin.y())/scale;
+                if(sourceX>=0 && sourceX<100 && sourceY>=0 && sourceY<50) {
+                    const int original=(static_cast<int>(sourceX)+53*static_cast<int>(sourceY))%256;
+                    const int gray=compare && surfaceX>=200?255-original:original;
+                    expected=qRgb(gray,gray,gray);
+                }
+            }
+            const auto actual=capture.pixel(static_cast<int>((x+.5)*dpr),static_cast<int>((y+.5)*dpr));
+            if(actual!=expected) {if(!mismatches) firstMismatch={x,y};++mismatches;}
+        }
+        EXPECT_EQ(mismatches,0U) << "First wrong canvas pixel at " << firstMismatch.x() << ',' << firstMismatch.y();
+    };
+    // Replacement inserts new clip/image children beneath the persistent image
+    // root; both initial and incremental updates must inherit the host state.
+    for(unsigned id=1;id<=2;++id) {
+        ASSERT_TRUE(item.submit({{1,id,id},frames.make(id,clock,100,50),DisplayMode::Original}).hasValue());
+        ASSERT_TRUE(terminal()); item.fit();
+        verifyCanvas(false,4,{0,0});
+    }
+    ASSERT_TRUE(item.submit({{1,3,3},frames.make(3,clock,100,50),DisplayMode::Compare}).hasValue());
+    ASSERT_TRUE(terminal()); item.fit();
+    verifyCanvas(true,2,{0,50});
+    item.zoomAt({100,100},4); item.panBy({20,10});
+    verifyCanvas(true,8,{-280,-90});
+    item.retire(9); ASSERT_TRUE(terminal());
+    item.setParentItem(window.contentItem());
+}
+TEST_F(QuickRenderer, ZoomUsesRenderedModeUntilQueuedReplacementIsConsumed) {
+    window.resize(640,480); item.setSize({640,480});
+    ASSERT_TRUE(item.submit({{1,1,1},frames.make(1,clock,640,480),DisplayMode::Compare}).hasValue());
+    ASSERT_TRUE(terminal());
+    ASSERT_TRUE(item.submit({{1,2,2},frames.make(2,clock,640,480),DisplayMode::Original}).hasValue());
+    // Original is only queued: the visible right Compare pane still has x=320
+    // as its origin. Anchor the displayed pixel before processing GUI events.
+    item.actualPixels(); item.zoomAt({480,240},2);
+    EXPECT_EQ(item.imageRects()[0],QRectF(-480,-240,1280,960));
+    ASSERT_TRUE(terminal());
+    ASSERT_TRUE(item.submit({{1,3,3},frames.make(3,clock,640,480),DisplayMode::Compare}).hasValue());
+    // Compare is now queued, while the consumed Original owns one full pane.
+    item.actualPixels(); item.zoomAt({480,240},2);
+    EXPECT_EQ(item.imageRects()[0],QRectF(-480,-240,1280,960));
+    ASSERT_TRUE(terminal());
+    item.retire(7); ASSERT_TRUE(terminal());
+}
 TEST_F(QuickRenderer, PaddedAlreadyOrientedRampCompletesOnlyOnActualSwap) {
     auto frame=frames.make(1,clock);
     ASSERT_TRUE(item.submit({{1,1,1},frame,DisplayMode::Original}).hasValue());

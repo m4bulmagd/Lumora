@@ -9,6 +9,7 @@
 #include <QSGImageNode>
 #include <QSGGeometry>
 #include <QSGTexture>
+#include <QSGTransformNode>
 #include <algorithm>
 #include <limits>
 #include <mutex>
@@ -67,7 +68,10 @@ struct State {
         if(ticket && !retirement && !dead) push(PresentationFailure{*ticket,rendererError(code),false});
     }
 };
-struct ImageRoot final:QSGNode {
+// The software renderer caches inherited state for transform nodes, but not
+// generic QSGNode containers. An identity transform keeps dynamically replaced
+// pane children under the item's inherited transform, opacity and clipping.
+struct ImageRoot final:QSGTransformNode {
     std::shared_ptr<State> state;
     std::shared_ptr<Binding> binding;
     std::array<QImage,2> images;
@@ -300,7 +304,13 @@ std::optional<PresentationEvent> QuickImageItem::takeEvent() {
 }
 void QuickImageItem::fit() {impl_->transform=ViewportTransform::fit(impl_->imageSize,{width()/(impl_->mode==DisplayMode::Compare?2:1),height()});update();}
 void QuickImageItem::actualPixels() {impl_->transform=ViewportTransform::actualPixels(impl_->imageSize,{width()/(impl_->mode==DisplayMode::Compare?2:1),height()});update();}
-void QuickImageItem::zoomAt(Point point,double factor) {impl_->transform.zoomAt(point,factor);update();}
+void QuickImageItem::zoomAt(Point point,double factor) {
+    // Geometry belongs to the consumed image, which can differ from a queued
+    // submission or a presenter receipt still awaiting GUI delivery.
+    if(impl_->mode==DisplayMode::Compare && point.x>=width()/2)
+        point.x-=width()/2;
+    impl_->transform.zoomAt(point,factor);update();
+}
 void QuickImageItem::panBy(Vector vector) {impl_->transform.panBy(vector);update();}
 std::array<QRectF,2> QuickImageItem::imageRects() const {
     const auto point=impl_->transform.imageToViewport({0,0});

@@ -268,6 +268,34 @@ TEST(QmlRuntime, ViewportRejectsNonFiniteInputAndUsesLogicalHostGeometry) {
     EXPECT_TRUE(viewer->panBy(5, 10));
 }
 
+TEST(QmlRuntime, CompareZoomUsesTheSameImageAnchorInEitherPane) {
+    RuntimeFixture f;
+    ASSERT_TRUE(f.live());
+    auto* viewer=f.workstation.viewer();
+    ASSERT_TRUE(f.wait([&] { return viewer->compareAvailable(); }));
+    ASSERT_TRUE(viewer->setDisplayMode("compare"));
+    ASSERT_TRUE(f.wait([&] { return viewer->displayMode()=="compare"; }));
+    ASSERT_TRUE(viewer->pause());
+    ASSERT_TRUE(f.wait([&] { return viewer->playbackState()=="Paused"; }));
+    ASSERT_TRUE(viewer->actualPixels());
+    // 640x480 image, 320x480 pane: source center (320,240) lies
+    // under left-pane (160,240) and right-pane (480,240).
+    ASSERT_EQ(viewer->imageItem().imageRects()[0],QRectF(-160,0,640,480));
+    ASSERT_TRUE(viewer->zoomAt(160,240,2));
+    const auto leftZoom=viewer->imageItem().imageRects();
+    EXPECT_EQ(leftZoom[0],QRectF(-480,-240,1280,960));
+    ASSERT_TRUE(viewer->actualPixels());
+    ASSERT_TRUE(viewer->zoomAt(480,240,2));
+    const auto rightZoom=viewer->imageItem().imageRects();
+    EXPECT_EQ(rightZoom,leftZoom);
+    EXPECT_DOUBLE_EQ((480-rightZoom[1].x())/2,320);
+    EXPECT_DOUBLE_EQ((240-rightZoom[1].y())/2,240);
+    ASSERT_TRUE(viewer->actualPixels());
+    ASSERT_TRUE(viewer->zoomAt(320,240,2));
+    // The exact seam belongs to the right pane, whose local anchor is zero.
+    EXPECT_EQ(viewer->imageItem().imageRects()[0],QRectF(-320,-240,1280,960));
+}
+
 TEST(QmlRuntime, ContextReplacementRetiresOldRendererAndRebindsExactCandidate) {
     RuntimeFixture f;
     ASSERT_TRUE(f.live());

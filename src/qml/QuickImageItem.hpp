@@ -29,6 +29,8 @@ public:
     std::optional<presentation::PresentationEvent> takeEvent() override;
     void fit();
     void actualPixels();
+    // Item-local coordinates; the sink maps either Compare pane to its shared
+    // image transform using the currently consumed display mode.
     void zoomAt(presentation::Point, double);
     void panBy(presentation::Vector);
     [[nodiscard]] std::array<QRectF,2> imageRects() const;
