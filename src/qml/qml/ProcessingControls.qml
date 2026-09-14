@@ -62,6 +62,7 @@ ColumnLayout {
                 spacing: Theme.spacingSm
                 WindowLevelControls { processing: root.processing; Layout.fillWidth: true }
                 ToneControls { processing: root.processing; Layout.fillWidth: true }
+                LocalContrastControls { processing: root.processing; Layout.fillWidth: true }
                 Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
                 Label { text: qsTr("ACKNOWLEDGED ACTIVE"); color: Theme.textSecondary; font.bold: true; font.pixelSize: 11 }
                 Label {

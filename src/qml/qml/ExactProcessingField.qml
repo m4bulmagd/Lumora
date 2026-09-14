@@ -13,6 +13,8 @@ ColumnLayout {
     required property real minimum
     required property real maximum
     property real sliderStep: 0
+    property bool sliderVisible: true
+    property bool wholeNumbers: false
     spacing: Theme.spacingSm
     signal textCommitted(string text)
     signal valueCommitted(real value)
@@ -26,9 +28,10 @@ ColumnLayout {
         property bool modified: false
         Layout.fillWidth: true
         Accessible.name: qsTr("%1 value").arg(root.label)
-        Accessible.description: qsTr("Range: %1 to %2").arg(root.minimum).arg(root.maximum)
+        Accessible.description: (root.wholeNumbers ? qsTr("Whole numbers from %1 to %2.")
+            : qsTr("Range: %1 to %2")).arg(root.minimum).arg(root.maximum)
         selectByMouse: true
-        inputMethodHints: Qt.ImhFormattedNumbersOnly
+        inputMethodHints: root.wholeNumbers ? Qt.ImhDigitsOnly : Qt.ImhFormattedNumbersOnly
         onTextEdited: modified = true
         onEditingFinished: {
             if (modified) {
@@ -49,6 +52,7 @@ ColumnLayout {
         id: slider
         property bool gestureCancelled: false
         objectName: root.sliderName
+        visible: root.sliderVisible
         Layout.fillWidth: true
         Accessible.name: root.label
         Accessible.description: qsTr("Use numeric entry for exact values.")

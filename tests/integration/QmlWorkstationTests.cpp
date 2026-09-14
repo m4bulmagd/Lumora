@@ -50,6 +50,7 @@ private slots:
     void keyboardCanReturnToViewportWithoutStealingNumericInput();
     void presetsAndResetPreserveCameraPausedFrameAndViewport();
     void toneEditingPreservesExactValuesPausedPixelsAndResetAuthority();
+    void localContrastEditingPreservesPausedFrameAndExactSettings();
     void renderedPixelsStayInsideViewport();
     void keepsLiveContentUsable_data();
     void keepsLiveContentUsable();
@@ -82,6 +83,7 @@ private:
     void enterText(const char* name,const QString& text,bool commit=true);
     QImage viewportPixels() const;
     bool toneSaved(double brightness,double contrast,double gamma) const;
+    bool localContrastSaved(double clip,int grid,bool enabled=true) const;
     bool persistedPresetIs(const std::string& id) const;
     void createRuntime(std::shared_ptr<EnhancementFailure> fault = {});
     void destroyRuntime();
@@ -128,6 +130,12 @@ void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> faul
         saved.pipeline.stages[2].parameters=processing::BrightnessContrastParameters{0.0123456789123456,1.012345678912345};
         saved.pipeline.stages[3].enabled=true;
         saved.pipeline.stages[3].parameters=processing::GammaParameters{1.234567891234567};
+        settings.presets.customPresets.push_back(saved);
+        saved.id={"saved-local-contrast"};
+        saved.name="Saved local contrast";
+        saved.description="Exact saved local contrast fixture";
+        saved.pipeline.stages[4].enabled=true;
+        saved.pipeline.stages[4].parameters=processing::ClaheParameters{2.3456789123456,4};
         settings.presets.customPresets.push_back(saved);
         QVERIFY(configuration::ConfigurationStore{preferencePath.toStdString()}.save(settings).hasValue());
     }
@@ -276,6 +284,152 @@ bool QmlWorkstationTests::toneSaved(double brightness,double contrast,double gam
     return state.selectedId.value=="custom" && stages[2].enabled && stages[3].enabled
         && tone.brightness==brightness && tone.contrast==contrast
         && std::get<processing::GammaParameters>(stages[3].parameters).gamma==gamma;
+}
+bool QmlWorkstationTests::localContrastSaved(double clip,int grid,bool enabled) const {
+    const auto loaded=configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()}.load();
+    if(!loaded.hasValue()) return false;
+    const auto& state=loaded.value().presets;
+    const auto& stage=state.activePipeline.stages[4];
+    const auto& parameters=std::get<processing::ClaheParameters>(stage.parameters);
+    return state.selectedId.value=="custom" && stage.enabled==enabled
+        && parameters.clipLimit==clip && parameters.tileGridSize==static_cast<std::uint32_t>(grid);
+}
+void QmlWorkstationTests::localContrastEditingPreservesPausedFrameAndExactSettings() {
+    // Missing bindings, fractional grid truncation, or replaced input resubmission
+    // must fail this route through the actual scene and production persistence.
+    QVERIFY(item("localContrastEnabled"));
+    QVERIFY(item("clipLimitField"));
+    QVERIFY(item("tileGridField"));
+    choosePreset(QStringLiteral("saved-local-contrast"));
+    revealProcessing("clipLimitField");
+    QCOMPARE(item("clipLimitField")->property("text").toString(),QStringLiteral("2.3456789123456"));
+    revealProcessing("tileGridField");
+    QCOMPARE(item("tileGridField")->property("text").toString(),QStringLiteral("4"));
+    item("presetSelector")->forceActiveFocus();
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("saved-local-contrast"));
+    auto expected=runtime_->coordinator().processingControls()->draft().activePipeline;
+    constexpr double liveClip=3.123456789012345;
+    enterText("clipLimitField",QStringLiteral("3.123456789012345"));
+    enterText("tileGridField",QStringLiteral("12"),false);
+    QTest::keyClick(window_,Qt::Key_Tab);
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && localContrastSaved(liveClip,12),10000);
+    expected.stages[4].parameters=processing::ClaheParameters{liveClip,12};
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,expected));
+    capture("local-contrast-live");
+
+    click("compareButton");
+    QTRY_COMPARE(runtime_->viewer()->displayMode(),QStringLiteral("compare"));
+    click("pauseButton");
+    QTRY_COMPARE(runtime_->viewer()->playbackState(),QStringLiteral("Paused"));
+    auto* viewer=runtime_->viewer();
+    QVERIFY(viewer->fit());
+    QVERIFY(viewer->zoomAt(viewer->imageItem().width()/4,viewer->imageItem().height()/2,1.1));
+    QVERIFY(viewer->panBy(13,17));
+    const auto frozenId=viewer->sourceFrameId();
+    const auto rectangles=viewer->imageItem().imageRects();
+    const auto camera=*pipeline_->snapshot().camera;
+    const auto readback=runtime_->camera()->currentSummary();
+    const auto frozen=viewportPixels();
+    QVERIFY(!frozen.isNull());
+    for(int pane=0;pane<2;++pane) {
+        bool bright=false,dark=false;
+        for(int x=pane*frozen.width()/2;x<(pane+1)*frozen.width()/2;++x) {
+            const auto gray=qGray(frozen.pixel(x,frozen.height()/2));
+            bright=bright || gray>192; dark=dark || gray<64;
+        }
+        QVERIFY2(bright && dark,"Local contrast Pause baseline must contain visible detail in each pane");
+    }
+
+    for(const auto* invalid:{"8.5","33"}) {
+        enterText("tileGridField",QString::fromLatin1(invalid));
+        QVERIFY(!runtime_->processing()->validationError().isEmpty());
+        QCOMPARE(runtime_->processing()->property("tileGridSize").toInt(),12);
+        QVERIFY(localContrastSaved(liveClip,12));
+    }
+    QVERIFY2(viewportPixels()==frozen,"After grid rejection");
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    QVERIFY(item("processingMessages")->isVisible());
+    QVERIFY(window_->contentItem()->boundingRect().contains(
+        item("processingMessages")->mapRectToScene(item("processingMessages")->boundingRect())));
+    capture("local-contrast-invalid-grid");
+    enterText("tileGridField",QStringLiteral("12"));
+    QVERIFY(runtime_->processing()->validationError().isEmpty());
+    for(const auto* invalid:{"0","41","."}) {
+        enterText("clipLimitField",QString::fromLatin1(invalid));
+        QVERIFY(!runtime_->processing()->validationError().isEmpty());
+        QCOMPARE(runtime_->processing()->property("clipLimit").toDouble(),liveClip);
+        QVERIFY(localContrastSaved(liveClip,12));
+    }
+    enterText("clipLimitField",QStringLiteral("3.123456789012345"));
+    QVERIFY2(viewportPixels()==frozen,"After clip rejection");
+    revealProcessing("localContrastEnabled"); click("localContrastEnabled");
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && localContrastSaved(liveClip,12,false),5000);
+    QVERIFY(!item("clipLimitField")->isEnabled());
+    QVERIFY(!item("tileGridField")->isEnabled());
+    click("localContrastEnabled");
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && localContrastSaved(liveClip,12),5000);
+    // Dismiss the switch's hover feedback before comparing viewport pixels.
+    QTest::mouseMove(window_,item("imageArea")->mapToScene(QPointF(20,20)).toPoint());
+    QTRY_VERIFY2(viewportPixels()==frozen,"After local contrast toggles and hover exit");
+
+    revealProcessing("clipLimitSlider");
+    QTest::keyClick(window_,Qt::Key_Right);
+    QTRY_VERIFY(runtime_->processing()->property("clipLimit").toDouble()>liveClip);
+    auto* slider=item("clipLimitSlider");
+    const auto start=slider->mapToScene(QPointF(slider->width()*0.4,slider->height()/2)).toPoint();
+    const auto finish=slider->mapToScene(QPointF(slider->width()*0.65,slider->height()/2)).toPoint();
+    QTest::mousePress(window_,Qt::LeftButton,Qt::NoModifier,start);
+    QTest::mouseMove(window_,finish);
+    QVERIFY(slider->property("pressed").toBool());
+    QVERIFY(runtime_->processing()->selectPreset(QStringLiteral("high-contrast")));
+    QTest::mouseMove(window_,start);
+    QTest::mouseRelease(window_,Qt::LeftButton,Qt::NoModifier,start);
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending(),5000);
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("high-contrast"));
+    QCOMPARE(slider->property("value").toDouble(),3.0);
+    QTest::keyClick(window_,Qt::Key_Right);
+    QTRY_VERIFY(runtime_->processing()->property("clipLimit").toDouble()>3.0);
+    QVERIFY2(viewportPixels()==frozen,"After replaced clip gesture");
+    enterText("tileGridField",QStringLiteral("21"),false);
+    QVERIFY(runtime_->processing()->selectPreset(QStringLiteral("standard")));
+    QTest::keyClick(window_,Qt::Key_Return);
+    item("presetSelector")->forceActiveFocus();
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("standard"));
+    QCOMPARE(runtime_->processing()->property("tileGridSize").toInt(),8);
+    enterText("tileGridField",QStringLiteral("18"),false);
+    QVERIFY(runtime_->processing()->resetProcessing());
+    item("presetSelector")->forceActiveFocus();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && persistedPresetIs("original"),5000);
+    QCOMPARE(runtime_->processing()->property("clipLimit").toDouble(),2.0);
+    QCOMPARE(runtime_->processing()->property("tileGridSize").toInt(),8);
+    QVERIFY(!item("clipLimitField")->isEnabled());
+    QVERIFY(!item("tileGridField")->isEnabled());
+    QCOMPARE(viewportPixels(),frozen);
+    capture("local-contrast-reset-paused");
+
+    choosePreset(QStringLiteral("saved-local-contrast"));
+    constexpr double finalClip=4.23456789123456;
+    enterText("clipLimitField",QStringLiteral("4.23456789123456"));
+    enterText("tileGridField",QStringLiteral("16"));
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && localContrastSaved(finalClip,16),10000);
+    expected.stages[4].parameters=processing::ClaheParameters{finalClip,16};
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,expected));
+    QCOMPARE(viewer->sourceFrameId(),frozenId);
+    QCOMPARE(viewer->displayMode(),QStringLiteral("compare"));
+    QCOMPARE(viewer->playbackState(),QStringLiteral("Paused"));
+    QCOMPARE(viewer->imageItem().imageRects(),rectangles);
+    QCOMPARE(viewportPixels(),frozen);
+    QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
+    QCOMPARE(pipeline_->snapshot().camera->sessionGeneration,camera.sessionGeneration);
+    QCOMPARE(pipeline_->snapshot().camera->confirmedRevision,camera.confirmedRevision);
+    QCOMPARE(runtime_->camera()->currentSummary(),readback);
+    capture("local-contrast-paused");
+    click("resumeButton");
+    QTRY_VERIFY_WITH_TIMEOUT(viewer->sourceFrameId()!=frozenId,5000);
+    click("originalButton");
+    QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
 void QmlWorkstationTests::toneEditingPreservesExactValuesPausedPixelsAndResetAuthority() {
     // Missing controls, focus-driven commits, stale text after Reset or edits
@@ -593,6 +747,8 @@ void QmlWorkstationTests::keepsLiveContentUsable() {
         QVERIFY(control->isEnabled());
         QVERIFY(window_->contentItem()->boundingRect().contains(control->mapRectToScene(control->boundingRect())));
     }
+    revealProcessing("tileGridField");
+    capture(mode == "compare" ? "local-contrast-layout-compare" : "local-contrast-layout-original");
     revealProcessing("gammaField");
     revealProcessing("brightnessField");
     capture(mode == "compare" ? "live-compare" : "live");
