@@ -71,6 +71,7 @@ class ProcessingAdapter final : public QObject {
     Q_PROPERTY(QString sharpenThresholdText READ sharpenThresholdText NOTIFY stateChanged)
     Q_PROPERTY(double sharpenThresholdMinimum READ sharpenThresholdMinimum CONSTANT)
     Q_PROPERTY(double sharpenThresholdMaximum READ sharpenThresholdMaximum CONSTANT)
+    Q_PROPERTY(bool invertEnabled READ invertEnabled NOTIFY stateChanged)
     Q_PROPERTY(bool pending READ pending NOTIFY stateChanged)
     Q_PROPERTY(bool hasAcknowledged READ hasAcknowledged NOTIFY stateChanged)
     Q_PROPERTY(QString activeSummary READ activeSummary NOTIFY stateChanged)
@@ -151,6 +152,7 @@ public:
     [[nodiscard]] QString sharpenThresholdText() const { return state_.sharpenThresholdText; }
     [[nodiscard]] double sharpenThresholdMinimum() const { return 0.0; }
     [[nodiscard]] double sharpenThresholdMaximum() const { return 65535.0; }
+    [[nodiscard]] bool invertEnabled() const { return state_.invertEnabled; }
     [[nodiscard]] bool pending() const { return state_.pending; }
     [[nodiscard]] bool hasAcknowledged() const { return state_.hasAcknowledged; }
     [[nodiscard]] QString activeSummary() const { return state_.activeSummary; }
@@ -213,6 +215,7 @@ public:
     Q_INVOKABLE bool commitSharpenRadiusText(const QString& text);
     Q_INVOKABLE bool commitSharpenThreshold(double value);
     Q_INVOKABLE bool commitSharpenThresholdText(const QString& text);
+    Q_INVOKABLE bool setInvertEnabled(bool enabled);
     Q_INVOKABLE bool retry();
 
 signals:
@@ -246,6 +249,7 @@ private:
         bool sharpenEnabled{false};
         double sharpenAmount{0.0}, sharpenRadius{0.0}, sharpenThreshold{0.0};
         QString sharpenAmountText, sharpenRadiusText, sharpenThresholdText;
+        bool invertEnabled{false};
         bool pending{false};
         bool hasAcknowledged{false};
         QString activeSummary, activeRevision, selectedPresetId, draftPresetName;

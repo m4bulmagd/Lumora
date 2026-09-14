@@ -66,6 +66,13 @@ ColumnLayout {
                 LocalContrastControls { processing: root.processing; Layout.fillWidth: true }
                 DenoiseControls { processing: root.processing; Layout.fillWidth: true }
                 SharpenControls { processing: root.processing; Layout.fillWidth: true }
+                CheckBox {
+                    objectName: "invertEnabled"
+                    text: qsTr("Invert")
+                    checked: root.processing.invertEnabled
+                    enabled: root.processing.available
+                    onClicked: root.processing.setInvertEnabled(checked)
+                }
                 Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
                 Label { text: qsTr("ACKNOWLEDGED ACTIVE"); color: Theme.textSecondary; font.bold: true; font.pixelSize: 11 }
                 Label {

@@ -53,6 +53,7 @@ private slots:
     void localContrastEditingPreservesPausedFrameAndExactSettings();
     void denoiseEditingNormalizesModesAndPreservesPausedFrame();
     void sharpenEditingPreservesAdvancedValuesAndPausedFrame();
+    void invertEditingPreservesRecipeAndPausedFrame();
     void renderedPixelsStayInsideViewport();
     void keepsLiveContentUsable_data();
     void keepsLiveContentUsable();
@@ -153,6 +154,11 @@ void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> faul
         saved.description="Exact saved sharpen fixture";
         saved.pipeline.stages[6].enabled=true;
         saved.pipeline.stages[6].parameters=processing::SharpenParameters{1.234567891234567,2.345678912345678,13.45678912345678};
+        settings.presets.customPresets.push_back(saved);
+        saved.id={"saved-invert"};
+        saved.name="Saved invert";
+        saved.description="Enabled invert with exact preceding stages";
+        saved.pipeline.stages[7].enabled=true;
         settings.presets.customPresets.push_back(saved);
         QVERIFY(configuration::ConfigurationStore{preferencePath.toStdString()}.save(settings).hasValue());
     }
@@ -488,6 +494,111 @@ void QmlWorkstationTests::sharpenEditingPreservesAdvancedValuesAndPausedFrame() 
     click("resumeButton");
     QTRY_VERIFY_WITH_TIMEOUT(viewer->sourceFrameId()!=frozenId,5000);
     click("originalButton");
+    QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
+}
+void QmlWorkstationTests::invertEditingPreservesRecipeAndPausedFrame() {
+    // Missing wiring, editing a stale/partial recipe, or applying processing
+    // changes to an already paused frame must fail this real-control route.
+    QVERIFY(item("invertEnabled"));
+    choosePreset(QStringLiteral("saved-invert"));
+    QTRY_VERIFY_WITH_TIMEOUT(persistedPresetIs("saved-invert"),5000);
+    const auto loaded=configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()}.load();
+    QVERIFY(loaded.hasValue());
+    const auto& recipe=loaded.value().presets.customPresets.back();
+    QCOMPARE(recipe.id.value,std::string("saved-invert"));
+    const auto savedPipeline=recipe.pipeline;
+    auto expected=savedPipeline;
+    const auto persisted=[&](const std::string& id,const processing::PipelineDefinition& pipeline) {
+        const auto current=configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()}.load();
+        return current.hasValue() && current.value().presets.selectedId.value==id
+            && processing::semanticallyEqualPipelineDefinitions(current.value().presets.activePipeline,pipeline);
+    };
+    QVERIFY(persisted("saved-invert",expected));
+    QTRY_COMPARE(item("invertEnabled")->property("checked").toBool(),true);
+    QCOMPARE(runtime_->processing()->property("invertEnabled").toBool(),true);
+    QTRY_COMPARE(preferences_->latestStatus()->latestSavedPresetRevision,
+        preferences_->latestStatus()->latestAttemptedPresetSaveRevision);
+    const auto saveRevision=preferences_->latestStatus()->latestSavedPresetRevision;
+    const auto activeRevision=runtime_->processing()->activeRevision();
+    if(item("sharpenAdvanced")->property("checked").toBool()) {
+        revealProcessing("sharpenAdvanced"); click("sharpenAdvanced");
+    }
+    item("presetSelector")->forceActiveFocus();
+    for(int steps=0;steps<60 && window_->activeFocusItem()!=item("invertEnabled");++steps) {
+        QTest::keyClick(window_,Qt::Key_Tab,Qt::NoModifier,30);
+        QCoreApplication::processEvents();
+        QVERIFY(QQuickTest::qWaitForPolish(window_));
+    }
+    QCOMPARE(window_->activeFocusItem(),item("invertEnabled"));
+    revealProcessing("invertEnabled");
+    QTest::qWait(100);
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("saved-invert"));
+    QCOMPARE(runtime_->processing()->activeRevision(),activeRevision);
+    QCOMPARE(preferences_->latestStatus()->latestAttemptedPresetSaveRevision,saveRevision);
+    capture("invert-focused");
+
+    click("invertEnabled");
+    expected.stages[7].enabled=false;
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && persisted("custom",expected),10000);
+    QVERIFY(!item("invertEnabled")->property("checked").toBool());
+    QTest::keyClick(window_,Qt::Key_Space);
+    expected.stages[7].enabled=true;
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && persisted("custom",expected),10000);
+    QVERIFY(item("invertEnabled")->property("checked").toBool());
+    capture("invert-live");
+
+    click("compareButton");
+    QTRY_COMPARE(runtime_->viewer()->displayMode(),QStringLiteral("compare"));
+    click("pauseButton");
+    auto* viewer=runtime_->viewer();
+    QTRY_COMPARE(viewer->playbackState(),QStringLiteral("Paused"));
+    QVERIFY(viewer->fit());
+    QVERIFY(viewer->zoomAt(viewer->imageItem().width()/4,viewer->imageItem().height()/2,1.1));
+    QVERIFY(viewer->panBy(13,17));
+    const auto frozenId=viewer->sourceFrameId();
+    const auto rectangles=viewer->imageItem().imageRects();
+    const auto camera=*pipeline_->snapshot().camera;
+    const auto readback=runtime_->camera()->currentSummary();
+    const auto frozen=viewportPixels();
+    QVERIFY(!frozen.isNull());
+    for(bool enabled:{false,true}) {
+        revealProcessing("invertEnabled"); click("invertEnabled");
+        expected.stages[7].enabled=enabled;
+        QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && persisted("custom",expected),10000);
+        QCOMPARE(item("invertEnabled")->property("checked").toBool(),enabled);
+        QCOMPARE(viewportPixels(),frozen);
+    }
+    choosePreset(QStringLiteral("standard"));
+    QTRY_VERIFY_WITH_TIMEOUT(persisted("standard",processing::standardPipeline()),5000);
+    QVERIFY(!item("invertEnabled")->property("checked").toBool());
+    QCOMPARE(viewportPixels(),frozen);
+    choosePreset(QStringLiteral("saved-invert"));
+    QVERIFY(item("invertEnabled")->property("checked").toBool());
+    QCOMPARE(viewportPixels(),frozen);
+    click("resetProcessingButton");
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending()
+        && persisted("original",processing::defaultPipeline()),10000);
+    QVERIFY(!item("invertEnabled")->property("checked").toBool());
+    QCOMPARE(viewportPixels(),frozen);
+    capture("invert-reset-paused");
+
+    choosePreset(QStringLiteral("saved-invert"));
+    QTRY_VERIFY_WITH_TIMEOUT(persisted("saved-invert",savedPipeline),5000);
+    QCOMPARE(viewer->sourceFrameId(),frozenId);
+    QCOMPARE(viewer->playbackState(),QStringLiteral("Paused"));
+    QCOMPARE(viewer->displayMode(),QStringLiteral("compare"));
+    QCOMPARE(viewer->imageItem().imageRects(),rectangles);
+    QCOMPARE(viewportPixels(),frozen);
+    QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
+    QCOMPARE(pipeline_->snapshot().camera->sessionGeneration,camera.sessionGeneration);
+    QCOMPARE(pipeline_->snapshot().camera->confirmedRevision,camera.confirmedRevision);
+    QCOMPARE(runtime_->camera()->currentSummary(),readback);
+    capture("invert-paused");
+    click("resumeButton");
+    QTRY_VERIFY_WITH_TIMEOUT(viewer->sourceFrameId()!=frozenId,5000);
+    click("originalButton");
+    // Leave the existing advanced-field layout checks able to reach their fields.
+    revealProcessing("sharpenAdvanced"); click("sharpenAdvanced");
     QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
 void QmlWorkstationTests::chooseDenoiseOption(const char* name,int index) {
@@ -1098,6 +1209,8 @@ void QmlWorkstationTests::keepsLiveContentUsable() {
         QVERIFY(control->isEnabled());
         QVERIFY(window_->contentItem()->boundingRect().contains(control->mapRectToScene(control->boundingRect())));
     }
+    revealProcessing("invertEnabled");
+    capture(mode == "compare" ? "invert-layout-compare" : "invert-layout-original");
     revealProcessing("sharpenThresholdField");
     capture(mode == "compare" ? "sharpen-layout-compare" : "sharpen-layout-original");
     revealProcessing("denoiseSigmaField");
@@ -1125,6 +1238,7 @@ void QmlWorkstationTests::stopDisconnectAndExplicitSavedResume() {
     const auto expectedId=QString::fromStdString(expectedProcessing.selectedId.value);
     QTRY_COMPARE(runtime_->processing()->selectedPresetId(),expectedId);
     QCOMPARE(item("presetSelector")->property("currentValue").toString(),expectedId);
+    QCOMPARE(item("invertEnabled")->property("checked").toBool(),expectedProcessing.activePipeline.stages[7].enabled);
     QVERIFY(processing::semanticallyEqualPipelineDefinitions(
         runtime_->coordinator().processingControls()->draft().activePipeline,expectedProcessing.activePipeline));
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->resumeLiveEnabled(),10000);

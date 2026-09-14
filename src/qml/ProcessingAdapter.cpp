@@ -19,6 +19,7 @@ using Clahe = processing::ClaheParameters;
 using Denoise = processing::DenoiseParameters;
 using DenoiseMode = processing::DenoiseMode;
 using Sharpen = processing::SharpenParameters;
+using Invert = processing::InvertParameters;
 using StageId = processing::StageId;
 
 QString number(double value) {
@@ -221,6 +222,9 @@ void ProcessingAdapter::refreshState(bool draftWasReplaced) {
             next.sharpenThreshold = parameters.threshold;
             next.sharpenThresholdText = number(parameters.threshold);
         }
+        const auto invertStage = findStage<Invert>(draft.activePipeline, StageId::Invert);
+        if (invertStage != draft.activePipeline.stages.end())
+            next.invertEnabled = invertStage->enabled;
         next.draftPresetName = presetName(draft, *model);
         next.pending = model->pending();
         next.modelError = summary(model->error());
@@ -308,6 +312,10 @@ bool ProcessingAdapter::setDenoiseEnabled(bool enabled) {
 
 bool ProcessingAdapter::setSharpenEnabled(bool enabled) {
     return setEnabled<Sharpen>(StageId::Sharpen, enabled);
+}
+
+bool ProcessingAdapter::setInvertEnabled(bool enabled) {
+    return setEnabled<Invert>(StageId::Invert, enabled);
 }
 
 template<typename Parameters>

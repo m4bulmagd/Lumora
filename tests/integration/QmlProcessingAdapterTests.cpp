@@ -255,6 +255,14 @@ application::PresetState sharpenSeed() {
     return seed;
 }
 
+application::PresetState invertSavedRecipeSeed() {
+    auto seed = savedPresetSeed();
+    seed.selectedId = {"saved-fractional"};
+    seed.customPresets.front().pipeline.stages[7].enabled = true;
+    seed.activePipeline = seed.customPresets.front().pipeline;
+    return seed;
+}
+
 // Default projection, decimal rounding or refresh-triggered submission would
 // alter native CLAHE settings before the operator deliberately edits them.
 TEST(QmlProcessingAdapter, LocalContrastLoadProjectsExactValuesWithoutSubmittingOnRefresh) {
@@ -937,6 +945,143 @@ TEST(QmlProcessingAdapter, SharpenSuccessfulActivationPersistsAndReopensWholeRec
     EXPECT_DOUBLE_EQ(reopened.adapter.sharpenAmount(), 4.567890123456789);
     EXPECT_DOUBLE_EQ(reopened.adapter.sharpenRadius(), 5.0);
     EXPECT_DOUBLE_EQ(reopened.adapter.sharpenThreshold(), 23456.789012345678);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        reopened.coordinator.processingControls()->draft().activePipeline, expected));
+    expectSavedCollection(reopened.coordinator.processingControls()->draft(), seed);
+}
+
+// A selected saved recipe may carry Invert on. Projection and repeated refresh
+// must remain pure: neither may replace its complete pipeline or submit a save.
+TEST(QmlProcessingAdapter, InvertLoadProjectsEnabledSavedRecipeWithoutSubmittingOnRefresh) {
+    const auto seed = invertSavedRecipeSeed();
+    Fixture fixture(true, false, seed);
+    ASSERT_TRUE(fixture.start());
+    fixture.io->release();
+    ASSERT_TRUE(fixture.settled());
+    EXPECT_TRUE(fixture.adapter.invertEnabled());
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("saved-fractional"));
+    const auto attempted = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    QSignalSpy changes(&fixture.adapter, &qml::ProcessingAdapter::stateChanged);
+    for (int i = 0; i < 20; ++i) fixture.adapter.refresh();
+    EXPECT_EQ(changes.count(), 0);
+    EXPECT_FALSE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, attempted);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, seed.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+}
+
+// The toggle edits a fresh whole draft in both directions. The existing model
+// semantics turn a same-value named recipe into Custom, then suppress a second
+// same-value submission once that identical draft is already Custom.
+TEST(QmlProcessingAdapter, InvertTogglePreservesWholeDraftAndSameValueModelSemantics) {
+    const auto seed = invertSavedRecipeSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto initialSaved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+
+    ASSERT_TRUE(fixture.adapter.setInvertEnabled(true));
+    EXPECT_TRUE(fixture.adapter.invertEnabled());
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("custom"));
+    ASSERT_TRUE(fixture.wait([&] {
+        const auto status = fixture.preferences.latestStatus();
+        return !fixture.adapter.pending()
+            && status->latestAttemptedPresetSaveRevision > initialSaved
+            && status->latestSavedPresetRevision == status->latestAttemptedPresetSaveRevision;
+    }));
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, seed.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+
+    const auto sameAttempted = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    const auto sameSaved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    const auto sameRevision = fixture.adapter.activeRevision();
+    QSignalSpy changes(&fixture.adapter, &qml::ProcessingAdapter::stateChanged);
+    ASSERT_TRUE(fixture.adapter.setInvertEnabled(true));
+    for (int i = 0; i < 20; ++i) { fixture.coordinator.poll(); fixture.adapter.refresh(); }
+    EXPECT_EQ(changes.count(), 0);
+    EXPECT_FALSE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, sameAttempted);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestSavedPresetRevision, sameSaved);
+    EXPECT_EQ(fixture.adapter.activeRevision(), sameRevision);
+
+    ASSERT_TRUE(fixture.adapter.setInvertEnabled(false));
+    EXPECT_FALSE(fixture.adapter.invertEnabled());
+    auto disabled = seed.activePipeline;
+    disabled.stages[7].enabled = false;
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, disabled));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+    ASSERT_TRUE(fixture.wait([&] { return !fixture.adapter.pending(); }));
+
+    ASSERT_TRUE(fixture.adapter.setInvertEnabled(true));
+    EXPECT_TRUE(fixture.adapter.invertEnabled());
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, seed.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+}
+
+void expectInvertCommandUnavailable(qml::ProcessingAdapter& adapter) {
+    EXPECT_FALSE(adapter.setInvertEnabled(true));
+}
+
+// The toggle consults live coordinator authority while loading, after a failed
+// load and after shutdown starts, without mutating or saving the recipe.
+TEST(QmlProcessingAdapter, InvertCommandRejectsLoadingFailedLoadAndClosing) {
+    Fixture fixture(true, false, invertSavedRecipeSeed());
+    expectInvertCommandUnavailable(fixture.adapter);
+    ASSERT_TRUE(fixture.start());
+    expectInvertCommandUnavailable(fixture.adapter);
+    fixture.io->release();
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto attempted = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    fixture.coordinator.beginShutdown();
+    expectInvertCommandUnavailable(fixture.adapter);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), before);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, attempted);
+
+    Fixture failed(false, true);
+    ASSERT_TRUE(failed.start());
+    ASSERT_TRUE(failed.wait([&] { return failed.coordinator.processingState().loadCompleted; }));
+    expectInvertCommandUnavailable(failed.adapter);
+    EXPECT_FALSE(failed.preferences.latestStatus()->latestAttemptedPresetSaveRevision);
+}
+
+// Real 8x6 processing must acknowledge the complete seed-derived recipe before
+// it becomes durable, and both that recipe and its saved collection must reopen.
+TEST(QmlProcessingAdapter, InvertSuccessfulActivationPersistsAndReopensWholeRecipe) {
+    auto seed = sharpenSeed();
+    seed.activePipeline.stages[7].enabled = false;
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    ASSERT_TRUE(fixture.adapter.setInvertEnabled(true));
+    ASSERT_TRUE(fixture.wait([&] {
+        const auto status = fixture.preferences.latestStatus();
+        return !fixture.adapter.pending()
+            && status->latestAttemptedPresetSaveRevision > saved
+            && status->latestSavedPresetRevision == status->latestAttemptedPresetSaveRevision;
+    }));
+    auto expected = seed.activePipeline;
+    expected.stages[7].enabled = true;
+    const auto stored = fixture.io->store.load();
+    ASSERT_TRUE(stored.hasValue());
+    const auto& persisted = stored.value().presets;
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(persisted.activePipeline, expected));
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(persisted.activePipeline,
+        fixture.coordinator.processingControls()->acknowledged()->activePipeline));
+    expectSavedCollection(persisted, seed);
+    ASSERT_FALSE(persisted.customPresets.empty());
+
+    Fixture reopened(fixture.io->store.path());
+    ASSERT_TRUE(reopened.start());
+    ASSERT_TRUE(reopened.loaded());
+    EXPECT_TRUE(reopened.adapter.invertEnabled());
     EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
         reopened.coordinator.processingControls()->draft().activePipeline, expected));
     expectSavedCollection(reopened.coordinator.processingControls()->draft(), seed);
