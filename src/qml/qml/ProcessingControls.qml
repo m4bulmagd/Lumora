@@ -56,6 +56,7 @@ ColumnLayout {
             boundsBehavior: Flickable.StopAtBounds
             flickableDirection: Flickable.VerticalFlick
             onHeightChanged: Qt.callLater(root.revealFocusedControl)
+            onContentHeightChanged: Qt.callLater(root.revealFocusedControl)
             ColumnLayout {
                 id: adjustmentBody
                 width: adjustments.width
@@ -64,6 +65,7 @@ ColumnLayout {
                 ToneControls { processing: root.processing; Layout.fillWidth: true }
                 LocalContrastControls { processing: root.processing; Layout.fillWidth: true }
                 DenoiseControls { processing: root.processing; Layout.fillWidth: true }
+                SharpenControls { processing: root.processing; Layout.fillWidth: true }
                 Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
                 Label { text: qsTr("ACKNOWLEDGED ACTIVE"); color: Theme.textSecondary; font.bold: true; font.pixelSize: 11 }
                 Label {

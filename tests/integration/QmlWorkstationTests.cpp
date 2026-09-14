@@ -52,6 +52,7 @@ private slots:
     void toneEditingPreservesExactValuesPausedPixelsAndResetAuthority();
     void localContrastEditingPreservesPausedFrameAndExactSettings();
     void denoiseEditingNormalizesModesAndPreservesPausedFrame();
+    void sharpenEditingPreservesAdvancedValuesAndPausedFrame();
     void renderedPixelsStayInsideViewport();
     void keepsLiveContentUsable_data();
     void keepsLiveContentUsable();
@@ -82,6 +83,7 @@ private:
     void choosePreset(const QString& id);
     void chooseDenoiseOption(const char* name,int index);
     bool denoiseSaved(processing::DenoiseMode mode,int kernel,double sigma,bool enabled=true) const;
+    bool sharpenSaved(double amount,double radius,double threshold,bool enabled=true) const;
     void revealProcessing(const char* name);
     void enterText(const char* name,const QString& text,bool commit=true);
     QImage viewportPixels() const;
@@ -145,6 +147,12 @@ void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> faul
         saved.description="Exact saved denoise fixture";
         saved.pipeline.stages[5].enabled=true;
         saved.pipeline.stages[5].parameters=processing::DenoiseParameters{processing::DenoiseMode::Gaussian,7,1.234567891234567};
+        settings.presets.customPresets.push_back(saved);
+        saved.id={"saved-sharpen"};
+        saved.name="Saved sharpen";
+        saved.description="Exact saved sharpen fixture";
+        saved.pipeline.stages[6].enabled=true;
+        saved.pipeline.stages[6].parameters=processing::SharpenParameters{1.234567891234567,2.345678912345678,13.45678912345678};
         settings.presets.customPresets.push_back(saved);
         QVERIFY(configuration::ConfigurationStore{preferencePath.toStdString()}.save(settings).hasValue());
     }
@@ -264,8 +272,8 @@ void QmlWorkstationTests::revealProcessing(const char* name) {
     auto* scroll=item("processingFlickable");
     QVERIFY(scroll);
     // Keyboard focus must reveal the real editor inside the scroll viewport.
-    QTRY_VERIFY(scroll->boundingRect().adjusted(-1,-1,1,1)
-        .contains(control->mapRectToItem(scroll,control->boundingRect())));
+    QTRY_VERIFY2(scroll->boundingRect().adjusted(-1,-1,1,1).contains(
+        control->mapRectToItem(scroll,QRectF(0,0,control->width(),control->height()))),name);
 }
 void QmlWorkstationTests::enterText(const char* name,const QString& text,bool commit) {
     revealProcessing(name);
@@ -302,6 +310,185 @@ bool QmlWorkstationTests::localContrastSaved(double clip,int grid,bool enabled) 
     const auto& parameters=std::get<processing::ClaheParameters>(stage.parameters);
     return state.selectedId.value=="custom" && stage.enabled==enabled
         && parameters.clipLimit==clip && parameters.tileGridSize==static_cast<std::uint32_t>(grid);
+}
+bool QmlWorkstationTests::sharpenSaved(double amount,double radius,double threshold,bool enabled) const {
+    const auto loaded=configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()}.load();
+    if(!loaded.hasValue()) return false;
+    const auto& state=loaded.value().presets;
+    const auto& stage=state.activePipeline.stages[6];
+    const auto& parameters=std::get<processing::SharpenParameters>(stage.parameters);
+    return state.selectedId.value=="custom" && stage.enabled==enabled
+        && parameters.amount==amount && parameters.radius==radius && parameters.threshold==threshold;
+}
+void QmlWorkstationTests::sharpenEditingPreservesAdvancedValuesAndPausedFrame() {
+    // Missing controls, integer-only threshold, UI disclosure submitting edits,
+    // stale text/gestures after replacement, or changed frozen pixels must fail.
+    for(const auto* name:{"sharpenEnabled","sharpenAmountField","sharpenAmountSlider",
+            "sharpenAdvanced","sharpenRadiusField","sharpenThresholdField"})
+        QVERIFY2(item(name),name);
+    choosePreset(QStringLiteral("saved-sharpen"));
+    QTRY_VERIFY_WITH_TIMEOUT(persistedPresetIs("saved-sharpen"),5000);
+    QTRY_COMPARE(preferences_->latestStatus()->latestSavedPresetRevision,
+        preferences_->latestStatus()->latestAttemptedPresetSaveRevision);
+    const auto activeRevision=runtime_->processing()->activeRevision();
+    const auto saveRevision=preferences_->latestStatus()->latestSavedPresetRevision;
+    QVERIFY(!item("sharpenAdvanced")->property("checked").toBool());
+    QVERIFY(!item("sharpenRadiusField")->isVisible());
+    QVERIFY(!item("sharpenThresholdField")->isVisible());
+    auto expected=runtime_->coordinator().processingControls()->draft().activePipeline;
+    revealProcessing("sharpenAmountField");
+    QCOMPARE(item("sharpenAmountField")->property("text").toString(),QStringLiteral("1.234567891234567"));
+    revealProcessing("sharpenAdvanced"); click("sharpenAdvanced");
+    revealProcessing("sharpenRadiusField");
+    QCOMPARE(item("sharpenRadiusField")->property("text").toString(),QStringLiteral("2.345678912345678"));
+    revealProcessing("sharpenThresholdField");
+    QCOMPARE(item("sharpenThresholdField")->property("text").toString(),QStringLiteral("13.45678912345678"));
+    for(const auto* name:{"sharpenRadiusSlider","sharpenThresholdSlider"}) {
+        QVERIFY(item(name));
+        QVERIFY(!item(name)->isVisible());
+    }
+    revealProcessing("sharpenAdvanced"); click("sharpenAdvanced");
+    QVERIFY(!item("sharpenRadiusField")->isVisible());
+    click("sharpenAdvanced");
+    item("presetSelector")->forceActiveFocus();
+    QTest::qWait(100);
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("saved-sharpen"));
+    QVERIFY(!runtime_->processing()->pending());
+    QCOMPARE(runtime_->processing()->activeRevision(),activeRevision);
+    QCOMPARE(preferences_->latestStatus()->latestAttemptedPresetSaveRevision,saveRevision);
+    QCOMPARE(preferences_->latestStatus()->latestSavedPresetRevision,saveRevision);
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,expected));
+
+    constexpr double liveAmount=2.123456789012345;
+    constexpr double liveRadius=3.234567891234567;
+    constexpr double liveThreshold=23.45678912345678;
+    enterText("sharpenAmountField",QStringLiteral("2.123456789012345"));
+    enterText("sharpenRadiusField",QStringLiteral("3.234567891234567"));
+    enterText("sharpenThresholdField",QStringLiteral("23.45678912345678"),false);
+    QTest::keyClick(window_,Qt::Key_Tab);
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending()
+        && sharpenSaved(liveAmount,liveRadius,liveThreshold),10000);
+    expected.stages[6].parameters=processing::SharpenParameters{liveAmount,liveRadius,liveThreshold};
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,expected));
+    capture("sharpen-live");
+    item("presetSelector")->forceActiveFocus();
+    for(int steps=0;steps<60 && window_->activeFocusItem()!=item("sharpenAmountSlider");++steps) {
+        QTest::keyClick(window_,Qt::Key_Tab,Qt::NoModifier,30);
+        QCoreApplication::processEvents();
+        QVERIFY(QQuickTest::qWaitForPolish(window_));
+    }
+    QCOMPARE(window_->activeFocusItem(),item("sharpenAmountSlider"));
+    revealProcessing("sharpenAmountSlider");
+    capture("sharpen-amount-focused");
+
+    click("compareButton");
+    QTRY_COMPARE(runtime_->viewer()->displayMode(),QStringLiteral("compare"));
+    click("pauseButton");
+    QTRY_COMPARE(runtime_->viewer()->playbackState(),QStringLiteral("Paused"));
+    auto* viewer=runtime_->viewer();
+    QVERIFY(viewer->fit());
+    QVERIFY(viewer->zoomAt(viewer->imageItem().width()/4,viewer->imageItem().height()/2,1.1));
+    QVERIFY(viewer->panBy(13,17));
+    const auto frozenId=viewer->sourceFrameId();
+    const auto rectangles=viewer->imageItem().imageRects();
+    const auto camera=*pipeline_->snapshot().camera;
+    const auto readback=runtime_->camera()->currentSummary();
+    const auto frozen=viewportPixels();
+    QVERIFY(!frozen.isNull());
+    for(const auto* invalid:{"-1","5.1","."}) {
+        enterText("sharpenAmountField",QString::fromLatin1(invalid));
+        QVERIFY(!runtime_->processing()->validationError().isEmpty());
+        QVERIFY(sharpenSaved(liveAmount,liveRadius,liveThreshold));
+    }
+    enterText("sharpenAmountField",QStringLiteral("2.123456789012345"));
+    for(const auto* invalid:{"0.4","5.1","."}) {
+        enterText("sharpenRadiusField",QString::fromLatin1(invalid));
+        QVERIFY(!runtime_->processing()->validationError().isEmpty());
+        QVERIFY(sharpenSaved(liveAmount,liveRadius,liveThreshold));
+    }
+    enterText("sharpenRadiusField",QStringLiteral("3.234567891234567"));
+    for(const auto* invalid:{"-1","65535.1","."}) {
+        enterText("sharpenThresholdField",QString::fromLatin1(invalid));
+        QVERIFY(!runtime_->processing()->validationError().isEmpty());
+        QVERIFY(sharpenSaved(liveAmount,liveRadius,liveThreshold));
+    }
+    capture("sharpen-invalid-threshold");
+    enterText("sharpenThresholdField",QStringLiteral("23.45678912345678"));
+    QCOMPARE(viewportPixels(),frozen);
+    revealProcessing("sharpenEnabled"); click("sharpenEnabled");
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending()
+        && sharpenSaved(liveAmount,liveRadius,liveThreshold,false),10000);
+    for(const auto* name:{"sharpenAmountField","sharpenAmountSlider","sharpenAdvanced",
+            "sharpenRadiusField","sharpenThresholdField"}) QVERIFY(!item(name)->isEnabled());
+    QVERIFY(item("sharpenAdvanced")->property("checked").toBool());
+    click("sharpenEnabled");
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending()
+        && sharpenSaved(liveAmount,liveRadius,liveThreshold),10000);
+
+    revealProcessing("sharpenAmountSlider");
+    QTest::keyClick(window_,Qt::Key_Right);
+    QTRY_VERIFY(runtime_->processing()->property("sharpenAmount").toDouble()>liveAmount);
+    auto* slider=item("sharpenAmountSlider");
+    const auto start=slider->mapToScene(QPointF(slider->width()*0.4,slider->height()/2)).toPoint();
+    const auto finish=slider->mapToScene(QPointF(slider->width()*0.65,slider->height()/2)).toPoint();
+    QTest::mousePress(window_,Qt::LeftButton,Qt::NoModifier,start);
+    QTest::mouseMove(window_,finish);
+    QVERIFY(slider->property("pressed").toBool());
+    QVERIFY(runtime_->processing()->selectPreset(QStringLiteral("soft-detail")));
+    QTest::mouseMove(window_,start);
+    QTest::mouseRelease(window_,Qt::LeftButton,Qt::NoModifier,start);
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending(),10000);
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("soft-detail"));
+    QCOMPARE(slider->property("value").toDouble(),0.5);
+    QTest::keyClick(window_,Qt::Key_Right);
+    QTRY_VERIFY(runtime_->processing()->property("sharpenAmount").toDouble()>0.5);
+    enterText("sharpenRadiusField",QStringLiteral("4.5"),false);
+    QVERIFY(runtime_->processing()->selectPreset(QStringLiteral("standard")));
+    QTest::keyClick(window_,Qt::Key_Return);
+    item("presetSelector")->forceActiveFocus();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending(),10000);
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("standard"));
+    QCOMPARE(runtime_->processing()->property("sharpenRadius").toDouble(),1.0);
+    enterText("sharpenThresholdField",QStringLiteral("71.5"),false);
+    QVERIFY(runtime_->processing()->resetProcessing());
+    item("presetSelector")->forceActiveFocus();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && persistedPresetIs("original"),10000);
+    QCOMPARE(runtime_->processing()->property("sharpenAmount").toDouble(),1.0);
+    QCOMPARE(runtime_->processing()->property("sharpenRadius").toDouble(),1.0);
+    QCOMPARE(runtime_->processing()->property("sharpenThreshold").toDouble(),0.0);
+    QVERIFY(!item("sharpenRadiusField")->isEnabled());
+    QVERIFY(!item("sharpenThresholdField")->isEnabled());
+    QCOMPARE(viewportPixels(),frozen);
+    capture("sharpen-reset-paused");
+
+    choosePreset(QStringLiteral("saved-sharpen"));
+    constexpr double finalAmount=1.876543210987654;
+    constexpr double finalRadius=2.876543210987654;
+    constexpr double finalThreshold=43.87654321098765;
+    enterText("sharpenAmountField",QStringLiteral("1.876543210987654"));
+    enterText("sharpenRadiusField",QStringLiteral("2.876543210987654"));
+    enterText("sharpenThresholdField",QStringLiteral("43.87654321098765"));
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending()
+        && sharpenSaved(finalAmount,finalRadius,finalThreshold),10000);
+    expected.stages[6].parameters=processing::SharpenParameters{finalAmount,finalRadius,finalThreshold};
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,expected));
+    QCOMPARE(viewer->sourceFrameId(),frozenId);
+    QCOMPARE(viewer->displayMode(),QStringLiteral("compare"));
+    QCOMPARE(viewer->playbackState(),QStringLiteral("Paused"));
+    QCOMPARE(viewer->imageItem().imageRects(),rectangles);
+    QCOMPARE(viewportPixels(),frozen);
+    QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
+    QCOMPARE(pipeline_->snapshot().camera->sessionGeneration,camera.sessionGeneration);
+    QCOMPARE(pipeline_->snapshot().camera->confirmedRevision,camera.confirmedRevision);
+    QCOMPARE(runtime_->camera()->currentSummary(),readback);
+    capture("sharpen-paused");
+    click("resumeButton");
+    QTRY_VERIFY_WITH_TIMEOUT(viewer->sourceFrameId()!=frozenId,5000);
+    click("originalButton");
+    QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
 void QmlWorkstationTests::chooseDenoiseOption(const char* name,int index) {
     revealProcessing(name);
@@ -911,6 +1098,8 @@ void QmlWorkstationTests::keepsLiveContentUsable() {
         QVERIFY(control->isEnabled());
         QVERIFY(window_->contentItem()->boundingRect().contains(control->mapRectToScene(control->boundingRect())));
     }
+    revealProcessing("sharpenThresholdField");
+    capture(mode == "compare" ? "sharpen-layout-compare" : "sharpen-layout-original");
     revealProcessing("denoiseSigmaField");
     capture(mode == "compare" ? "denoise-layout-compare" : "denoise-layout-original");
     revealProcessing("tileGridField");
@@ -932,6 +1121,7 @@ void QmlWorkstationTests::stopDisconnectAndExplicitSavedResume() {
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->connectEnabled(),5000);
     destroyRuntime();
     createRuntime();
+    QVERIFY(!item("sharpenAdvanced")->property("checked").toBool());
     const auto expectedId=QString::fromStdString(expectedProcessing.selectedId.value);
     QTRY_COMPARE(runtime_->processing()->selectedPresetId(),expectedId);
     QCOMPARE(item("presetSelector")->property("currentValue").toString(),expectedId);
