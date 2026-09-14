@@ -15,6 +15,7 @@ using Phase = presentation::ProcessingEditPhase;
 using WindowLevel = processing::WindowLevelParameters;
 using BrightnessContrast = processing::BrightnessContrastParameters;
 using Gamma = processing::GammaParameters;
+using Clahe = processing::ClaheParameters;
 using StageId = processing::StageId;
 
 QString number(double value) {
@@ -172,6 +173,15 @@ void ProcessingAdapter::refreshState(bool draftWasReplaced) {
             next.gamma = parameters.gamma;
             next.gammaText = number(parameters.gamma);
         }
+        const auto localContrastStage = findStage<Clahe>(draft.activePipeline, StageId::Clahe);
+        if (localContrastStage != draft.activePipeline.stages.end()) {
+            const auto& parameters = std::get<Clahe>(localContrastStage->parameters);
+            next.localContrastEnabled = localContrastStage->enabled;
+            next.clipLimit = parameters.clipLimit;
+            next.clipLimitText = number(parameters.clipLimit);
+            next.tileGridSize = static_cast<int>(parameters.tileGridSize);
+            next.tileGridSizeText = QString::number(parameters.tileGridSize);
+        }
         next.draftPresetName = presetName(draft, *model);
         next.pending = model->pending();
         next.modelError = summary(model->error());
@@ -249,6 +259,10 @@ bool ProcessingAdapter::setGammaEnabled(bool enabled) {
     return setEnabled<Gamma>(StageId::Gamma, enabled);
 }
 
+bool ProcessingAdapter::setLocalContrastEnabled(bool enabled) {
+    return setEnabled<Clahe>(StageId::Clahe, enabled);
+}
+
 template<typename Parameters>
 bool ProcessingAdapter::editStageValue(StageId id, double Parameters::* member, double value,
     double minimum, double maximum, const QString& label, Phase phase) {
@@ -286,6 +300,30 @@ bool ProcessingAdapter::editValue(double BrightnessContrast::* member, double va
 
 bool ProcessingAdapter::editValue(double Gamma::* member, double value, Phase phase) {
     return editStageValue(StageId::Gamma, member, value, gammaMinimum(), gammaMaximum(), tr("Gamma"), phase);
+}
+
+bool ProcessingAdapter::editValue(double Clahe::* member, double value, Phase phase) {
+    return editStageValue(StageId::Clahe, member, value,
+        clipLimitMinimum(), clipLimitMaximum(), tr("Clip limit"), phase);
+}
+
+bool ProcessingAdapter::editTileGridSize(double value) {
+    auto* model = coordinator_.processingControls();
+    if (!model || !coordinator_.state().controlsEnabled)
+        return rejectInput(tr("Processing controls are unavailable."));
+    if (!std::isfinite(value) || std::trunc(value) != value
+        || value < tileGridSizeMinimum() || value > tileGridSizeMaximum())
+        return rejectInput(tr("Tile grid size must be a whole number from %1 to %2.")
+            .arg(tileGridSizeMinimum()).arg(tileGridSizeMaximum()));
+    auto pipeline = model->draft().activePipeline;
+    const auto stage = findStage<Clahe>(pipeline, StageId::Clahe);
+    if (stage == pipeline.stages.end())
+        return rejectInput(tr("%1 settings are unavailable.").arg(stageLabel(StageId::Clahe)));
+    std::get<Clahe>(stage->parameters).tileGridSize = static_cast<std::uint32_t>(value);
+    inputError_.clear();
+    const auto result = model->edit(std::move(pipeline), Phase::Commit);
+    refresh();
+    return result.hasValue();
 }
 
 template<typename Parameters>
@@ -342,6 +380,34 @@ bool ProcessingAdapter::dragGamma(double value) { return editValue(&Gamma::gamma
 bool ProcessingAdapter::releaseBrightness() { return releaseStage<BrightnessContrast>(StageId::BrightnessContrast); }
 bool ProcessingAdapter::releaseContrast() { return releaseStage<BrightnessContrast>(StageId::BrightnessContrast); }
 bool ProcessingAdapter::releaseGamma() { return releaseStage<Gamma>(StageId::Gamma); }
+
+bool ProcessingAdapter::commitClipLimit(double value) {
+    return editValue(&Clahe::clipLimit, value, Phase::Commit);
+}
+bool ProcessingAdapter::commitClipLimitText(const QString& text) {
+    return commitText(&Clahe::clipLimit, text);
+}
+bool ProcessingAdapter::dragClipLimit(double value) {
+    return editValue(&Clahe::clipLimit, value, Phase::Drag);
+}
+bool ProcessingAdapter::releaseClipLimit() { return releaseStage<Clahe>(StageId::Clahe); }
+bool ProcessingAdapter::commitTileGridSize(double value) { return editTileGridSize(value); }
+bool ProcessingAdapter::commitTileGridSizeText(const QString& text) {
+    const auto bytes = text.trimmed().toUtf8();
+    const char* begin = bytes.constData();
+    const char* end = begin + bytes.size();
+    if (begin != end && *begin == '+') ++begin;
+    if (begin == end || !std::all_of(begin, end, [](char character) {
+            return character >= '0' && character <= '9';
+        }))
+        return rejectInput(tr("Enter a whole decimal number with at most one leading plus sign."));
+    std::uint64_t value{};
+    const auto parsed = std::from_chars(begin, end, value, 10);
+    if (parsed.ec != std::errc{} || parsed.ptr != end)
+        return rejectInput(tr("Enter a whole decimal number from %1 to %2.")
+            .arg(tileGridSizeMinimum()).arg(tileGridSizeMaximum()));
+    return editTileGridSize(static_cast<double>(value));
+}
 
 bool ProcessingAdapter::retry() {
     refresh();

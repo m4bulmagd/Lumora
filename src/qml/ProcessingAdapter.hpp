@@ -41,6 +41,15 @@ class ProcessingAdapter final : public QObject {
     Q_PROPERTY(QString gammaText READ gammaText NOTIFY stateChanged)
     Q_PROPERTY(double gammaMinimum READ gammaMinimum CONSTANT)
     Q_PROPERTY(double gammaMaximum READ gammaMaximum CONSTANT)
+    Q_PROPERTY(bool localContrastEnabled READ localContrastEnabled NOTIFY stateChanged)
+    Q_PROPERTY(double clipLimit READ clipLimit NOTIFY stateChanged)
+    Q_PROPERTY(QString clipLimitText READ clipLimitText NOTIFY stateChanged)
+    Q_PROPERTY(double clipLimitMinimum READ clipLimitMinimum CONSTANT)
+    Q_PROPERTY(double clipLimitMaximum READ clipLimitMaximum CONSTANT)
+    Q_PROPERTY(int tileGridSize READ tileGridSize NOTIFY stateChanged)
+    Q_PROPERTY(QString tileGridSizeText READ tileGridSizeText NOTIFY stateChanged)
+    Q_PROPERTY(int tileGridSizeMinimum READ tileGridSizeMinimum CONSTANT)
+    Q_PROPERTY(int tileGridSizeMaximum READ tileGridSizeMaximum CONSTANT)
     Q_PROPERTY(bool pending READ pending NOTIFY stateChanged)
     Q_PROPERTY(bool hasAcknowledged READ hasAcknowledged NOTIFY stateChanged)
     Q_PROPERTY(QString activeSummary READ activeSummary NOTIFY stateChanged)
@@ -91,6 +100,15 @@ public:
     [[nodiscard]] QString gammaText() const { return state_.gammaText; }
     [[nodiscard]] double gammaMinimum() const { return 0.1; }
     [[nodiscard]] double gammaMaximum() const { return 5.0; }
+    [[nodiscard]] bool localContrastEnabled() const { return state_.localContrastEnabled; }
+    [[nodiscard]] double clipLimit() const { return state_.clipLimit; }
+    [[nodiscard]] QString clipLimitText() const { return state_.clipLimitText; }
+    [[nodiscard]] double clipLimitMinimum() const { return 0.1; }
+    [[nodiscard]] double clipLimitMaximum() const { return 40.0; }
+    [[nodiscard]] int tileGridSize() const { return state_.tileGridSize; }
+    [[nodiscard]] QString tileGridSizeText() const { return state_.tileGridSizeText; }
+    [[nodiscard]] int tileGridSizeMinimum() const { return 2; }
+    [[nodiscard]] int tileGridSizeMaximum() const { return 32; }
     [[nodiscard]] bool pending() const { return state_.pending; }
     [[nodiscard]] bool hasAcknowledged() const { return state_.hasAcknowledged; }
     [[nodiscard]] QString activeSummary() const { return state_.activeSummary; }
@@ -132,6 +150,13 @@ public:
     Q_INVOKABLE bool commitGammaText(const QString& text);
     Q_INVOKABLE bool dragGamma(double value);
     Q_INVOKABLE bool releaseGamma();
+    Q_INVOKABLE bool setLocalContrastEnabled(bool enabled);
+    Q_INVOKABLE bool commitClipLimit(double value);
+    Q_INVOKABLE bool commitClipLimitText(const QString& text);
+    Q_INVOKABLE bool dragClipLimit(double value);
+    Q_INVOKABLE bool releaseClipLimit();
+    Q_INVOKABLE bool commitTileGridSize(double value);
+    Q_INVOKABLE bool commitTileGridSizeText(const QString& text);
     Q_INVOKABLE bool retry();
 
 signals:
@@ -151,6 +176,11 @@ private:
         bool gammaEnabled{false};
         double brightness{0.0}, contrast{0.0}, gamma{0.0};
         QString brightnessText, contrastText, gammaText;
+        bool localContrastEnabled{false};
+        double clipLimit{0.0};
+        QString clipLimitText;
+        int tileGridSize{0};
+        QString tileGridSizeText;
         bool pending{false};
         bool hasAcknowledged{false};
         QString activeSummary, activeRevision, selectedPresetId, draftPresetName;
@@ -168,6 +198,9 @@ private:
         presentation::ProcessingEditPhase phase);
     bool editValue(double processing::GammaParameters::* member, double value,
         presentation::ProcessingEditPhase phase);
+    bool editValue(double processing::ClaheParameters::* member, double value,
+        presentation::ProcessingEditPhase phase);
+    bool editTileGridSize(double value);
     template<typename Parameters>
     bool editStageValue(processing::StageId id, double Parameters::* member, double value,
         double minimum, double maximum, const QString& label, presentation::ProcessingEditPhase phase);

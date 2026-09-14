@@ -199,6 +199,13 @@ const processing::GammaParameters& gamma(const processing::PipelineDefinition& v
     throw std::runtime_error("Missing gamma stage");
 }
 
+const processing::ClaheParameters& localContrast(const processing::PipelineDefinition& value) {
+    for (const auto& stage : value.stages)
+        if (stage.id == processing::StageId::Clahe)
+            return std::get<processing::ClaheParameters>(stage.parameters);
+    throw std::runtime_error("Missing local contrast stage");
+}
+
 application::PresetState toneSeed() {
     auto seed = savedPresetSeed();
     seed.selectedId = {"custom"};
@@ -208,6 +215,255 @@ application::PresetState toneSeed() {
         0.12345678901234568, 1.2345678901234567};
     seed.activePipeline.stages[3].parameters = processing::GammaParameters{0.9876543210987654};
     return seed;
+}
+
+application::PresetState localContrastSeed() {
+    auto seed = toneSeed();
+    seed.activePipeline.stages[4].enabled = true;
+    seed.activePipeline.stages[4].parameters = processing::ClaheParameters{
+        3.141592653589793, 4U};
+    return seed;
+}
+
+// Default projection, decimal rounding or refresh-triggered submission would
+// alter native CLAHE settings before the operator deliberately edits them.
+TEST(QmlProcessingAdapter, LocalContrastLoadProjectsExactValuesWithoutSubmittingOnRefresh) {
+    const auto seed = localContrastSeed();
+    Fixture fixture(true, false, seed);
+    ASSERT_TRUE(fixture.start());
+    fixture.io->release();
+    ASSERT_TRUE(fixture.settled());
+    EXPECT_TRUE(fixture.adapter.localContrastEnabled());
+    EXPECT_DOUBLE_EQ(fixture.adapter.clipLimit(), 3.141592653589793);
+    EXPECT_EQ(fixture.adapter.clipLimitText(), QStringLiteral("3.141592653589793"));
+    EXPECT_EQ(fixture.adapter.tileGridSize(), 4);
+    EXPECT_EQ(fixture.adapter.tileGridSizeText(), QStringLiteral("4"));
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    QSignalSpy changes(&fixture.adapter, &qml::ProcessingAdapter::stateChanged);
+    for (int i = 0; i < 20; ++i) fixture.adapter.refresh();
+    EXPECT_EQ(changes.count(), 0);
+    EXPECT_FALSE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+}
+
+// Both field commands and the toggle must edit a fresh whole draft, preserving
+// the other CLAHE parameter, every unrelated stage and the saved collection.
+TEST(QmlProcessingAdapter, LocalContrastExactEditsAndTogglePreserveCompleteDraft) {
+    auto seed = localContrastSeed();
+    seed.activePipeline.stages[4].enabled = false;
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.loaded());
+    ASSERT_TRUE(fixture.adapter.commitClipLimitText("12.345678901234567"));
+    ASSERT_TRUE(fixture.adapter.commitTileGridSizeText(" +5 "));
+    ASSERT_TRUE(fixture.adapter.setLocalContrastEnabled(true));
+    EXPECT_TRUE(fixture.adapter.localContrastEnabled());
+    EXPECT_DOUBLE_EQ(fixture.adapter.clipLimit(), 12.345678901234567);
+    EXPECT_EQ(fixture.adapter.tileGridSize(), 5);
+    auto expected = seed.activePipeline;
+    expected.stages[4].enabled = true;
+    expected.stages[4].parameters = processing::ClaheParameters{12.345678901234567, 5U};
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, expected));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+    ASSERT_TRUE(fixture.adapter.setLocalContrastEnabled(false));
+    EXPECT_DOUBLE_EQ(fixture.adapter.clipLimit(), 12.345678901234567);
+    EXPECT_EQ(fixture.adapter.tileGridSize(), 5);
+}
+
+// Fractional conversion before validation, permissive integer syntax, range
+// clamping or image-size clamping would mutate and eventually save this draft.
+TEST(QmlProcessingAdapter, LocalContrastRejectsInvalidClipAndGridWithoutMutationOrSave) {
+    auto seed = localContrastSeed();
+    seed.activePipeline.stages[4].enabled = false;
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    for (const auto* text : {"", " ", "NaN", "inf", "-inf", "1e999", "0.09", "40.01", "1,2", "2x"}) {
+        EXPECT_FALSE(fixture.adapter.commitClipLimitText(QString::fromLatin1(text))) << text;
+        EXPECT_FALSE(fixture.adapter.validationError().isEmpty()) << text;
+    }
+    for (const auto value : {0.09, 40.01, std::numeric_limits<double>::quiet_NaN(),
+             std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()}) {
+        EXPECT_FALSE(fixture.adapter.commitClipLimit(value));
+        EXPECT_FALSE(fixture.adapter.dragClipLimit(value));
+    }
+    for (const auto* text : {"", " ", "+", "-2", "+-2", "++2", "--2", "2.0", "2e1",
+             "0x10", "2x", "3 0", "1", "33", "4294967296", "999999999999999999999999999999999"}) {
+        EXPECT_FALSE(fixture.adapter.commitTileGridSizeText(QString::fromLatin1(text))) << text;
+        EXPECT_FALSE(fixture.adapter.validationError().isEmpty()) << text;
+    }
+    for (const auto value : {1.0, 2.5, 33.0, std::numeric_limits<double>::quiet_NaN(),
+             std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()})
+        EXPECT_FALSE(fixture.adapter.commitTileGridSize(value));
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), before);
+    for (int i = 0; i < 20; ++i) fixture.coordinator.poll();
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    ASSERT_TRUE(fixture.adapter.commitClipLimit(0.1));
+    ASSERT_TRUE(fixture.adapter.commitClipLimitText("40"));
+    ASSERT_TRUE(fixture.adapter.commitTileGridSizeText(" +02 "));
+    ASSERT_TRUE(fixture.adapter.commitTileGridSize(32.0));
+    EXPECT_DOUBLE_EQ(fixture.adapter.clipLimit(), 40.0);
+    EXPECT_EQ(fixture.adapter.tileGridSize(), 32);
+}
+
+void expectLocalContrastCommandsUnavailable(qml::ProcessingAdapter& adapter) {
+    EXPECT_FALSE(adapter.setLocalContrastEnabled(true));
+    EXPECT_FALSE(adapter.commitClipLimit(2.5));
+    EXPECT_FALSE(adapter.commitClipLimitText(QStringLiteral("2.5")));
+    EXPECT_FALSE(adapter.dragClipLimit(2.5));
+    EXPECT_FALSE(adapter.releaseClipLimit());
+    EXPECT_FALSE(adapter.commitTileGridSize(4.0));
+    EXPECT_FALSE(adapter.commitTileGridSizeText(QStringLiteral("4")));
+}
+
+// Every command must consult live coordinator authority during loading, after a
+// failed load and after shutdown begins, without touching model or persistence.
+TEST(QmlProcessingAdapter, LocalContrastCommandsRejectLoadingFailedLoadAndClosing) {
+    Fixture fixture(true, false, localContrastSeed());
+    expectLocalContrastCommandsUnavailable(fixture.adapter);
+    ASSERT_TRUE(fixture.start());
+    expectLocalContrastCommandsUnavailable(fixture.adapter);
+    EXPECT_FALSE(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision);
+    fixture.io->release();
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    fixture.coordinator.beginShutdown();
+    expectLocalContrastCommandsUnavailable(fixture.adapter);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), before);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    Fixture failed(false, true);
+    ASSERT_TRUE(failed.start());
+    ASSERT_TRUE(failed.wait([&] { return failed.coordinator.processingState().loadCompleted; }));
+    expectLocalContrastCommandsUnavailable(failed.adapter);
+    EXPECT_FALSE(failed.preferences.latestStatus()->latestAttemptedPresetSaveRevision);
+}
+
+// Drag must share the model throttle, while parameterless Release must flush the
+// current complete draft after a preset or reset has replaced an obsolete drag.
+TEST(QmlProcessingAdapter, LocalContrastDragThrottlesAndReleaseUsesCurrentDraft) {
+    Fixture fixture(false, false, localContrastSeed());
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto revision = fixture.adapter.activeRevision();
+    ASSERT_TRUE(fixture.adapter.dragClipLimit(4.25));
+    ASSERT_TRUE(fixture.adapter.dragClipLimit(4.5));
+    for (int i = 0; i < 20; ++i) { fixture.coordinator.poll(); fixture.adapter.refresh(); }
+    EXPECT_TRUE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.adapter.activeRevision(), revision);
+    ASSERT_TRUE(fixture.adapter.releaseClipLimit());
+    ASSERT_TRUE(fixture.wait([&] { return !fixture.adapter.pending(); }));
+    EXPECT_DOUBLE_EQ(localContrast(
+        fixture.coordinator.processingControls()->acknowledged()->activePipeline).clipLimit, 4.5);
+
+    const auto seed = savedPresetSeed();
+    Fixture replaced(false, false, seed);
+    ASSERT_TRUE(replaced.start());
+    ASSERT_TRUE(replaced.settled());
+    ASSERT_TRUE(replaced.adapter.dragClipLimit(4.75));
+    ASSERT_TRUE(replaced.adapter.selectPreset("saved-fractional"));
+    ASSERT_TRUE(replaced.adapter.releaseClipLimit());
+    EXPECT_EQ(replaced.adapter.selectedPresetId(), QStringLiteral("saved-fractional"));
+    EXPECT_DOUBLE_EQ(replaced.adapter.clipLimit(), 2.0);
+    EXPECT_EQ(replaced.adapter.tileGridSize(), 8);
+    ASSERT_TRUE(replaced.wait([&] { return !replaced.adapter.pending(); }));
+    ASSERT_TRUE(replaced.adapter.dragClipLimit(5.25));
+    ASSERT_TRUE(replaced.adapter.resetProcessing());
+    ASSERT_TRUE(replaced.adapter.releaseClipLimit());
+    EXPECT_EQ(replaced.adapter.selectedPresetId(), QStringLiteral("original"));
+    EXPECT_DOUBLE_EQ(replaced.adapter.clipLimit(), 2.0);
+    EXPECT_EQ(replaced.adapter.tileGridSize(), 8);
+    ASSERT_TRUE(replaced.wait([&] { return !replaced.adapter.pending(); }));
+    expectSavedCollection(replaced.coordinator.processingControls()->draft(), seed);
+}
+
+// Persistence must follow real successful preparation on the 8x6 source and
+// retain the exact complete recipe and saved collection across reopen.
+TEST(QmlProcessingAdapter, LocalContrastSuccessfulActivationPersistsAndReopens) {
+    auto seed = localContrastSeed();
+    seed.activePipeline.stages[4].enabled = false;
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    ASSERT_TRUE(fixture.adapter.commitClipLimitText("6.789012345678901"));
+    ASSERT_TRUE(fixture.adapter.commitTileGridSizeText("+5"));
+    ASSERT_TRUE(fixture.adapter.setLocalContrastEnabled(true));
+    EXPECT_TRUE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    ASSERT_TRUE(fixture.wait([&] {
+        return !fixture.adapter.pending()
+            && fixture.preferences.latestStatus()->latestSavedPresetRevision > saved;
+    }));
+    const auto loaded = fixture.io->store.load();
+    ASSERT_TRUE(loaded.hasValue());
+    const auto& persisted = loaded.value().presets;
+    EXPECT_TRUE(persisted.activePipeline.stages[4].enabled);
+    EXPECT_DOUBLE_EQ(localContrast(persisted.activePipeline).clipLimit, 6.789012345678901);
+    EXPECT_EQ(localContrast(persisted.activePipeline).tileGridSize, 5U);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(persisted.activePipeline,
+        fixture.coordinator.processingControls()->acknowledged()->activePipeline));
+    expectSavedCollection(persisted, seed);
+    Fixture reopened(fixture.io->store.path());
+    ASSERT_TRUE(reopened.start());
+    ASSERT_TRUE(reopened.loaded());
+    EXPECT_TRUE(reopened.adapter.localContrastEnabled());
+    EXPECT_DOUBLE_EQ(reopened.adapter.clipLimit(), 6.789012345678901);
+    EXPECT_EQ(reopened.adapter.tileGridSize(), 5);
+    expectSavedCollection(reopened.coordinator.processingControls()->draft(), seed);
+}
+
+// A model-valid grid must reach real CLAHE preparation; its 8x6 rejection must
+// restore the prior acknowledged custom values and never persist the failed edit.
+TEST(QmlProcessingAdapter, LocalContrastImageTooSmallRollsBackAcknowledgedDraftWithoutSave) {
+    auto seed = localContrastSeed();
+    seed.activePipeline.stages[4].enabled = false;
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto beforeValidSave = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    ASSERT_TRUE(fixture.adapter.commitClipLimitText("7.125"));
+    ASSERT_TRUE(fixture.adapter.commitTileGridSize(4.0));
+    ASSERT_TRUE(fixture.adapter.setLocalContrastEnabled(true));
+    ASSERT_TRUE(fixture.wait([&] {
+        const auto status = fixture.preferences.latestStatus();
+        return !fixture.adapter.pending()
+            && status->latestAttemptedPresetSaveRevision > beforeValidSave
+            && status->latestSavedPresetRevision == status->latestAttemptedPresetSaveRevision;
+    }));
+    ASSERT_TRUE(fixture.adapter.modelError().isEmpty());
+    const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    const auto attempted = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    const auto accepted = *fixture.coordinator.processingControls()->acknowledged();
+    ASSERT_TRUE(fixture.adapter.commitTileGridSize(8.0));
+    EXPECT_TRUE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.adapter.tileGridSize(), 8);
+    ASSERT_TRUE(fixture.wait([&] {
+        return !fixture.adapter.pending() && !fixture.adapter.modelError().isEmpty();
+    }));
+    ASSERT_TRUE(fixture.pipeline.snapshot().processingConfigurationOutcome->error);
+    EXPECT_EQ(fixture.pipeline.snapshot().processingConfigurationOutcome->error->code,
+        "clahe_image_too_small");
+    EXPECT_TRUE(fixture.adapter.localContrastEnabled());
+    EXPECT_DOUBLE_EQ(fixture.adapter.clipLimit(), 7.125);
+    EXPECT_EQ(fixture.adapter.tileGridSize(), 4);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, accepted.activePipeline));
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, attempted);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestSavedPresetRevision, saved);
+    const auto stored = fixture.io->store.load();
+    ASSERT_TRUE(stored.hasValue());
+    EXPECT_DOUBLE_EQ(localContrast(stored.value().presets.activePipeline).clipLimit, 7.125);
+    EXPECT_EQ(localContrast(stored.value().presets.activePipeline).tileGridSize, 4U);
+    expectSavedCollection(stored.value().presets, seed);
 }
 
 // Default snapshots, decimal rounding or refresh-triggered submissions would
