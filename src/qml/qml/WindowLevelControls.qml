@@ -23,7 +23,7 @@ ScrollView {
             selectByMouse: true
             inputMethodHints: Qt.ImhFormattedNumbersOnly
             onEditingFinished: root.processing.commitWindowText(text)
-            Binding { target: windowField; property: "text"; value: root.processing.windowText; when: !windowField.activeFocus; restoreMode: Binding.RestoreBindingOrValue }
+            Binding { target: windowField; property: "text"; value: root.processing.windowText; when: !windowField.activeFocus; restoreMode: Binding.RestoreNone }
         }
         Slider {
             id: windowSlider
@@ -46,7 +46,7 @@ ScrollView {
             selectByMouse: true
             inputMethodHints: Qt.ImhFormattedNumbersOnly
             onEditingFinished: root.processing.commitLevelText(text)
-            Binding { target: levelField; property: "text"; value: root.processing.levelText; when: !levelField.activeFocus; restoreMode: Binding.RestoreBindingOrValue }
+            Binding { target: levelField; property: "text"; value: root.processing.levelText; when: !levelField.activeFocus; restoreMode: Binding.RestoreNone }
         }
         Slider {
             id: levelSlider

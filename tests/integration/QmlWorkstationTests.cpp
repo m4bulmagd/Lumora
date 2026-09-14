@@ -21,7 +21,9 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QtQuickTest/quicktest.h>
 #include <QtTest/QTest>
 #include <memory>
 
@@ -58,8 +60,14 @@ private:
         QVERIFY2(control, name);
         QVERIFY2(control->isVisible(),name);
         QVERIFY2(control->isEnabled(),name);
+        // Policy publication can rearrange the camera grid before it is drawn.
+        // Wait for real layout completion before sampling the click position.
+        QVERIFY(QQuickTest::qWaitForPolish(window_));
+        QSignalSpy activated(control,SIGNAL(clicked()));
+        QVERIFY(activated.isValid());
         QTest::mouseClick(window_, Qt::LeftButton, Qt::NoModifier,
             control->mapToScene(control->boundingRect().center()).toPoint());
+        QCOMPARE(activated.count(),1);
     }
     QString diagnostics() const { return warnings_.join('\n'); }
     void capture(const QString& state);
@@ -184,14 +192,21 @@ void QmlWorkstationTests::keyboardCanReturnToViewportWithoutStealingNumericInput
     auto* field=item("levelField");
     QVERIFY(surface);
     QVERIFY(field);
-    field->forceActiveFocus();
-    const auto before=image.imageRects();
+    auto* windowField=item("windowField");
+    QVERIFY(windowField);
+    const auto windowText=windowField->property("text").toString();
+    windowField->forceActiveFocus();
+    QCOMPARE(windowField->property("text").toString(),windowText);
     const auto numericText=field->property("text").toString();
+    field->forceActiveFocus();
+    QCOMPARE(field->property("text").toString(),numericText);
+    const auto before=image.imageRects();
     QTest::keyClick(window_,Qt::Key_End);
     QTest::keyClick(window_,Qt::Key_Minus);
     QCOMPARE(field->property("text").toString(),numericText+"-");
     QCOMPARE(image.imageRects(),before);
     QTest::keyClick(window_,Qt::Key_Backspace);
+    QCOMPARE(field->property("text").toString(),numericText);
     for(const auto modifiers:{Qt::NoModifier,Qt::ShiftModifier}) {
         field->forceActiveFocus();
         for(int step=0;step<64 && !surface->hasActiveFocus();++step)
