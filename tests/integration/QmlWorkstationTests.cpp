@@ -351,8 +351,11 @@ void QmlWorkstationTests::stoppedCameraSettingsRequireExplicitApplyReviewAndConf
     QTRY_VERIFY_WITH_TIMEOUT(savedCameraMatches(expectedRequest,expectedActual),5000);
     QVERIFY(preferences_->latestStatus()->latestSavedRevision!=savesBefore.latestSavedRevision);
     QCOMPARE(QJsonDocument::fromJson(readPreferences()).object().value("presets"),processingBefore);
+    const auto frameBeforeStart=runtime_->viewer()->sourceFrameId();
     click("startButton");
-    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame(),10000);
+    QTRY_COMPARE_WITH_TIMEOUT(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming,5000);
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame()
+        && runtime_->viewer()->sourceFrameId()!=frameBeforeStart,15000);
     click("cameraSettingsButton");
     QTRY_VERIFY(settings->isOpen());
     QVERIFY(!settings->editable() && !settings->applyEnabled());
@@ -369,11 +372,17 @@ void QmlWorkstationTests::stoppedCameraSettingsRequireExplicitApplyReviewAndConf
     capture("camera-settings-streaming");
     // A nonmodal dialog must leave the actual viewer/priority controls usable.
     click("pauseButton");
-    QTRY_COMPARE(runtime_->viewer()->playbackState(),QStringLiteral("Paused"));
+    // A native screenshot can temporarily withdraw the displayed bundle while
+    // the renderer restores it. Freeze only a completed, visible Paused frame.
+    QTRY_VERIFY(runtime_->viewer()->playbackState()==QStringLiteral("Paused")
+        && runtime_->viewer()->hasFrame());
     QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
     QVERIFY(!settings->editable() && !settings->applyEnabled());
     const auto pausedFrame=runtime_->viewer()->sourceFrameId();
+    QVERIFY(!pausedFrame.isEmpty());
     capture("camera-settings-paused");
+    QTRY_VERIFY(runtime_->viewer()->hasFrame());
+    QCOMPARE(runtime_->viewer()->playbackState(),QStringLiteral("Paused"));
     QCOMPARE(runtime_->viewer()->sourceFrameId(),pausedFrame);
     click("stopButton");
     QTRY_COMPARE_WITH_TIMEOUT(pipeline_->snapshot().camera->state,application::CameraSessionState::ConnectedIdle,5000);
