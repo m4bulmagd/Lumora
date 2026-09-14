@@ -14,6 +14,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -46,6 +47,7 @@ private slots:
     void requiresGuardedStartupThroughRealControls();
     void completedViewingAndExactNumericEditing();
     void keyboardCanReturnToViewportWithoutStealingNumericInput();
+    void presetsAndResetPreserveCameraPausedFrameAndViewport();
     void renderedPixelsStayInsideViewport();
     void keepsLiveContentUsable_data();
     void keepsLiveContentUsable();
@@ -71,6 +73,8 @@ private:
     }
     QString diagnostics() const { return warnings_.join('\n'); }
     void capture(const QString& state);
+    void choosePreset(const QString& id);
+    bool persistedPresetIs(const std::string& id) const;
     void createRuntime(std::shared_ptr<EnhancementFailure> fault = {});
     void destroyRuntime();
     QTemporaryDir directory_;
@@ -104,6 +108,17 @@ void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> faul
     };
     pipeline_=std::make_unique<application::LivePipeline>(provider_,clock_,app::simulatorConfiguration(),
         std::move(factory),options,installations_.get());
+    const auto preferencePath=directory_.filePath("pilot.json");
+    if(!QFile::exists(preferencePath)) {
+        configuration::ApplicationConfiguration settings;
+        application::Preset saved;
+        saved.id={"saved-fractional"};
+        saved.name="Saved fractional";
+        saved.description="Exact saved window/level fixture";
+        saved.pipeline.stages[1].parameters=processing::WindowLevelParameters{12000.125,23000.875};
+        settings.presets.customPresets.push_back(saved);
+        QVERIFY(configuration::ConfigurationStore{preferencePath.toStdString()}.save(settings).hasValue());
+    }
     preferences_=std::make_unique<configuration::StartupPreferencesService>(
         configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()});
     runtime_=std::make_unique<qml::QmlWorkstation>(*pipeline_,*preferences_,clock_,app::simulatorConfiguration());
@@ -186,6 +201,97 @@ void QmlWorkstationTests::completedViewingAndExactNumericEditing() {
     click("actualPixelsButton");
     QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
+void QmlWorkstationTests::choosePreset(const QString& id) {
+    auto* selector=item("presetSelector");
+    QVERIFY(selector);
+    QVERIFY(selector->isEnabled());
+    const auto rows=runtime_->processing()->property("presets").toList();
+    int index=-1;
+    for(qsizetype row=0;row<rows.size();++row)
+        if(rows[row].toMap().value("id").toString()==id) index=static_cast<int>(row);
+    QVERIFY2(index>=0,qPrintable(id));
+    QCOMPARE(selector->property("count").toInt(),rows.size());
+    selector->forceActiveFocus();
+    QTest::keyClick(window_,Qt::Key_Space);
+    QTest::keyClick(window_,Qt::Key_Home);
+    for(int row=0;row<index;++row) QTest::keyClick(window_,Qt::Key_Down);
+    QTest::keyClick(window_,Qt::Key_Return);
+    QTRY_COMPARE(selector->property("currentValue").toString(),id);
+    QTRY_COMPARE(runtime_->processing()->property("selectedPresetId").toString(),id);
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending(),10000);
+    const auto& acknowledged=runtime_->coordinator().processingControls()->acknowledged();
+    QVERIFY(acknowledged);
+    QCOMPARE(QString::fromStdString(acknowledged->selectedId.value),id);
+}
+bool QmlWorkstationTests::persistedPresetIs(const std::string& id) const {
+    const auto loaded=configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()}.load();
+    return loaded.hasValue() && loaded.value().presets.selectedId.value==id;
+}
+void QmlWorkstationTests::presetsAndResetPreserveCameraPausedFrameAndViewport() {
+    // Missing bindings, accidental index-change activation, Reset touching the
+    // camera/presenter, or saving a draft before acknowledgment break this route.
+    QVERIFY(item("presetSelector"));
+    QVERIFY(item("resetProcessingButton"));
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->compareAvailable(),5000);
+    click("compareButton");
+    QTRY_COMPARE(runtime_->viewer()->displayMode(),QStringLiteral("compare"));
+    click("pauseButton");
+    QTRY_COMPARE(runtime_->viewer()->playbackState(),QStringLiteral("Paused"));
+    auto* viewer=runtime_->viewer();
+    QVERIFY(viewer->actualPixels());
+    QVERIFY(viewer->zoomAt(100,100,1.25));
+    QVERIFY(viewer->panBy(13,17));
+    const auto rectangles=viewer->imageItem().imageRects();
+    const auto frozenId=viewer->sourceFrameId();
+    const auto cameraBefore=*pipeline_->snapshot().camera;
+    const auto readback=runtime_->camera()->currentSummary();
+    const auto viewportRect=item("imageArea")->mapRectToScene(item("imageArea")->boundingRect());
+    const auto capturePixels=[&] {
+        const auto windowImage=window_->grabWindow();
+        const auto dpr=windowImage.devicePixelRatio();
+        return windowImage.copy(QRect(qRound(viewportRect.x()*dpr),qRound(viewportRect.y()*dpr),
+            qRound(viewportRect.width()*dpr),qRound(viewportRect.height()*dpr)));
+    };
+    const auto frozenPixels=capturePixels();
+    for(const auto* id:{"original","standard","high-contrast","soft-detail","saved-fractional"}) {
+        choosePreset(QString::fromLatin1(id));
+        QTRY_VERIFY_WITH_TIMEOUT(persistedPresetIs(id),5000);
+        QCOMPARE(viewer->sourceFrameId(),frozenId);
+        QCOMPARE(viewer->playbackState(),QStringLiteral("Paused"));
+        QCOMPARE(viewer->displayMode(),QStringLiteral("compare"));
+        QCOMPARE(viewer->imageItem().imageRects(),rectangles);
+        QCOMPARE(capturePixels(),frozenPixels);
+        QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
+        QCOMPARE(pipeline_->snapshot().camera->sessionGeneration,cameraBefore.sessionGeneration);
+        QCOMPARE(pipeline_->snapshot().camera->confirmedRevision,cameraBefore.confirmedRevision);
+        QCOMPARE(runtime_->camera()->currentSummary(),readback);
+    }
+    QCOMPARE(runtime_->processing()->window(),12000.125);
+    QCOMPARE(runtime_->processing()->level(),23000.875);
+    capture("preset-saved-paused");
+    click("resetProcessingButton");
+    QTRY_COMPARE(runtime_->processing()->property("selectedPresetId").toString(),QStringLiteral("original"));
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && persistedPresetIs("original"),5000);
+    QCOMPARE(runtime_->processing()->window(),65535.0);
+    QCOMPARE(runtime_->processing()->level(),32767.5);
+    QCOMPARE(item("presetSelector")->property("currentValue").toString(),QStringLiteral("original"));
+    QCOMPARE(viewer->sourceFrameId(),frozenId);
+    QCOMPARE(viewer->playbackState(),QStringLiteral("Paused"));
+    QCOMPARE(viewer->displayMode(),QStringLiteral("compare"));
+    QCOMPARE(viewer->imageItem().imageRects(),rectangles);
+    QCOMPARE(capturePixels(),frozenPixels);
+    QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
+    QCOMPARE(pipeline_->snapshot().camera->confirmedRevision,cameraBefore.confirmedRevision);
+    QCOMPARE(runtime_->camera()->currentSummary(),readback);
+    capture("preset-reset-paused");
+    click("resumeButton");
+    QTRY_VERIFY_WITH_TIMEOUT(viewer->sourceFrameId()!=frozenId,5000);
+    choosePreset(QStringLiteral("high-contrast"));
+    QTRY_VERIFY_WITH_TIMEOUT(persistedPresetIs("high-contrast"),5000);
+    click("originalButton");
+    QTRY_COMPARE(viewer->displayMode(),QStringLiteral("original"));
+    QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
+}
 void QmlWorkstationTests::keyboardCanReturnToViewportWithoutStealingNumericInput() {
     auto& image=runtime_->viewer()->imageItem();
     auto* surface=image.parentItem();
@@ -261,6 +367,12 @@ void QmlWorkstationTests::keepsLiveContentUsable() {
     }
     QVERIFY(item("evaluationBanner")->property("text").toString().contains("NOT FOR CLINICAL USE"));
     QVERIFY(item("imageArea")->width()>300);
+    for(const auto* name:{"presetSelector","resetProcessingButton"}) {
+        auto* control=item(name);
+        QVERIFY2(control,name);
+        QVERIFY(control->isEnabled());
+        QVERIFY(window_->contentItem()->boundingRect().contains(control->mapRectToScene(control->boundingRect())));
+    }
     capture(mode == "compare" ? "live-compare" : "live");
     QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
@@ -275,6 +387,8 @@ void QmlWorkstationTests::stopDisconnectAndExplicitSavedResume() {
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->connectEnabled(),5000);
     destroyRuntime();
     createRuntime();
+    QTRY_COMPARE(runtime_->processing()->property("selectedPresetId").toString(),QStringLiteral("high-contrast"));
+    QCOMPARE(item("presetSelector")->property("currentValue").toString(),QStringLiteral("high-contrast"));
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->resumeLiveEnabled(),10000);
     QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
     QVERIFY(!runtime_->viewer()->hasFrame());
@@ -340,10 +454,16 @@ void QmlWorkstationTests::capture(const QString& state) {
     for(const auto* control:window_->findChildren<QQuickItem*>()) {
         if(control->objectName().isEmpty()) continue;
         const auto rect=control->mapRectToScene(control->boundingRect());
-        items.insert(control->objectName(),QJsonObject{{"x",rect.x()},{"y",rect.y()},
+        QJsonObject details{{"x",rect.x()},{"y",rect.y()},
             {"width",rect.width()},{"height",rect.height()},
             {"visible",control->isVisible()},{"enabled",control->isEnabled()},
-            {"text",control->property("text").toString()}});
+            {"text",control->property("text").toString()}};
+        if(control->objectName()=="presetSelector") {
+            details.insert("entries",QJsonArray::fromVariantList(runtime_->processing()->property("presets").toList()));
+            details.insert("currentValue",control->property("currentValue").toString());
+            details.insert("currentIndex",control->property("currentIndex").toInt());
+        }
+        items.insert(control->objectName(),details);
     }
     const QJsonObject geometry{{"window",QJsonObject{{"width",window_->width()},{"height",window_->height()}}},{"items",items}};
     QFile output(QDir(path).filePath(basename + ".json"));

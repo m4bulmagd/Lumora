@@ -6,7 +6,7 @@ lumora_enable_warnings(lumora_quick_renderer)
 
 set(lumora_qml_files
   qml/Main.qml qml/Theme.qml qml/CameraStartup.qml qml/ViewingToolbar.qml
-  qml/WindowLevelControls.qml qml/StatusStrip.qml)
+  qml/PresetControls.qml qml/WindowLevelControls.qml qml/StatusStrip.qml)
 foreach(file IN LISTS lumora_qml_files)
   get_filename_component(name "${file}" NAME)
   set_source_files_properties("${file}" PROPERTIES QT_RESOURCE_ALIAS "${name}")

@@ -11,7 +11,7 @@ ScrollView {
         width: root.availableWidth
         spacing: Theme.spacingSm
         Label { text: qsTr("PROCESSING"); color: Theme.textSecondary; font.bold: true; font.pixelSize: 11 }
-        Label { text: root.processing.draftPresetName || qsTr("Window / level"); font.pixelSize: 18; Layout.fillWidth: true; wrapMode: Text.Wrap }
+        PresetControls { processing: root.processing; Layout.fillWidth: true }
         CheckBox { text: qsTr("Window / level"); checked: root.processing.stageEnabled; enabled: root.processing.available; onClicked: root.processing.setStageEnabled(checked) }
         Label { text: qsTr("Window"); color: Theme.textSecondary }
         TextField {
