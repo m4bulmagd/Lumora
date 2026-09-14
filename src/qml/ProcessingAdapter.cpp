@@ -18,6 +18,7 @@ using Gamma = processing::GammaParameters;
 using Clahe = processing::ClaheParameters;
 using Denoise = processing::DenoiseParameters;
 using DenoiseMode = processing::DenoiseMode;
+using Sharpen = processing::SharpenParameters;
 using StageId = processing::StageId;
 
 QString number(double value) {
@@ -209,6 +210,17 @@ void ProcessingAdapter::refreshState(bool draftWasReplaced) {
             next.denoiseSigma = parameters.sigma;
             next.denoiseSigmaText = number(parameters.sigma);
         }
+        const auto sharpenStage = findStage<Sharpen>(draft.activePipeline, StageId::Sharpen);
+        if (sharpenStage != draft.activePipeline.stages.end()) {
+            const auto& parameters = std::get<Sharpen>(sharpenStage->parameters);
+            next.sharpenEnabled = sharpenStage->enabled;
+            next.sharpenAmount = parameters.amount;
+            next.sharpenAmountText = number(parameters.amount);
+            next.sharpenRadius = parameters.radius;
+            next.sharpenRadiusText = number(parameters.radius);
+            next.sharpenThreshold = parameters.threshold;
+            next.sharpenThresholdText = number(parameters.threshold);
+        }
         next.draftPresetName = presetName(draft, *model);
         next.pending = model->pending();
         next.modelError = summary(model->error());
@@ -294,6 +306,10 @@ bool ProcessingAdapter::setDenoiseEnabled(bool enabled) {
     return setEnabled<Denoise>(StageId::Denoise, enabled);
 }
 
+bool ProcessingAdapter::setSharpenEnabled(bool enabled) {
+    return setEnabled<Sharpen>(StageId::Sharpen, enabled);
+}
+
 template<typename Parameters>
 bool ProcessingAdapter::editStageValue(StageId id, double Parameters::* member, double value,
     double minimum, double maximum, const QString& label, Phase phase) {
@@ -357,6 +373,17 @@ bool ProcessingAdapter::editValue(double Denoise::* member, double value, Phase 
     const auto result = model->edit(std::move(pipeline), phase);
     refresh();
     return result.hasValue();
+}
+
+bool ProcessingAdapter::editValue(double Sharpen::* member, double value, Phase phase) {
+    const bool isAmount = member == &Sharpen::amount;
+    const bool isRadius = member == &Sharpen::radius;
+    return editStageValue(StageId::Sharpen, member, value,
+        isAmount ? sharpenAmountMinimum()
+                 : (isRadius ? sharpenRadiusMinimum() : sharpenThresholdMinimum()),
+        isAmount ? sharpenAmountMaximum()
+                 : (isRadius ? sharpenRadiusMaximum() : sharpenThresholdMaximum()),
+        isAmount ? tr("Amount") : (isRadius ? tr("Radius") : tr("Threshold")), phase);
 }
 
 bool ProcessingAdapter::editTileGridSize(double value) {
@@ -522,6 +549,29 @@ bool ProcessingAdapter::commitDenoiseSigma(double value) {
 }
 bool ProcessingAdapter::commitDenoiseSigmaText(const QString& text) {
     return commitText(&Denoise::sigma, text);
+}
+
+bool ProcessingAdapter::commitSharpenAmount(double value) {
+    return editValue(&Sharpen::amount, value, Phase::Commit);
+}
+bool ProcessingAdapter::commitSharpenAmountText(const QString& text) {
+    return commitText(&Sharpen::amount, text);
+}
+bool ProcessingAdapter::dragSharpenAmount(double value) {
+    return editValue(&Sharpen::amount, value, Phase::Drag);
+}
+bool ProcessingAdapter::releaseSharpenAmount() { return releaseStage<Sharpen>(StageId::Sharpen); }
+bool ProcessingAdapter::commitSharpenRadius(double value) {
+    return editValue(&Sharpen::radius, value, Phase::Commit);
+}
+bool ProcessingAdapter::commitSharpenRadiusText(const QString& text) {
+    return commitText(&Sharpen::radius, text);
+}
+bool ProcessingAdapter::commitSharpenThreshold(double value) {
+    return editValue(&Sharpen::threshold, value, Phase::Commit);
+}
+bool ProcessingAdapter::commitSharpenThresholdText(const QString& text) {
+    return commitText(&Sharpen::threshold, text);
 }
 
 bool ProcessingAdapter::retry() {

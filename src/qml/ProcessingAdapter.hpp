@@ -58,6 +58,19 @@ class ProcessingAdapter final : public QObject {
     Q_PROPERTY(QString denoiseSigmaText READ denoiseSigmaText NOTIFY stateChanged)
     Q_PROPERTY(double denoiseSigmaMinimum READ denoiseSigmaMinimum CONSTANT)
     Q_PROPERTY(double denoiseSigmaMaximum READ denoiseSigmaMaximum CONSTANT)
+    Q_PROPERTY(bool sharpenEnabled READ sharpenEnabled NOTIFY stateChanged)
+    Q_PROPERTY(double sharpenAmount READ sharpenAmount NOTIFY stateChanged)
+    Q_PROPERTY(QString sharpenAmountText READ sharpenAmountText NOTIFY stateChanged)
+    Q_PROPERTY(double sharpenAmountMinimum READ sharpenAmountMinimum CONSTANT)
+    Q_PROPERTY(double sharpenAmountMaximum READ sharpenAmountMaximum CONSTANT)
+    Q_PROPERTY(double sharpenRadius READ sharpenRadius NOTIFY stateChanged)
+    Q_PROPERTY(QString sharpenRadiusText READ sharpenRadiusText NOTIFY stateChanged)
+    Q_PROPERTY(double sharpenRadiusMinimum READ sharpenRadiusMinimum CONSTANT)
+    Q_PROPERTY(double sharpenRadiusMaximum READ sharpenRadiusMaximum CONSTANT)
+    Q_PROPERTY(double sharpenThreshold READ sharpenThreshold NOTIFY stateChanged)
+    Q_PROPERTY(QString sharpenThresholdText READ sharpenThresholdText NOTIFY stateChanged)
+    Q_PROPERTY(double sharpenThresholdMinimum READ sharpenThresholdMinimum CONSTANT)
+    Q_PROPERTY(double sharpenThresholdMaximum READ sharpenThresholdMaximum CONSTANT)
     Q_PROPERTY(bool pending READ pending NOTIFY stateChanged)
     Q_PROPERTY(bool hasAcknowledged READ hasAcknowledged NOTIFY stateChanged)
     Q_PROPERTY(QString activeSummary READ activeSummary NOTIFY stateChanged)
@@ -125,6 +138,19 @@ public:
     [[nodiscard]] QString denoiseSigmaText() const { return state_.denoiseSigmaText; }
     [[nodiscard]] double denoiseSigmaMinimum() const { return 0.0; }
     [[nodiscard]] double denoiseSigmaMaximum() const { return 5.0; }
+    [[nodiscard]] bool sharpenEnabled() const { return state_.sharpenEnabled; }
+    [[nodiscard]] double sharpenAmount() const { return state_.sharpenAmount; }
+    [[nodiscard]] QString sharpenAmountText() const { return state_.sharpenAmountText; }
+    [[nodiscard]] double sharpenAmountMinimum() const { return 0.0; }
+    [[nodiscard]] double sharpenAmountMaximum() const { return 5.0; }
+    [[nodiscard]] double sharpenRadius() const { return state_.sharpenRadius; }
+    [[nodiscard]] QString sharpenRadiusText() const { return state_.sharpenRadiusText; }
+    [[nodiscard]] double sharpenRadiusMinimum() const { return 0.5; }
+    [[nodiscard]] double sharpenRadiusMaximum() const { return 5.0; }
+    [[nodiscard]] double sharpenThreshold() const { return state_.sharpenThreshold; }
+    [[nodiscard]] QString sharpenThresholdText() const { return state_.sharpenThresholdText; }
+    [[nodiscard]] double sharpenThresholdMinimum() const { return 0.0; }
+    [[nodiscard]] double sharpenThresholdMaximum() const { return 65535.0; }
     [[nodiscard]] bool pending() const { return state_.pending; }
     [[nodiscard]] bool hasAcknowledged() const { return state_.hasAcknowledged; }
     [[nodiscard]] QString activeSummary() const { return state_.activeSummary; }
@@ -178,6 +204,15 @@ public:
     Q_INVOKABLE bool commitDenoiseKernelSize(double value);
     Q_INVOKABLE bool commitDenoiseSigma(double value);
     Q_INVOKABLE bool commitDenoiseSigmaText(const QString& text);
+    Q_INVOKABLE bool setSharpenEnabled(bool enabled);
+    Q_INVOKABLE bool commitSharpenAmount(double value);
+    Q_INVOKABLE bool commitSharpenAmountText(const QString& text);
+    Q_INVOKABLE bool dragSharpenAmount(double value);
+    Q_INVOKABLE bool releaseSharpenAmount();
+    Q_INVOKABLE bool commitSharpenRadius(double value);
+    Q_INVOKABLE bool commitSharpenRadiusText(const QString& text);
+    Q_INVOKABLE bool commitSharpenThreshold(double value);
+    Q_INVOKABLE bool commitSharpenThresholdText(const QString& text);
     Q_INVOKABLE bool retry();
 
 signals:
@@ -208,6 +243,9 @@ private:
         QVariantList denoiseKernelOptions;
         double denoiseSigma{0.0};
         QString denoiseSigmaText;
+        bool sharpenEnabled{false};
+        double sharpenAmount{0.0}, sharpenRadius{0.0}, sharpenThreshold{0.0};
+        QString sharpenAmountText, sharpenRadiusText, sharpenThresholdText;
         bool pending{false};
         bool hasAcknowledged{false};
         QString activeSummary, activeRevision, selectedPresetId, draftPresetName;
@@ -228,6 +266,8 @@ private:
     bool editValue(double processing::ClaheParameters::* member, double value,
         presentation::ProcessingEditPhase phase);
     bool editValue(double processing::DenoiseParameters::* member, double value,
+        presentation::ProcessingEditPhase phase);
+    bool editValue(double processing::SharpenParameters::* member, double value,
         presentation::ProcessingEditPhase phase);
     bool editTileGridSize(double value);
     template<typename Parameters>

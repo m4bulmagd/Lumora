@@ -213,6 +213,13 @@ const processing::DenoiseParameters& denoise(const processing::PipelineDefinitio
     throw std::runtime_error("Missing denoise stage");
 }
 
+const processing::SharpenParameters& sharpen(const processing::PipelineDefinition& value) {
+    for (const auto& stage : value.stages)
+        if (stage.id == processing::StageId::Sharpen)
+            return std::get<processing::SharpenParameters>(stage.parameters);
+    throw std::runtime_error("Missing sharpen stage");
+}
+
 application::PresetState toneSeed() {
     auto seed = savedPresetSeed();
     seed.selectedId = {"custom"};
@@ -237,6 +244,14 @@ application::PresetState denoiseSeed() {
     seed.activePipeline.stages[5].enabled = true;
     seed.activePipeline.stages[5].parameters = processing::DenoiseParameters{
         processing::DenoiseMode::Gaussian, 7U, 1.2345678901234567};
+    return seed;
+}
+
+application::PresetState sharpenSeed() {
+    auto seed = denoiseSeed();
+    seed.activePipeline.stages[6].enabled = true;
+    seed.activePipeline.stages[6].parameters = processing::SharpenParameters{
+        4.123456789012345, 4.987654321098765, 12345.678901234567};
     return seed;
 }
 
@@ -695,6 +710,233 @@ TEST(QmlProcessingAdapter, DenoiseSuccessfulActivationPersistsAndReopensWholeRec
     EXPECT_EQ(reopened.adapter.denoiseMode(), QStringLiteral("gaussian"));
     EXPECT_EQ(reopened.adapter.denoiseKernelSize(), 5);
     EXPECT_DOUBLE_EQ(reopened.adapter.denoiseSigma(), 4.876543210987654);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        reopened.coordinator.processingControls()->draft().activePipeline, expected));
+    expectSavedCollection(reopened.coordinator.processingControls()->draft(), seed);
+}
+
+// Loaded native precision must project through all three fields without refresh
+// mutating the complete draft or touching acknowledged persistence.
+TEST(QmlProcessingAdapter, SharpenLoadProjectsExactValuesWithoutSubmittingOnRefresh) {
+    const auto seed = sharpenSeed();
+    Fixture fixture(true, false, seed);
+    ASSERT_TRUE(fixture.start());
+    fixture.io->release();
+    ASSERT_TRUE(fixture.settled());
+    EXPECT_TRUE(fixture.adapter.sharpenEnabled());
+    EXPECT_DOUBLE_EQ(fixture.adapter.sharpenAmount(), 4.123456789012345);
+    EXPECT_DOUBLE_EQ(fixture.adapter.sharpenRadius(), 4.987654321098765);
+    EXPECT_DOUBLE_EQ(fixture.adapter.sharpenThreshold(), 12345.678901234567);
+    EXPECT_EQ(fixture.adapter.sharpenAmountText(), QStringLiteral("4.123456789012345"));
+    EXPECT_EQ(fixture.adapter.sharpenRadiusText(), QStringLiteral("4.987654321098765"));
+    EXPECT_EQ(fixture.adapter.sharpenThresholdText(), QStringLiteral("12345.678901234567"));
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    QSignalSpy changes(&fixture.adapter, &qml::ProcessingAdapter::stateChanged);
+    for (int i = 0; i < 20; ++i) fixture.adapter.refresh();
+    EXPECT_EQ(changes.count(), 0);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, seed.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+}
+
+// Each exact field command and the enabled toggle must edit a fresh whole draft;
+// disabling sharpen retains all three fractional parameters and saved recipes.
+TEST(QmlProcessingAdapter, SharpenExactCommitsAndTogglePreserveCompleteDraft) {
+    const auto seed = sharpenSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.loaded());
+    ASSERT_TRUE(fixture.adapter.commitSharpenAmountText("3.2345678901234567"));
+    ASSERT_TRUE(fixture.adapter.commitSharpenRadiusText("2.3456789012345678"));
+    ASSERT_TRUE(fixture.adapter.commitSharpenThresholdText("23456.789012345678"));
+    ASSERT_TRUE(fixture.adapter.setSharpenEnabled(false));
+    EXPECT_FALSE(fixture.adapter.sharpenEnabled());
+    EXPECT_DOUBLE_EQ(fixture.adapter.sharpenAmount(), 3.2345678901234567);
+    EXPECT_DOUBLE_EQ(fixture.adapter.sharpenRadius(), 2.3456789012345678);
+    EXPECT_DOUBLE_EQ(fixture.adapter.sharpenThreshold(), 23456.789012345678);
+    auto expected = seed.activePipeline;
+    expected.stages[6].enabled = false;
+    expected.stages[6].parameters = processing::SharpenParameters{
+        3.2345678901234567, 2.3456789012345678, 23456.789012345678};
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, expected));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+}
+
+struct SharpenField final {
+    const char* name;
+    bool (qml::ProcessingAdapter::*commit)(double);
+    bool (qml::ProcessingAdapter::*commitText)(const QString&);
+    double (qml::ProcessingAdapter::*value)() const;
+    double minimum, maximum;
+};
+constexpr SharpenField sharpenFields[]{
+    {"amount", &qml::ProcessingAdapter::commitSharpenAmount,
+        &qml::ProcessingAdapter::commitSharpenAmountText,
+        &qml::ProcessingAdapter::sharpenAmount, 0.0, 5.0},
+    {"radius", &qml::ProcessingAdapter::commitSharpenRadius,
+        &qml::ProcessingAdapter::commitSharpenRadiusText,
+        &qml::ProcessingAdapter::sharpenRadius, 0.5, 5.0},
+    {"threshold", &qml::ProcessingAdapter::commitSharpenThreshold,
+        &qml::ProcessingAdapter::commitSharpenThresholdText,
+        &qml::ProcessingAdapter::sharpenThreshold, 0.0, 65535.0}};
+
+// Parser permissiveness, nonfinite values, clamping or integer threshold
+// conversion would mutate and eventually save a rejected full draft.
+TEST(QmlProcessingAdapter, SharpenRejectsMalformedNonfiniteAndOutOfRangeWithoutMutation) {
+    const auto seed = sharpenSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    for (const auto& field : sharpenFields) {
+        SCOPED_TRACE(field.name);
+        for (const auto* text : {"", " ", "NaN", "inf", "-inf", "1e999", "1,2", "1.2x",
+                 "0x1", "+-0", "++0", "--0", "1 2"}) {
+            EXPECT_FALSE((fixture.adapter.*field.commitText)(QString::fromLatin1(text))) << text;
+            EXPECT_FALSE(fixture.adapter.validationError().isEmpty()) << text;
+        }
+        for (const auto value : {field.minimum - 0.01, field.maximum + 0.01,
+                 std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(),
+                 -std::numeric_limits<double>::infinity()})
+            EXPECT_FALSE((fixture.adapter.*field.commit)(value));
+    }
+    EXPECT_FALSE(fixture.adapter.dragSharpenAmount(-0.01));
+    EXPECT_FALSE(fixture.adapter.dragSharpenAmount(std::numeric_limits<double>::quiet_NaN()));
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), before);
+    for (int i = 0; i < 20; ++i) fixture.coordinator.poll();
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    for (const auto& field : sharpenFields) {
+        SCOPED_TRACE(field.name);
+        ASSERT_TRUE((fixture.adapter.*field.commit)(field.minimum));
+        EXPECT_DOUBLE_EQ((fixture.adapter.*field.value)(), field.minimum);
+        ASSERT_TRUE((fixture.adapter.*field.commitText)(QString::number(field.maximum)));
+        EXPECT_DOUBLE_EQ((fixture.adapter.*field.value)(), field.maximum);
+    }
+    ASSERT_TRUE(fixture.adapter.commitSharpenThresholdText("13.5"));
+    EXPECT_DOUBLE_EQ(fixture.adapter.sharpenThreshold(), 13.5);
+}
+
+void expectSharpenCommandsUnavailable(qml::ProcessingAdapter& adapter) {
+    EXPECT_FALSE(adapter.setSharpenEnabled(true));
+    EXPECT_FALSE(adapter.commitSharpenAmount(1.5));
+    EXPECT_FALSE(adapter.commitSharpenAmountText(QStringLiteral("1.5")));
+    EXPECT_FALSE(adapter.dragSharpenAmount(1.5));
+    EXPECT_FALSE(adapter.releaseSharpenAmount());
+    EXPECT_FALSE(adapter.commitSharpenRadius(1.5));
+    EXPECT_FALSE(adapter.commitSharpenRadiusText(QStringLiteral("1.5")));
+    EXPECT_FALSE(adapter.commitSharpenThreshold(13.5));
+    EXPECT_FALSE(adapter.commitSharpenThresholdText(QStringLiteral("13.5")));
+}
+
+// Every command must consult live coordinator authority while loading, after a
+// failed load and after shutdown begins, without touching model persistence.
+TEST(QmlProcessingAdapter, SharpenCommandsRejectLoadingFailedLoadAndClosing) {
+    Fixture fixture(true, false, sharpenSeed());
+    expectSharpenCommandsUnavailable(fixture.adapter);
+    ASSERT_TRUE(fixture.start());
+    expectSharpenCommandsUnavailable(fixture.adapter);
+    fixture.io->release();
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    fixture.coordinator.beginShutdown();
+    expectSharpenCommandsUnavailable(fixture.adapter);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), before);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    Fixture failed(false, true);
+    ASSERT_TRUE(failed.start());
+    ASSERT_TRUE(failed.wait([&] { return failed.coordinator.processingState().loadCompleted; }));
+    expectSharpenCommandsUnavailable(failed.adapter);
+    EXPECT_FALSE(failed.preferences.latestStatus()->latestAttemptedPresetSaveRevision);
+}
+
+// Amount Drag must share the model throttle, and parameterless Release must
+// flush only the complete current draft after preset/reset replaces a held drag.
+TEST(QmlProcessingAdapter, SharpenAmountDragThrottlesAndReleaseUsesCurrentDraft) {
+    Fixture fixture(false, false, sharpenSeed());
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto revision = fixture.adapter.activeRevision();
+    ASSERT_TRUE(fixture.adapter.dragSharpenAmount(3.25));
+    ASSERT_TRUE(fixture.adapter.dragSharpenAmount(3.5));
+    for (int i = 0; i < 20; ++i) { fixture.coordinator.poll(); fixture.adapter.refresh(); }
+    EXPECT_TRUE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.adapter.activeRevision(), revision);
+    ASSERT_TRUE(fixture.adapter.releaseSharpenAmount());
+    ASSERT_TRUE(fixture.wait([&] { return !fixture.adapter.pending(); }));
+    const auto& accepted = fixture.coordinator.processingControls()->acknowledged()->activePipeline;
+    EXPECT_DOUBLE_EQ(sharpen(accepted).amount, 3.5);
+    EXPECT_DOUBLE_EQ(sharpen(accepted).radius, 4.987654321098765);
+    EXPECT_DOUBLE_EQ(sharpen(accepted).threshold, 12345.678901234567);
+
+    const auto seed = savedPresetSeed();
+    Fixture replaced(false, false, seed);
+    ASSERT_TRUE(replaced.start());
+    ASSERT_TRUE(replaced.settled());
+    ASSERT_TRUE(replaced.adapter.dragSharpenAmount(4.75));
+    ASSERT_TRUE(replaced.adapter.selectPreset("saved-fractional"));
+    ASSERT_TRUE(replaced.adapter.releaseSharpenAmount());
+    EXPECT_EQ(replaced.adapter.selectedPresetId(), QStringLiteral("saved-fractional"));
+    EXPECT_DOUBLE_EQ(replaced.adapter.sharpenAmount(), 0.75);
+    EXPECT_DOUBLE_EQ(replaced.adapter.sharpenRadius(), 1.5);
+    EXPECT_DOUBLE_EQ(replaced.adapter.sharpenThreshold(), 13.5);
+    ASSERT_TRUE(replaced.wait([&] { return !replaced.adapter.pending(); }));
+    ASSERT_TRUE(replaced.adapter.dragSharpenAmount(4.25));
+    ASSERT_TRUE(replaced.adapter.resetProcessing());
+    ASSERT_TRUE(replaced.adapter.releaseSharpenAmount());
+    EXPECT_EQ(replaced.adapter.selectedPresetId(), QStringLiteral("original"));
+    EXPECT_DOUBLE_EQ(replaced.adapter.sharpenAmount(), 1.0);
+    EXPECT_DOUBLE_EQ(replaced.adapter.sharpenRadius(), 1.0);
+    EXPECT_DOUBLE_EQ(replaced.adapter.sharpenThreshold(), 0.0);
+    ASSERT_TRUE(replaced.wait([&] { return !replaced.adapter.pending(); }));
+    expectSavedCollection(replaced.coordinator.processingControls()->draft(), seed);
+}
+
+// Radius 5 (kernel 31) must activate on the real 8x6 source and become durable,
+// preserving every seeded stage and the nonempty saved collection across reopen.
+TEST(QmlProcessingAdapter, SharpenSuccessfulActivationPersistsAndReopensWholeRecipe) {
+    auto seed = sharpenSeed();
+    seed.activePipeline.stages[6].enabled = false;
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    ASSERT_TRUE(fixture.adapter.commitSharpenAmountText("4.567890123456789"));
+    ASSERT_TRUE(fixture.adapter.commitSharpenRadius(5.0));
+    ASSERT_TRUE(fixture.adapter.commitSharpenThresholdText("23456.789012345678"));
+    ASSERT_TRUE(fixture.adapter.setSharpenEnabled(true));
+    ASSERT_TRUE(fixture.wait([&] {
+        const auto status = fixture.preferences.latestStatus();
+        return !fixture.adapter.pending()
+            && status->latestAttemptedPresetSaveRevision > saved
+            && status->latestSavedPresetRevision == status->latestAttemptedPresetSaveRevision;
+    }));
+    auto expected = seed.activePipeline;
+    expected.stages[6].enabled = true;
+    expected.stages[6].parameters = processing::SharpenParameters{
+        4.567890123456789, 5.0, 23456.789012345678};
+    const auto stored = fixture.io->store.load();
+    ASSERT_TRUE(stored.hasValue());
+    const auto& persisted = stored.value().presets;
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(persisted.activePipeline, expected));
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(persisted.activePipeline,
+        fixture.coordinator.processingControls()->acknowledged()->activePipeline));
+    expectSavedCollection(persisted, seed);
+    ASSERT_FALSE(persisted.customPresets.empty());
+    Fixture reopened(fixture.io->store.path());
+    ASSERT_TRUE(reopened.start());
+    ASSERT_TRUE(reopened.loaded());
+    EXPECT_TRUE(reopened.adapter.sharpenEnabled());
+    EXPECT_DOUBLE_EQ(reopened.adapter.sharpenAmount(), 4.567890123456789);
+    EXPECT_DOUBLE_EQ(reopened.adapter.sharpenRadius(), 5.0);
+    EXPECT_DOUBLE_EQ(reopened.adapter.sharpenThreshold(), 23456.789012345678);
     EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
         reopened.coordinator.processingControls()->draft().activePipeline, expected));
     expectSavedCollection(reopened.coordinator.processingControls()->draft(), seed);
