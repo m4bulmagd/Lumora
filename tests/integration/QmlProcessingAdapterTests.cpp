@@ -230,6 +230,10 @@ TEST(QmlProcessingAdapter, RejectsMalformedNonfiniteAndOutOfRangeWithoutMutating
     EXPECT_FALSE(fixture.adapter.dragLevel(std::numeric_limits<double>::quiet_NaN()));
     EXPECT_FALSE(fixture.adapter.releaseWindow(std::numeric_limits<double>::infinity()));
     EXPECT_FALSE(fixture.adapter.commitLevel(-0.5));
+    for (const auto* text : {"+-0", "+-0.0", "++0", "--0"}) {
+        EXPECT_FALSE(fixture.adapter.commitLevelText(QString::fromLatin1(text))) << text;
+        EXPECT_FALSE(fixture.adapter.validationError().isEmpty()) << text;
+    }
     EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
         fixture.coordinator.processingControls()->draft().activePipeline, before));
     ASSERT_TRUE(fixture.adapter.commitLevelText("0"));
@@ -237,6 +241,10 @@ TEST(QmlProcessingAdapter, RejectsMalformedNonfiniteAndOutOfRangeWithoutMutating
     EXPECT_DOUBLE_EQ(fixture.adapter.level(), 0);
     ASSERT_TRUE(fixture.adapter.commitWindowText("65535"));
     EXPECT_DOUBLE_EQ(fixture.adapter.window(), 65535);
+    ASSERT_TRUE(fixture.adapter.commitLevelText("+1.25e2"));
+    EXPECT_DOUBLE_EQ(fixture.adapter.level(), 125);
+    ASSERT_TRUE(fixture.adapter.commitLevelText("-0"));
+    EXPECT_DOUBLE_EQ(fixture.adapter.level(), 0);
 }
 
 TEST(QmlProcessingAdapter, RefreshDoesNotSubmitAndDraftDoesNotReplaceAcknowledgedSummary) {
@@ -370,8 +378,32 @@ TEST(QmlProcessingAdapter, RejectsRetryUntilBackendMakesItAvailable) {
     ASSERT_TRUE(fixture.settled());
     EXPECT_FALSE(fixture.adapter.fallback());
     EXPECT_FALSE(fixture.adapter.retryEnabled());
+    EXPECT_TRUE(fixture.adapter.processingError().isEmpty());
     EXPECT_FALSE(fixture.adapter.retry());
     EXPECT_FALSE(fixture.adapter.processingError().isEmpty());
+    fixture.adapter.refresh();
+    EXPECT_FALSE(fixture.adapter.processingError().isEmpty());
+    ASSERT_TRUE(fixture.wait([&] {
+        const auto& state = fixture.coordinator.state();
+        return state.cameraStatus && !state.cameraStatus->discoveredDescriptors.empty()
+            && !state.ordinaryOperationPending;
+    }));
+    fixture.coordinator.selectCamera({"SIM-LIVE"});
+    ASSERT_TRUE(fixture.coordinator.dispatch(presentation::CameraStartupIntent::Connect).hasValue());
+    ASSERT_TRUE(fixture.wait([&] {
+        return fixture.coordinator.state().contextBound
+            && !fixture.coordinator.state().ordinaryOperationPending && !fixture.adapter.pending();
+    }));
+    const auto generation = fixture.pipeline.snapshot().context->generation;
+    ASSERT_TRUE(fixture.coordinator.dispatch(presentation::CameraStartupIntent::Disconnect).hasValue());
+    ASSERT_TRUE(fixture.wait([&] { return !fixture.coordinator.state().ordinaryOperationPending; }));
+    ASSERT_TRUE(fixture.coordinator.dispatch(presentation::CameraStartupIntent::Connect).hasValue());
+    ASSERT_TRUE(fixture.wait([&] {
+        return fixture.coordinator.state().contextBound
+            && !fixture.coordinator.state().ordinaryOperationPending && !fixture.adapter.pending();
+    }));
+    ASSERT_NE(fixture.pipeline.snapshot().context->generation, generation);
+    EXPECT_TRUE(fixture.adapter.processingError().isEmpty());
     fixture.coordinator.beginShutdown();
     fixture.adapter.refresh();
     EXPECT_FALSE(fixture.adapter.available());
@@ -419,6 +451,10 @@ TEST(QmlProcessingAdapter, PublishesActualEngineFallbackAndExplicitRetryRecovery
     ASSERT_TRUE(fixture.adapter.retry());
     EXPECT_TRUE(fixture.adapter.retryPending());
     EXPECT_FALSE(fixture.adapter.retryEnabled());
+    const auto backendError = fixture.coordinator.processingState().processorStatus.error;
+    ASSERT_TRUE(backendError);
+    EXPECT_FALSE(fixture.adapter.retry());
+    EXPECT_EQ(fixture.adapter.processingError(), QString::fromStdString(backendError->operatorSummary));
     ASSERT_TRUE(fixture.wait([&] {
         fixture.clock.advance(34ms);
         return !fixture.adapter.fallback() && !fixture.adapter.retryPending();

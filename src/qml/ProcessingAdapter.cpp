@@ -113,6 +113,17 @@ void ProcessingAdapter::refresh() {
     next.retryPending = processing.retryPending || processor.retryPending;
     next.retryEnabled = workstation.controlsEnabled && workstation.contextBound
         && next.fallback && processor.retrySupported && !next.retryPending;
+    retryContext_ = {
+        workstation.cameraStatus ? workstation.cameraStatus->sessionGeneration : 0U,
+        processor.activationSerial, workstation.contextBound,
+        model && workstation.controlsEnabled && workstation.contextBound
+            && !next.fallback && !next.retryPending && !processor.error};
+    // A later healthy session/activation/recovery supersedes the failed attempt.
+    // An unchanged refresh must still retain an immediately rejected command.
+    if (retryContext_.healthy && retryErrorContext_ && retryContext_ != *retryErrorContext_) {
+        retryError_.clear();
+        retryErrorContext_.reset();
+    }
     next.processingError = processor.error
         ? QString::fromStdString(processor.error->operatorSummary) : retryError_;
     if (model) {
@@ -190,7 +201,11 @@ bool ProcessingAdapter::commitText(double WindowLevel::* member, const QString& 
     const auto bytes = text.trimmed().toUtf8();
     const char* begin = bytes.constData();
     const char* end = begin + bytes.size();
-    if (begin != end && *begin == '+') ++begin;
+    if (begin != end && *begin == '+') {
+        ++begin;
+        if (begin != end && (*begin == '+' || *begin == '-'))
+            return rejectInput(tr("Enter a decimal number with at most one leading sign."));
+    }
     double value{};
     const auto parsed = std::from_chars(begin, end, value, std::chars_format::general);
     if (parsed.ec != std::errc{} || parsed.ptr != end)
@@ -211,11 +226,13 @@ bool ProcessingAdapter::retry() {
     refresh();
     if (!state_.retryEnabled) {
         retryError_ = tr("Processing retry is unavailable.");
+        retryErrorContext_ = retryContext_;
         refresh();
         return false;
     }
     const auto result = coordinator_.retryProcessing();
     retryError_ = result.hasValue() ? QString{} : QString::fromStdString(result.error().operatorSummary);
+    retryErrorContext_ = result.hasValue() ? std::nullopt : std::optional{retryContext_};
     refresh();
     return result.hasValue();
 }

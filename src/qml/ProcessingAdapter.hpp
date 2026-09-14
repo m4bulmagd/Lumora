@@ -114,6 +114,15 @@ private:
     State state_;
     QString inputError_;
     QString retryError_;
+    struct RetryContext final {
+        std::uint64_t sessionGeneration{};
+        std::uint64_t activationSerial{};
+        bool contextBound{false};
+        bool healthy{false};
+        bool operator==(const RetryContext&) const = default;
+    };
+    RetryContext retryContext_;
+    std::optional<RetryContext> retryErrorContext_;
 };
 
 } // namespace lumora::qml
