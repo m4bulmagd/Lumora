@@ -206,6 +206,13 @@ const processing::ClaheParameters& localContrast(const processing::PipelineDefin
     throw std::runtime_error("Missing local contrast stage");
 }
 
+const processing::DenoiseParameters& denoise(const processing::PipelineDefinition& value) {
+    for (const auto& stage : value.stages)
+        if (stage.id == processing::StageId::Denoise)
+            return std::get<processing::DenoiseParameters>(stage.parameters);
+    throw std::runtime_error("Missing denoise stage");
+}
+
 application::PresetState toneSeed() {
     auto seed = savedPresetSeed();
     seed.selectedId = {"custom"};
@@ -222,6 +229,14 @@ application::PresetState localContrastSeed() {
     seed.activePipeline.stages[4].enabled = true;
     seed.activePipeline.stages[4].parameters = processing::ClaheParameters{
         3.141592653589793, 4U};
+    return seed;
+}
+
+application::PresetState denoiseSeed() {
+    auto seed = localContrastSeed();
+    seed.activePipeline.stages[5].enabled = true;
+    seed.activePipeline.stages[5].parameters = processing::DenoiseParameters{
+        processing::DenoiseMode::Gaussian, 7U, 1.2345678901234567};
     return seed;
 }
 
@@ -464,6 +479,218 @@ TEST(QmlProcessingAdapter, LocalContrastImageTooSmallRollsBackAcknowledgedDraftW
     EXPECT_DOUBLE_EQ(localContrast(stored.value().presets.activePipeline).clipLimit, 7.125);
     EXPECT_EQ(localContrast(stored.value().presets.activePipeline).tileGridSize, 4U);
     expectSavedCollection(stored.value().presets, seed);
+}
+
+// Loaded mode-specific options and native sigma precision must project without
+// a refresh changing the model draft or touching durable settings.
+TEST(QmlProcessingAdapter, DenoiseLoadProjectsExactValuesAndOptionsWithoutSubmission) {
+    const auto seed = denoiseSeed();
+    Fixture fixture(true, false, seed);
+    ASSERT_TRUE(fixture.start());
+    fixture.io->release();
+    ASSERT_TRUE(fixture.settled());
+    EXPECT_TRUE(fixture.adapter.denoiseEnabled());
+    EXPECT_EQ(fixture.adapter.denoiseMode(), QStringLiteral("gaussian"));
+    EXPECT_EQ(fixture.adapter.denoiseKernelSize(), 7);
+    EXPECT_DOUBLE_EQ(fixture.adapter.denoiseSigma(), 1.2345678901234567);
+    EXPECT_EQ(fixture.adapter.denoiseSigmaText(), QStringLiteral("1.2345678901234567"));
+    const auto options = fixture.adapter.denoiseKernelOptions();
+    ASSERT_EQ(options.size(), 3);
+    const QStringList names{"3", "5", "7"};
+    const QList<int> values{3, 5, 7};
+    for (qsizetype i = 0; i < options.size(); ++i) {
+        const auto row = options[i].toMap();
+        EXPECT_EQ(row.value("name").toString(), names[i]);
+        EXPECT_EQ(row.value("value").toInt(), values[i]);
+    }
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    QSignalSpy changes(&fixture.adapter, &qml::ProcessingAdapter::stateChanged);
+    for (int i = 0; i < 20; ++i) fixture.adapter.refresh();
+    EXPECT_EQ(changes.count(), 0);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, seed.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+}
+
+// A real mode replacement must atomically normalize a dirty Gaussian draft and
+// notify observers only after the complete Median snapshot has been projected.
+TEST(QmlProcessingAdapter, DenoiseModeReplacementIsAtomicAndPreservesCompleteDraft) {
+    const auto seed = denoiseSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    QSignalSpy replacements(&fixture.adapter, &qml::ProcessingAdapter::draftReplaced);
+    QStringList notifications;
+    QString notifiedMode;
+    int notifiedKernel{};
+    double notifiedSigma{};
+    QObject::connect(&fixture.adapter, &qml::ProcessingAdapter::stateChanged, [&] {
+        notifications.push_back(QStringLiteral("state"));
+    });
+    QObject::connect(&fixture.adapter, &qml::ProcessingAdapter::draftReplaced, [&] {
+        notifications.push_back(QStringLiteral("replacement"));
+        notifiedMode = fixture.adapter.denoiseMode();
+        notifiedKernel = fixture.adapter.denoiseKernelSize();
+        notifiedSigma = fixture.adapter.denoiseSigma();
+    });
+    ASSERT_TRUE(fixture.adapter.commitDenoiseSigma(2.75));
+    notifications.clear();
+    ASSERT_TRUE(fixture.adapter.setDenoiseMode(QStringLiteral("median")));
+    EXPECT_EQ(replacements.count(), 1);
+    EXPECT_EQ(notifications, (QStringList{"replacement", "state"}));
+    EXPECT_EQ(notifiedMode, QStringLiteral("median"));
+    EXPECT_EQ(notifiedKernel, 5);
+    EXPECT_DOUBLE_EQ(notifiedSigma, 0.0);
+    auto expected = seed.activePipeline;
+    expected.stages[5].parameters = processing::DenoiseParameters{
+        processing::DenoiseMode::Median, 5U, 0.0};
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, expected));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+    ASSERT_TRUE(fixture.adapter.setDenoiseEnabled(false));
+    EXPECT_FALSE(fixture.adapter.denoiseEnabled());
+    EXPECT_EQ(fixture.adapter.denoiseKernelSize(), 5);
+    EXPECT_DOUBLE_EQ(fixture.adapter.denoiseSigma(), 0.0);
+    notifications.clear();
+    ASSERT_TRUE(fixture.adapter.setDenoiseMode(QStringLiteral("gaussian")));
+    EXPECT_EQ(replacements.count(), 2);
+    EXPECT_EQ(notifications, (QStringList{"replacement", "state"}));
+    EXPECT_EQ(fixture.adapter.denoiseKernelSize(), 5);
+    EXPECT_DOUBLE_EQ(fixture.adapter.denoiseSigma(), 0.0);
+    EXPECT_EQ(fixture.adapter.denoiseKernelOptions().size(), 3);
+}
+
+// Combo-box initialization can select the already active rows; those calls must
+// be true no-ops rather than converting a named recipe into Custom.
+TEST(QmlProcessingAdapter, DenoiseSameModeAndKernelKeepNamedPresetUnchanged) {
+    const auto seed = savedPresetSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    QSignalSpy changes(&fixture.adapter, &qml::ProcessingAdapter::stateChanged);
+    QSignalSpy replacements(&fixture.adapter, &qml::ProcessingAdapter::draftReplaced);
+    ASSERT_TRUE(fixture.adapter.setDenoiseMode(QStringLiteral("gaussian")));
+    ASSERT_TRUE(fixture.adapter.commitDenoiseKernelSize(3.0));
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("original"));
+    EXPECT_FALSE(fixture.adapter.pending());
+    EXPECT_EQ(changes.count(), 0);
+    EXPECT_EQ(replacements.count(), 0);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+}
+
+// Invalid modes, premature integer conversion and Median sigma edits must reject
+// without changing any stage, selected preset, saved recipe or save revision.
+TEST(QmlProcessingAdapter, DenoiseRejectsInvalidInputsAndMedianSigmaWithoutMutation) {
+    const auto seed = denoiseSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    for (const auto* mode : {"", "Gaussian", "median ", " median", "gaussianx"})
+        EXPECT_FALSE(fixture.adapter.setDenoiseMode(QString::fromLatin1(mode))) << mode;
+    for (const auto value : {0.0, 2.0, 4.0, 6.0, 8.0, 3.5, 1.0e20,
+             std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(),
+             -std::numeric_limits<double>::infinity()})
+        EXPECT_FALSE(fixture.adapter.commitDenoiseKernelSize(value));
+    for (const auto* text : {"", " ", "NaN", "inf", "-inf", "1e999", "-0.01", "5.01", "1,2", "2x"})
+        EXPECT_FALSE(fixture.adapter.commitDenoiseSigmaText(QString::fromLatin1(text))) << text;
+    for (const auto value : {-0.01, 5.01, std::numeric_limits<double>::quiet_NaN(),
+             std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()})
+        EXPECT_FALSE(fixture.adapter.commitDenoiseSigma(value));
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    EXPECT_EQ(fixture.coordinator.processingControls()->draft().selectedId, before.selectedId);
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), before);
+    for (int i = 0; i < 20; ++i) fixture.coordinator.poll();
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+
+    ASSERT_TRUE(fixture.adapter.setDenoiseMode(QStringLiteral("median")));
+    const auto median = fixture.coordinator.processingControls()->draft();
+    EXPECT_EQ(fixture.adapter.denoiseKernelOptions().size(), 2);
+    EXPECT_FALSE(fixture.adapter.commitDenoiseKernelSize(7.0));
+    EXPECT_FALSE(fixture.adapter.commitDenoiseKernelSize(4.5));
+    EXPECT_FALSE(fixture.adapter.commitDenoiseSigma(0.0));
+    EXPECT_FALSE(fixture.adapter.commitDenoiseSigmaText(QStringLiteral("1.25")));
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, median.activePipeline));
+}
+
+void expectDenoiseCommandsUnavailable(qml::ProcessingAdapter& adapter) {
+    EXPECT_FALSE(adapter.setDenoiseEnabled(true));
+    EXPECT_FALSE(adapter.setDenoiseMode(QStringLiteral("median")));
+    EXPECT_FALSE(adapter.commitDenoiseKernelSize(5.0));
+    EXPECT_FALSE(adapter.commitDenoiseSigma(1.25));
+    EXPECT_FALSE(adapter.commitDenoiseSigmaText(QStringLiteral("1.25")));
+}
+
+// Every denoise command must consult live coordinator authority while loading,
+// after load failure and after shutdown starts, without touching persistence.
+TEST(QmlProcessingAdapter, DenoiseCommandsRejectLoadingFailedLoadAndClosing) {
+    Fixture fixture(true, false, denoiseSeed());
+    expectDenoiseCommandsUnavailable(fixture.adapter);
+    ASSERT_TRUE(fixture.start());
+    expectDenoiseCommandsUnavailable(fixture.adapter);
+    fixture.io->release();
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    fixture.coordinator.beginShutdown();
+    expectDenoiseCommandsUnavailable(fixture.adapter);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), before);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    Fixture failed(false, true);
+    ASSERT_TRUE(failed.start());
+    ASSERT_TRUE(failed.wait([&] { return failed.coordinator.processingState().loadCompleted; }));
+    expectDenoiseCommandsUnavailable(failed.adapter);
+    EXPECT_FALSE(failed.preferences.latestStatus()->latestAttemptedPresetSaveRevision);
+}
+
+// A real successful engine activation must become durable before reopening, with
+// exact sigma, the complete active pipeline and the nonempty recipe list intact.
+TEST(QmlProcessingAdapter, DenoiseSuccessfulActivationPersistsAndReopensWholeRecipe) {
+    auto seed = denoiseSeed();
+    seed.activePipeline.stages[5].enabled = false;
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    ASSERT_TRUE(fixture.adapter.commitDenoiseKernelSize(5.0));
+    ASSERT_TRUE(fixture.adapter.commitDenoiseSigmaText("4.876543210987654"));
+    ASSERT_TRUE(fixture.adapter.setDenoiseEnabled(true));
+    ASSERT_TRUE(fixture.wait([&] {
+        const auto status = fixture.preferences.latestStatus();
+        return !fixture.adapter.pending()
+            && status->latestAttemptedPresetSaveRevision > saved
+            && status->latestSavedPresetRevision == status->latestAttemptedPresetSaveRevision;
+    }));
+    const auto stored = fixture.io->store.load();
+    ASSERT_TRUE(stored.hasValue());
+    const auto& persisted = stored.value().presets;
+    EXPECT_TRUE(persisted.activePipeline.stages[5].enabled);
+    EXPECT_EQ(denoise(persisted.activePipeline).mode, processing::DenoiseMode::Gaussian);
+    EXPECT_EQ(denoise(persisted.activePipeline).kernelSize, 5U);
+    EXPECT_DOUBLE_EQ(denoise(persisted.activePipeline).sigma, 4.876543210987654);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(persisted.activePipeline,
+        fixture.coordinator.processingControls()->acknowledged()->activePipeline));
+    expectSavedCollection(persisted, seed);
+    ASSERT_FALSE(persisted.customPresets.empty());
+    Fixture reopened(fixture.io->store.path());
+    ASSERT_TRUE(reopened.start());
+    ASSERT_TRUE(reopened.loaded());
+    EXPECT_TRUE(reopened.adapter.denoiseEnabled());
+    EXPECT_EQ(reopened.adapter.denoiseMode(), QStringLiteral("gaussian"));
+    EXPECT_EQ(reopened.adapter.denoiseKernelSize(), 5);
+    EXPECT_DOUBLE_EQ(reopened.adapter.denoiseSigma(), 4.876543210987654);
+    expectSavedCollection(reopened.coordinator.processingControls()->draft(), seed);
 }
 
 // Default snapshots, decimal rounding or refresh-triggered submissions would

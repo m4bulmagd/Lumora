@@ -50,6 +50,14 @@ class ProcessingAdapter final : public QObject {
     Q_PROPERTY(QString tileGridSizeText READ tileGridSizeText NOTIFY stateChanged)
     Q_PROPERTY(int tileGridSizeMinimum READ tileGridSizeMinimum CONSTANT)
     Q_PROPERTY(int tileGridSizeMaximum READ tileGridSizeMaximum CONSTANT)
+    Q_PROPERTY(bool denoiseEnabled READ denoiseEnabled NOTIFY stateChanged)
+    Q_PROPERTY(QString denoiseMode READ denoiseMode NOTIFY stateChanged)
+    Q_PROPERTY(int denoiseKernelSize READ denoiseKernelSize NOTIFY stateChanged)
+    Q_PROPERTY(QVariantList denoiseKernelOptions READ denoiseKernelOptions NOTIFY stateChanged)
+    Q_PROPERTY(double denoiseSigma READ denoiseSigma NOTIFY stateChanged)
+    Q_PROPERTY(QString denoiseSigmaText READ denoiseSigmaText NOTIFY stateChanged)
+    Q_PROPERTY(double denoiseSigmaMinimum READ denoiseSigmaMinimum CONSTANT)
+    Q_PROPERTY(double denoiseSigmaMaximum READ denoiseSigmaMaximum CONSTANT)
     Q_PROPERTY(bool pending READ pending NOTIFY stateChanged)
     Q_PROPERTY(bool hasAcknowledged READ hasAcknowledged NOTIFY stateChanged)
     Q_PROPERTY(QString activeSummary READ activeSummary NOTIFY stateChanged)
@@ -109,6 +117,14 @@ public:
     [[nodiscard]] QString tileGridSizeText() const { return state_.tileGridSizeText; }
     [[nodiscard]] int tileGridSizeMinimum() const { return 2; }
     [[nodiscard]] int tileGridSizeMaximum() const { return 32; }
+    [[nodiscard]] bool denoiseEnabled() const { return state_.denoiseEnabled; }
+    [[nodiscard]] QString denoiseMode() const { return state_.denoiseMode; }
+    [[nodiscard]] int denoiseKernelSize() const { return state_.denoiseKernelSize; }
+    [[nodiscard]] QVariantList denoiseKernelOptions() const { return state_.denoiseKernelOptions; }
+    [[nodiscard]] double denoiseSigma() const { return state_.denoiseSigma; }
+    [[nodiscard]] QString denoiseSigmaText() const { return state_.denoiseSigmaText; }
+    [[nodiscard]] double denoiseSigmaMinimum() const { return 0.0; }
+    [[nodiscard]] double denoiseSigmaMaximum() const { return 5.0; }
     [[nodiscard]] bool pending() const { return state_.pending; }
     [[nodiscard]] bool hasAcknowledged() const { return state_.hasAcknowledged; }
     [[nodiscard]] QString activeSummary() const { return state_.activeSummary; }
@@ -157,6 +173,11 @@ public:
     Q_INVOKABLE bool releaseClipLimit();
     Q_INVOKABLE bool commitTileGridSize(double value);
     Q_INVOKABLE bool commitTileGridSizeText(const QString& text);
+    Q_INVOKABLE bool setDenoiseEnabled(bool enabled);
+    Q_INVOKABLE bool setDenoiseMode(const QString& mode);
+    Q_INVOKABLE bool commitDenoiseKernelSize(double value);
+    Q_INVOKABLE bool commitDenoiseSigma(double value);
+    Q_INVOKABLE bool commitDenoiseSigmaText(const QString& text);
     Q_INVOKABLE bool retry();
 
 signals:
@@ -181,6 +202,12 @@ private:
         QString clipLimitText;
         int tileGridSize{0};
         QString tileGridSizeText;
+        bool denoiseEnabled{false};
+        QString denoiseMode;
+        int denoiseKernelSize{0};
+        QVariantList denoiseKernelOptions;
+        double denoiseSigma{0.0};
+        QString denoiseSigmaText;
         bool pending{false};
         bool hasAcknowledged{false};
         QString activeSummary, activeRevision, selectedPresetId, draftPresetName;
@@ -199,6 +226,8 @@ private:
     bool editValue(double processing::GammaParameters::* member, double value,
         presentation::ProcessingEditPhase phase);
     bool editValue(double processing::ClaheParameters::* member, double value,
+        presentation::ProcessingEditPhase phase);
+    bool editValue(double processing::DenoiseParameters::* member, double value,
         presentation::ProcessingEditPhase phase);
     bool editTileGridSize(double value);
     template<typename Parameters>

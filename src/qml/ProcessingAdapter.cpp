@@ -16,10 +16,27 @@ using WindowLevel = processing::WindowLevelParameters;
 using BrightnessContrast = processing::BrightnessContrastParameters;
 using Gamma = processing::GammaParameters;
 using Clahe = processing::ClaheParameters;
+using Denoise = processing::DenoiseParameters;
+using DenoiseMode = processing::DenoiseMode;
 using StageId = processing::StageId;
 
 QString number(double value) {
     return QLocale::c().toString(value, 'g', QLocale::FloatingPointShortest);
+}
+
+QString denoiseModeName(DenoiseMode mode) {
+    return mode == DenoiseMode::Gaussian
+        ? QStringLiteral("gaussian") : QStringLiteral("median");
+}
+
+QVariantList makeDenoiseKernelOptions(DenoiseMode mode) {
+    QVariantList options{
+        QVariantMap{{QStringLiteral("name"), QStringLiteral("3")}, {QStringLiteral("value"), 3}},
+        QVariantMap{{QStringLiteral("name"), QStringLiteral("5")}, {QStringLiteral("value"), 5}}};
+    if (mode == DenoiseMode::Gaussian)
+        options.push_back(QVariantMap{
+            {QStringLiteral("name"), QStringLiteral("7")}, {QStringLiteral("value"), 7}});
+    return options;
 }
 
 QString summary(const std::optional<core::Error>& error) {
@@ -182,6 +199,16 @@ void ProcessingAdapter::refreshState(bool draftWasReplaced) {
             next.tileGridSize = static_cast<int>(parameters.tileGridSize);
             next.tileGridSizeText = QString::number(parameters.tileGridSize);
         }
+        const auto denoiseStage = findStage<Denoise>(draft.activePipeline, StageId::Denoise);
+        if (denoiseStage != draft.activePipeline.stages.end()) {
+            const auto& parameters = std::get<Denoise>(denoiseStage->parameters);
+            next.denoiseEnabled = denoiseStage->enabled;
+            next.denoiseMode = denoiseModeName(parameters.mode);
+            next.denoiseKernelSize = static_cast<int>(parameters.kernelSize);
+            next.denoiseKernelOptions = makeDenoiseKernelOptions(parameters.mode);
+            next.denoiseSigma = parameters.sigma;
+            next.denoiseSigmaText = number(parameters.sigma);
+        }
         next.draftPresetName = presetName(draft, *model);
         next.pending = model->pending();
         next.modelError = summary(model->error());
@@ -263,6 +290,10 @@ bool ProcessingAdapter::setLocalContrastEnabled(bool enabled) {
     return setEnabled<Clahe>(StageId::Clahe, enabled);
 }
 
+bool ProcessingAdapter::setDenoiseEnabled(bool enabled) {
+    return setEnabled<Denoise>(StageId::Denoise, enabled);
+}
+
 template<typename Parameters>
 bool ProcessingAdapter::editStageValue(StageId id, double Parameters::* member, double value,
     double minimum, double maximum, const QString& label, Phase phase) {
@@ -305,6 +336,27 @@ bool ProcessingAdapter::editValue(double Gamma::* member, double value, Phase ph
 bool ProcessingAdapter::editValue(double Clahe::* member, double value, Phase phase) {
     return editStageValue(StageId::Clahe, member, value,
         clipLimitMinimum(), clipLimitMaximum(), tr("Clip limit"), phase);
+}
+
+bool ProcessingAdapter::editValue(double Denoise::* member, double value, Phase phase) {
+    auto* model = coordinator_.processingControls();
+    if (!model || !coordinator_.state().controlsEnabled)
+        return rejectInput(tr("Processing controls are unavailable."));
+    if (!std::isfinite(value) || value < denoiseSigmaMinimum() || value > denoiseSigmaMaximum())
+        return rejectInput(tr("Sigma must be a finite number from %1 to %2.")
+            .arg(number(denoiseSigmaMinimum()), number(denoiseSigmaMaximum())));
+    auto pipeline = model->draft().activePipeline;
+    const auto stage = findStage<Denoise>(pipeline, StageId::Denoise);
+    if (stage == pipeline.stages.end())
+        return rejectInput(tr("%1 settings are unavailable.").arg(stageLabel(StageId::Denoise)));
+    auto& parameters = std::get<Denoise>(stage->parameters);
+    if (parameters.mode != DenoiseMode::Gaussian)
+        return rejectInput(tr("Sigma is available only in Gaussian mode."));
+    parameters.*member = value;
+    inputError_.clear();
+    const auto result = model->edit(std::move(pipeline), phase);
+    refresh();
+    return result.hasValue();
 }
 
 bool ProcessingAdapter::editTileGridSize(double value) {
@@ -407,6 +459,69 @@ bool ProcessingAdapter::commitTileGridSizeText(const QString& text) {
         return rejectInput(tr("Enter a whole decimal number from %1 to %2.")
             .arg(tileGridSizeMinimum()).arg(tileGridSizeMaximum()));
     return editTileGridSize(static_cast<double>(value));
+}
+
+bool ProcessingAdapter::setDenoiseMode(const QString& mode) {
+    auto* model = coordinator_.processingControls();
+    if (!model || !coordinator_.state().controlsEnabled)
+        return rejectInput(tr("Processing controls are unavailable."));
+    DenoiseMode requested;
+    if (mode == QStringLiteral("gaussian")) requested = DenoiseMode::Gaussian;
+    else if (mode == QStringLiteral("median")) requested = DenoiseMode::Median;
+    else return rejectInput(tr("Denoise mode must be gaussian or median."));
+    auto pipeline = model->draft().activePipeline;
+    const auto stage = findStage<Denoise>(pipeline, StageId::Denoise);
+    if (stage == pipeline.stages.end())
+        return rejectInput(tr("%1 settings are unavailable.").arg(stageLabel(StageId::Denoise)));
+    auto& parameters = std::get<Denoise>(stage->parameters);
+    if (parameters.mode == requested) {
+        inputError_.clear();
+        refresh();
+        return true;
+    }
+    parameters.mode = requested;
+    if (requested == DenoiseMode::Median) {
+        parameters.kernelSize = std::min(parameters.kernelSize, 5U);
+        parameters.sigma = 0.0;
+    }
+    inputError_.clear();
+    const auto result = model->edit(std::move(pipeline), Phase::Commit);
+    refreshState(result.hasValue());
+    return result.hasValue();
+}
+
+bool ProcessingAdapter::commitDenoiseKernelSize(double value) {
+    auto* model = coordinator_.processingControls();
+    if (!model || !coordinator_.state().controlsEnabled)
+        return rejectInput(tr("Processing controls are unavailable."));
+    if (!std::isfinite(value) || std::trunc(value) != value)
+        return rejectInput(tr("Denoise kernel must be a supported whole number."));
+    auto pipeline = model->draft().activePipeline;
+    const auto stage = findStage<Denoise>(pipeline, StageId::Denoise);
+    if (stage == pipeline.stages.end())
+        return rejectInput(tr("%1 settings are unavailable.").arg(stageLabel(StageId::Denoise)));
+    auto& parameters = std::get<Denoise>(stage->parameters);
+    const bool supported = value == 3.0 || value == 5.0
+        || (parameters.mode == DenoiseMode::Gaussian && value == 7.0);
+    if (!supported)
+        return rejectInput(tr("Select a kernel supported by the current denoise mode."));
+    if (parameters.kernelSize == static_cast<std::uint32_t>(value)) {
+        inputError_.clear();
+        refresh();
+        return true;
+    }
+    parameters.kernelSize = static_cast<std::uint32_t>(value);
+    inputError_.clear();
+    const auto result = model->edit(std::move(pipeline), Phase::Commit);
+    refresh();
+    return result.hasValue();
+}
+
+bool ProcessingAdapter::commitDenoiseSigma(double value) {
+    return editValue(&Denoise::sigma, value, Phase::Commit);
+}
+bool ProcessingAdapter::commitDenoiseSigmaText(const QString& text) {
+    return commitText(&Denoise::sigma, text);
 }
 
 bool ProcessingAdapter::retry() {
