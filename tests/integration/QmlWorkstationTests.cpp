@@ -63,7 +63,9 @@ private:
         auto* control=item(name);
         QVERIFY2(control, name);
         QVERIFY2(control->isVisible(),name);
-        QVERIFY2(control->isEnabled(),name);
+        // Threaded rendering may withdraw the displayed bundle during a mode
+        // change. Wait for the control's published readiness before input.
+        QTRY_VERIFY2_WITH_TIMEOUT(control->isEnabled(),name,5000);
         // Policy publication can rearrange the camera grid before it is drawn.
         // Wait for real layout completion before sampling the click position.
         QVERIFY(QQuickTest::qWaitForPolish(window_));
