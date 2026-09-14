@@ -6,6 +6,7 @@
 #include <lumora/processing/ProcessingDefaults.hpp>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QVariantMap>
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
@@ -154,6 +155,200 @@ const processing::WindowLevelParameters& windowLevel(const processing::PipelineD
     throw std::runtime_error("Missing window/level stage");
 }
 
+application::PresetState savedPresetSeed() {
+    application::PresetState seed;
+    auto pipeline = processing::standardPipeline();
+    // A complete, distinct saved recipe which the real 8x6 source can prepare.
+    pipeline.stages[4].enabled = false;
+    pipeline.stages[1].parameters = processing::WindowLevelParameters{
+        1000.1234567890123, 2000.9876543210987};
+    pipeline.stages[3].parameters = processing::GammaParameters{1.25};
+    pipeline.stages[6].parameters = processing::SharpenParameters{0.75, 1.5, 13.5};
+    seed.customPresets.push_back({{"saved-fractional"}, "Inspection précise", "Fractional detail recipe",
+        false, 1U, 7U, std::move(pipeline)});
+    return seed;
+}
+
+void expectSavedCollection(const application::PresetState& actual,
+    const application::PresetState& expected) {
+    ASSERT_EQ(actual.customPresets.size(), expected.customPresets.size());
+    for (std::size_t i = 0; i < expected.customPresets.size(); ++i) {
+        const auto& saved = actual.customPresets[i];
+        const auto& seed = expected.customPresets[i];
+        EXPECT_EQ(saved.id, seed.id);
+        EXPECT_EQ(saved.name, seed.name);
+        EXPECT_EQ(saved.description, seed.description);
+        EXPECT_EQ(saved.builtIn, seed.builtIn);
+        EXPECT_EQ(saved.schemaVersion, seed.schemaVersion);
+        EXPECT_EQ(saved.revision, seed.revision);
+        EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(saved.pipeline, seed.pipeline));
+    }
+}
+
+// Missing rows, reordered IDs, name normalization and spurious list notifications
+// would rebind the operator's choice while the shared model is being refreshed.
+TEST(QmlProcessingAdapter, PresetRowsAppearAfterLoadAndRemainStableAcrossNumericEdits) {
+    const auto seed = savedPresetSeed();
+    Fixture fixture(true, false, seed);
+    ASSERT_TRUE(fixture.start());
+    EXPECT_TRUE(fixture.adapter.presets().isEmpty());
+    EXPECT_TRUE(fixture.adapter.selectedPresetId().isEmpty());
+    EXPECT_FALSE(fixture.adapter.selectPreset("standard"));
+    EXPECT_FALSE(fixture.adapter.resetProcessing());
+    EXPECT_FALSE(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision);
+    fixture.io->release();
+    QSignalSpy listChanges(&fixture.adapter, &qml::ProcessingAdapter::presetsChanged);
+    ASSERT_TRUE(fixture.loaded());
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("original"));
+    const auto rows = fixture.adapter.presets();
+    const QStringList ids{"original", "standard", "high-contrast", "soft-detail", "custom", "saved-fractional"};
+    const QStringList names{"Original", "Standard", "High Contrast", "Soft Detail", "Custom", "Inspection précise"};
+    ASSERT_EQ(rows.size(), ids.size());
+    for (qsizetype i = 0; i < ids.size(); ++i) {
+        const auto row = rows[i].toMap();
+        EXPECT_EQ(row.value("id").toString(), ids[i]);
+        EXPECT_EQ(row.value("name").toString(), names[i]);
+        EXPECT_TRUE(row.contains("description"));
+    }
+    EXPECT_EQ(rows.back().toMap().value("description").toString(), QStringLiteral("Fractional detail recipe"));
+    EXPECT_EQ(listChanges.count(), 1);
+    listChanges.clear();
+    ASSERT_TRUE(fixture.adapter.commitWindow(1234.5));
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("custom"));
+    for (int i = 0; i < 20; ++i) fixture.adapter.refresh();
+    EXPECT_EQ(fixture.adapter.presets(), rows);
+    EXPECT_EQ(listChanges.count(), 0);
+    ASSERT_TRUE(fixture.settled());
+    EXPECT_EQ(listChanges.count(), 0);
+}
+
+// A direct adapter save, completion poll in refresh, or selected-ID-only recipe
+// reconstruction would violate acknowledged persistence or lose loaded stages.
+TEST(QmlProcessingAdapter, SavedPresetSelectionAcknowledgesFullRecipeAndReopens) {
+    const auto seed = savedPresetSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    const auto active = fixture.adapter.activeSummary();
+    const auto revision = fixture.adapter.activeRevision();
+    EXPECT_FALSE(fixture.adapter.commitWindowText("bad input"));
+    ASSERT_FALSE(fixture.adapter.validationError().isEmpty());
+    ASSERT_TRUE(fixture.adapter.selectPreset("saved-fractional"));
+    EXPECT_TRUE(fixture.adapter.validationError().isEmpty());
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("saved-fractional"));
+    EXPECT_EQ(fixture.adapter.draftPresetName(), QStringLiteral("Inspection précise"));
+    EXPECT_TRUE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.adapter.activeSummary(), active);
+    EXPECT_EQ(fixture.adapter.activeRevision(), revision);
+    EXPECT_DOUBLE_EQ(fixture.adapter.window(), 1000.1234567890123);
+    EXPECT_DOUBLE_EQ(fixture.adapter.level(), 2000.9876543210987);
+    for (int i = 0; i < 20; ++i) fixture.adapter.refresh();
+    EXPECT_TRUE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    ASSERT_TRUE(fixture.wait([&] {
+        return !fixture.adapter.pending() && fixture.preferences.latestStatus()->latestSavedPresetRevision > saved;
+    }));
+    EXPECT_TRUE(fixture.adapter.modelError().isEmpty());
+    EXPECT_NE(fixture.adapter.activeRevision(), revision);
+    EXPECT_TRUE(fixture.adapter.activeSummary().startsWith("Inspection précise\n"));
+    const auto stored = fixture.io->store.load();
+    ASSERT_TRUE(stored.hasValue());
+    EXPECT_EQ(stored.value().presets.selectedId.value, "saved-fractional");
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        stored.value().presets.activePipeline, seed.customPresets.front().pipeline));
+    expectSavedCollection(stored.value().presets, seed);
+    Fixture reopened(fixture.io->store.path());
+    ASSERT_TRUE(reopened.start());
+    ASSERT_TRUE(reopened.loaded());
+    EXPECT_EQ(reopened.adapter.selectedPresetId(), QStringLiteral("saved-fractional"));
+    EXPECT_EQ(reopened.adapter.draftPresetName(), QStringLiteral("Inspection précise"));
+    EXPECT_DOUBLE_EQ(reopened.adapter.window(), 1000.1234567890123);
+    EXPECT_DOUBLE_EQ(reopened.adapter.level(), 2000.9876543210987);
+    expectSavedCollection(reopened.coordinator.processingControls()->draft(), seed);
+}
+
+TEST(QmlProcessingAdapter, ResetAcknowledgesOriginalAndPreservesSavedRecipes) {
+    auto seed = savedPresetSeed();
+    seed.selectedId = {"saved-fractional"};
+    seed.activePipeline = seed.customPresets.front().pipeline;
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    const auto active = fixture.adapter.activeSummary();
+    EXPECT_FALSE(fixture.adapter.commitLevelText("bad input"));
+    ASSERT_TRUE(fixture.adapter.resetProcessing());
+    EXPECT_TRUE(fixture.adapter.validationError().isEmpty());
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("original"));
+    EXPECT_EQ(fixture.adapter.draftPresetName(), QStringLiteral("Original"));
+    EXPECT_TRUE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.adapter.activeSummary(), active);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    ASSERT_TRUE(fixture.wait([&] {
+        return !fixture.adapter.pending() && fixture.preferences.latestStatus()->latestSavedPresetRevision > saved;
+    }));
+    EXPECT_TRUE(fixture.adapter.activeSummary().startsWith("Original\n"));
+    const auto stored = fixture.io->store.load();
+    ASSERT_TRUE(stored.hasValue());
+    EXPECT_EQ(stored.value().presets.selectedId.value, "original");
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        stored.value().presets.activePipeline, processing::defaultPipeline()));
+    expectSavedCollection(stored.value().presets, seed);
+}
+
+TEST(QmlProcessingAdapter, InvalidPresetIdsAndShutdownCannotMutateOrSaveDraft) {
+    const auto seed = savedPresetSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    for (const auto* id : {"", "missing", "Standard", " standard", "saved-fractional "}) {
+        EXPECT_FALSE(fixture.adapter.selectPreset(QString::fromLatin1(id))) << id;
+        EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("original"));
+        EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+            fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+        EXPECT_FALSE(fixture.adapter.pending());
+    }
+    EXPECT_FALSE(fixture.adapter.modelError().isEmpty());
+    for (int i = 0; i < 20; ++i) { fixture.coordinator.poll(); fixture.adapter.refresh(); }
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    fixture.coordinator.beginShutdown();
+    fixture.adapter.refresh();
+    EXPECT_FALSE(fixture.adapter.available());
+    EXPECT_FALSE(fixture.adapter.selectPreset("saved-fractional"));
+    EXPECT_FALSE(fixture.adapter.resetProcessing());
+    EXPECT_EQ(fixture.coordinator.processingControls()->draft().selectedId, before.selectedId);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    const auto stored = fixture.io->store.load();
+    ASSERT_TRUE(stored.hasValue());
+    EXPECT_EQ(stored.value().presets.selectedId.value, "original");
+}
+
+TEST(QmlProcessingAdapter, NewerPresetChoiceSupersedesUnsubmittedSelection) {
+    Fixture fixture(false, false, savedPresetSeed());
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    const auto active = fixture.adapter.activeSummary();
+    ASSERT_TRUE(fixture.adapter.selectPreset("standard"));
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("standard"));
+    ASSERT_TRUE(fixture.adapter.selectPreset("saved-fractional"));
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("saved-fractional"));
+    EXPECT_EQ(fixture.adapter.activeSummary(), active);
+    ASSERT_TRUE(fixture.wait([&] {
+        return !fixture.adapter.pending() && fixture.preferences.latestStatus()->latestSavedPresetRevision > saved;
+    }));
+    EXPECT_TRUE(fixture.adapter.modelError().isEmpty());
+    const auto stored = fixture.io->store.load();
+    ASSERT_TRUE(stored.hasValue());
+    EXPECT_EQ(stored.value().presets.selectedId.value, "saved-fractional");
+}
+
 // Refresh must publish loading completion, not consume or poll it itself.
 TEST(QmlProcessingAdapter, BindsAfterDelayedLoadAndOnlyNotifiesForChangedState) {
     Fixture fixture(true);
@@ -186,6 +381,14 @@ TEST(QmlProcessingAdapter, ReportsLoadFailureSeparatelyAndRejectsEditing) {
     EXPECT_FALSE(fixture.adapter.setStageEnabled(true));
     EXPECT_FALSE(fixture.adapter.commitLevel(123.5));
     EXPECT_FALSE(fixture.adapter.hasAcknowledged());
+    EXPECT_TRUE(fixture.adapter.presets().isEmpty());
+    EXPECT_TRUE(fixture.adapter.selectedPresetId().isEmpty());
+    EXPECT_FALSE(fixture.adapter.selectPreset("standard"));
+    EXPECT_FALSE(fixture.adapter.resetProcessing());
+    EXPECT_FALSE(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision);
+    const auto stored = fixture.io->store.load();
+    ASSERT_TRUE(stored.hasValue());
+    EXPECT_EQ(stored.value().presets.selectedId.value, "original");
 }
 
 // Integer conversion, locale-dependent parsing, or full-pipeline reconstruction
@@ -332,9 +535,10 @@ TEST(QmlProcessingAdapter, FailedEngineActivationNeverPersistsOrChangesAcknowled
     const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
     const auto active = fixture.adapter.activeSummary();
     const auto revision = fixture.adapter.activeRevision();
-    ASSERT_TRUE(fixture.coordinator.processingControls()->selectPreset({"standard"}).hasValue());
-    fixture.adapter.refresh();
-    ASSERT_TRUE(fixture.adapter.commitWindow(1234.5));
+    ASSERT_TRUE(fixture.adapter.selectPreset("standard"));
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("standard"));
+    EXPECT_TRUE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.adapter.activeSummary(), active);
     ASSERT_TRUE(fixture.wait([&] { return !fixture.adapter.pending() && !fixture.adapter.modelError().isEmpty(); }));
     ASSERT_TRUE(fixture.pipeline.snapshot().processingConfigurationOutcome->error);
     EXPECT_EQ(fixture.pipeline.snapshot().processingConfigurationOutcome->error->code, "clahe_image_too_small");
@@ -345,6 +549,12 @@ TEST(QmlProcessingAdapter, FailedEngineActivationNeverPersistsOrChangesAcknowled
     const auto stored = fixture.io->store.load();
     ASSERT_TRUE(stored.hasValue());
     EXPECT_DOUBLE_EQ(windowLevel(stored.value().presets.activePipeline).window, 65535);
+    EXPECT_EQ(stored.value().presets.selectedId.value, "original");
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("original"));
+    ASSERT_TRUE(fixture.adapter.resetProcessing());
+    EXPECT_TRUE(fixture.adapter.modelError().isEmpty());
+    ASSERT_TRUE(fixture.wait([&] { return !fixture.adapter.pending(); }));
+    EXPECT_TRUE(fixture.adapter.modelError().isEmpty());
 }
 
 TEST(QmlProcessingAdapter, PersistenceFailureLeavesAcknowledgedActivationVisible) {

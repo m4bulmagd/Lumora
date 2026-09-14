@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
 namespace lumora::qml {
@@ -30,6 +31,8 @@ class ProcessingAdapter final : public QObject {
     Q_PROPERTY(bool hasAcknowledged READ hasAcknowledged NOTIFY stateChanged)
     Q_PROPERTY(QString activeSummary READ activeSummary NOTIFY stateChanged)
     Q_PROPERTY(QString activeRevision READ activeRevision NOTIFY stateChanged)
+    Q_PROPERTY(QVariantList presets READ presets NOTIFY presetsChanged)
+    Q_PROPERTY(QString selectedPresetId READ selectedPresetId NOTIFY stateChanged)
     Q_PROPERTY(QString draftPresetName READ draftPresetName NOTIFY stateChanged)
     Q_PROPERTY(QString loadError READ loadError NOTIFY stateChanged)
     Q_PROPERTY(QString validationError READ validationError NOTIFY stateChanged)
@@ -64,6 +67,8 @@ public:
     [[nodiscard]] bool hasAcknowledged() const { return state_.hasAcknowledged; }
     [[nodiscard]] QString activeSummary() const { return state_.activeSummary; }
     [[nodiscard]] QString activeRevision() const { return state_.activeRevision; }
+    [[nodiscard]] QVariantList presets() const { return presets_; }
+    [[nodiscard]] QString selectedPresetId() const { return state_.selectedPresetId; }
     [[nodiscard]] QString draftPresetName() const { return state_.draftPresetName; }
     [[nodiscard]] QString loadError() const { return state_.loadError; }
     [[nodiscard]] QString validationError() const { return state_.validationError; }
@@ -74,6 +79,8 @@ public:
     [[nodiscard]] bool retryPending() const { return state_.retryPending; }
     [[nodiscard]] bool retryEnabled() const { return state_.retryEnabled; }
 
+    Q_INVOKABLE bool selectPreset(const QString& id);
+    Q_INVOKABLE bool resetProcessing();
     Q_INVOKABLE bool setStageEnabled(bool enabled);
     Q_INVOKABLE bool commitWindow(double value);
     Q_INVOKABLE bool commitLevel(double value);
@@ -87,6 +94,7 @@ public:
 
 signals:
     void stateChanged();
+    void presetsChanged();
 
 private:
     struct State final {
@@ -98,7 +106,7 @@ private:
         QString windowText, levelText;
         bool pending{false};
         bool hasAcknowledged{false};
-        QString activeSummary, activeRevision, draftPresetName;
+        QString activeSummary, activeRevision, selectedPresetId, draftPresetName;
         QString loadError, validationError, modelError, persistenceWarning, processingError;
         bool fallback{false};
         bool retryPending{false};
@@ -112,6 +120,7 @@ private:
     bool rejectInput(const QString& message);
     presentation::WorkstationCoordinator& coordinator_;
     State state_;
+    QVariantList presets_;
     QString inputError_;
     QString retryError_;
     struct RetryContext final {

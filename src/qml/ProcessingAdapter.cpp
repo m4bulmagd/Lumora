@@ -2,6 +2,7 @@
 
 #include <QLocale>
 #include <QStringList>
+#include <QVariantMap>
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -29,17 +30,22 @@ auto windowLevelStage(processing::PipelineDefinition& pipeline) {
     });
 }
 
-QString presetName(const application::PresetState& state,
-    const presentation::ProcessingControlsModel& model) {
-    const auto& id = state.selectedId.value;
+QString presetName(const application::PresetId& presetId, const QString& fallback) {
+    const auto& id = presetId.value;
     if (id == "original") return ProcessingAdapter::tr("Original");
     if (id == "standard") return ProcessingAdapter::tr("Standard");
     if (id == "high-contrast") return ProcessingAdapter::tr("High Contrast");
     if (id == "soft-detail") return ProcessingAdapter::tr("Soft Detail");
     if (id == "custom") return ProcessingAdapter::tr("Custom");
+    return fallback;
+}
+
+QString presetName(const application::PresetState& state,
+    const presentation::ProcessingControlsModel& model) {
     for (const auto& preset : model.presets())
-        if (preset.id == state.selectedId) return QString::fromStdString(preset.name);
-    return QString::fromStdString(id);
+        if (preset.id == state.selectedId)
+            return presetName(preset.id, QString::fromStdString(preset.name));
+    return presetName(state.selectedId, QString::fromStdString(state.selectedId.value));
 }
 
 QString stageLabel(StageId stage) {
@@ -102,6 +108,7 @@ ProcessingAdapter::ProcessingAdapter(presentation::WorkstationCoordinator& coord
 
 void ProcessingAdapter::refresh() {
     State next;
+    QVariantList nextPresets;
     const auto& processing = coordinator_.processingState();
     const auto& workstation = coordinator_.state();
     auto* model = coordinator_.processingControls();
@@ -127,7 +134,14 @@ void ProcessingAdapter::refresh() {
     next.processingError = processor.error
         ? QString::fromStdString(processor.error->operatorSummary) : retryError_;
     if (model) {
+        for (const auto& preset : model->presets()) {
+            nextPresets.push_back(QVariantMap{
+                {QStringLiteral("id"), QString::fromStdString(preset.id.value)},
+                {QStringLiteral("name"), presetName(preset.id, QString::fromStdString(preset.name))},
+                {QStringLiteral("description"), QString::fromStdString(preset.description)}});
+        }
         auto draft = model->draft();
+        next.selectedPresetId = QString::fromStdString(draft.selectedId.value);
         const auto stage = windowLevelStage(draft.activePipeline);
         next.available = workstation.controlsEnabled && stage != draft.activePipeline.stages.end();
         if (stage != draft.activePipeline.stages.end()) {
@@ -150,15 +164,39 @@ void ProcessingAdapter::refresh() {
     }
     if (next.available && !state_.available) inputError_.clear();
     next.validationError = inputError_;
-    if (next == state_) return;
-    state_ = std::move(next);
-    emit stateChanged();
+    const bool listChanged = nextPresets != presets_;
+    if (listChanged) presets_ = std::move(nextPresets);
+    if (next != state_) {
+        state_ = std::move(next);
+        emit stateChanged();
+    }
+    if (listChanged) emit presetsChanged();
 }
 
 bool ProcessingAdapter::rejectInput(const QString& message) {
     inputError_ = message;
     refresh();
     return false;
+}
+
+bool ProcessingAdapter::selectPreset(const QString& id) {
+    auto* model = coordinator_.processingControls();
+    if (!model || !coordinator_.state().controlsEnabled)
+        return rejectInput(tr("Processing controls are unavailable."));
+    const auto result = model->selectPreset({id.toStdString()});
+    if (result.hasValue()) inputError_.clear();
+    refresh();
+    return result.hasValue();
+}
+
+bool ProcessingAdapter::resetProcessing() {
+    auto* model = coordinator_.processingControls();
+    if (!model || !coordinator_.state().controlsEnabled)
+        return rejectInput(tr("Processing controls are unavailable."));
+    const auto result = model->reset();
+    if (result.hasValue()) inputError_.clear();
+    refresh();
+    return result.hasValue();
 }
 
 bool ProcessingAdapter::setStageEnabled(bool enabled) {
