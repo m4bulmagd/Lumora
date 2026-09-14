@@ -102,7 +102,7 @@ ApplicationWindow {
                 StatusStrip { objectName: "statusStrip"; camera: root.camera; viewer: root.viewer; processing: root.processing; Layout.fillWidth: true }
                 Label { text: root.workstation.error; visible: text.length > 0; color: Theme.amber; Layout.fillWidth: true; wrapMode: Text.Wrap }
             }
-            WindowLevelControls { processing: root.processing; Layout.preferredWidth: 210; Layout.fillHeight: true }
+            ProcessingControls { processing: root.processing; focusedItem: root.activeFocusItem; Layout.preferredWidth: 210; Layout.fillHeight: true }
         }
     }
 }

@@ -11,6 +11,7 @@
 #include <lumora/configuration/ConfigurationStore.hpp>
 #include <lumora/configuration/InstallationProfilesService.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
+#include <lumora/processing/ProcessingDefaults.hpp>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -48,6 +49,7 @@ private slots:
     void completedViewingAndExactNumericEditing();
     void keyboardCanReturnToViewportWithoutStealingNumericInput();
     void presetsAndResetPreserveCameraPausedFrameAndViewport();
+    void toneEditingPreservesExactValuesPausedPixelsAndResetAuthority();
     void renderedPixelsStayInsideViewport();
     void keepsLiveContentUsable_data();
     void keepsLiveContentUsable();
@@ -74,6 +76,10 @@ private:
     QString diagnostics() const { return warnings_.join('\n'); }
     void capture(const QString& state);
     void choosePreset(const QString& id);
+    void revealProcessing(const char* name);
+    void enterText(const char* name,const QString& text,bool commit=true);
+    QImage viewportPixels() const;
+    bool toneSaved(double brightness,double contrast,double gamma) const;
     bool persistedPresetIs(const std::string& id) const;
     void createRuntime(std::shared_ptr<EnhancementFailure> fault = {});
     void destroyRuntime();
@@ -116,6 +122,10 @@ void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> faul
         saved.name="Saved fractional";
         saved.description="Exact saved window/level fixture";
         saved.pipeline.stages[1].parameters=processing::WindowLevelParameters{12000.125,23000.875};
+        saved.pipeline.stages[2].enabled=true;
+        saved.pipeline.stages[2].parameters=processing::BrightnessContrastParameters{0.0123456789123456,1.012345678912345};
+        saved.pipeline.stages[3].enabled=true;
+        saved.pipeline.stages[3].parameters=processing::GammaParameters{1.234567891234567};
         settings.presets.customPresets.push_back(saved);
         QVERIFY(configuration::ConfigurationStore{preferencePath.toStdString()}.save(settings).hasValue());
     }
@@ -226,6 +236,197 @@ void QmlWorkstationTests::choosePreset(const QString& id) {
 bool QmlWorkstationTests::persistedPresetIs(const std::string& id) const {
     const auto loaded=configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()}.load();
     return loaded.hasValue() && loaded.value().presets.selectedId.value==id;
+}
+void QmlWorkstationTests::revealProcessing(const char* name) {
+    auto* control=item(name);
+    QVERIFY2(control,name);
+    control->forceActiveFocus();
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    auto* scroll=item("processingFlickable");
+    QVERIFY(scroll);
+    // Keyboard focus must reveal the real editor inside the scroll viewport.
+    QTRY_VERIFY(scroll->boundingRect().adjusted(-1,-1,1,1)
+        .contains(control->mapRectToItem(scroll,control->boundingRect())));
+}
+void QmlWorkstationTests::enterText(const char* name,const QString& text,bool commit) {
+    revealProcessing(name);
+    auto* control=item(name);
+    QVERIFY(control && control->isEnabled());
+    QTest::keyClick(window_,Qt::Key_A,Qt::ControlModifier);
+    for(const QChar character:text)
+        QTest::keyClick(window_,static_cast<Qt::Key>(character.unicode()));
+    QCOMPARE(control->property("text").toString(),text);
+    if(commit) QTest::keyClick(window_,Qt::Key_Return);
+}
+QImage QmlWorkstationTests::viewportPixels() const {
+    const auto rect=item("imageArea")->mapRectToScene(item("imageArea")->boundingRect());
+    const auto image=window_->grabWindow();
+    const auto dpr=image.devicePixelRatio();
+    return image.copy(QRect(qRound(rect.x()*dpr),qRound(rect.y()*dpr),
+        qRound(rect.width()*dpr),qRound(rect.height()*dpr)));
+}
+bool QmlWorkstationTests::toneSaved(double brightness,double contrast,double gamma) const {
+    const auto loaded=configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()}.load();
+    if(!loaded.hasValue()) return false;
+    const auto& state=loaded.value().presets;
+    const auto& stages=state.activePipeline.stages;
+    const auto& tone=std::get<processing::BrightnessContrastParameters>(stages[2].parameters);
+    return state.selectedId.value=="custom" && stages[2].enabled && stages[3].enabled
+        && tone.brightness==brightness && tone.contrast==contrast
+        && std::get<processing::GammaParameters>(stages[3].parameters).gamma==gamma;
+}
+void QmlWorkstationTests::toneEditingPreservesExactValuesPausedPixelsAndResetAuthority() {
+    // Missing controls, focus-driven commits, stale text after Reset or edits
+    // touching presentation/camera state break this actual operator route.
+    QVERIFY(item("brightnessField"));
+    QVERIFY(item("contrastField"));
+    QVERIFY(item("gammaField"));
+    choosePreset(QStringLiteral("saved-fractional"));
+    revealProcessing("gammaField");
+    QCOMPARE(item("gammaField")->property("text").toString(),QStringLiteral("1.234567891234567"));
+    revealProcessing("brightnessField");
+    QCOMPARE(item("brightnessField")->property("text").toString(),QStringLiteral("0.0123456789123456"));
+    revealProcessing("contrastField");
+    QCOMPARE(item("contrastField")->property("text").toString(),QStringLiteral("1.012345678912345"));
+    item("presetSelector")->forceActiveFocus();
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("saved-fractional"));
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending(),5000);
+
+    click("compareButton");
+    QTRY_COMPARE(runtime_->viewer()->displayMode(),QStringLiteral("compare"));
+    click("pauseButton");
+    QTRY_COMPARE(runtime_->viewer()->playbackState(),QStringLiteral("Paused"));
+    auto* viewer=runtime_->viewer();
+    QVERIFY(viewer->fit());
+    QVERIFY(viewer->zoomAt(viewer->imageItem().width()/4,viewer->imageItem().height()/2,1.1));
+    QVERIFY(viewer->panBy(13,17));
+    const auto frozenId=viewer->sourceFrameId();
+    const auto rectangles=viewer->imageItem().imageRects();
+    const auto camera=*pipeline_->snapshot().camera;
+    const auto readback=runtime_->camera()->currentSummary();
+    const auto frozen=viewportPixels();
+    QVERIFY(!frozen.isNull());
+    for(int pane=0;pane<2;++pane) {
+        bool bright=false,dark=false;
+        for(int x=pane*frozen.width()/2;x<(pane+1)*frozen.width()/2;++x) {
+            const auto gray=qGray(frozen.pixel(x,frozen.height()/2));
+            bright=bright || gray>192; dark=dark || gray<64;
+        }
+        QVERIFY2(bright && dark,"Frozen tone-edit baseline must contain visible image detail");
+    }
+
+    constexpr double brightness=-0.125123456789012;
+    constexpr double contrast=0.8751234567890123;
+    constexpr double gamma=1.34567891234567;
+    enterText("brightnessField",QStringLiteral("-0.125123456789012"),false);
+    QTest::keyClick(window_,Qt::Key_Tab);
+    QTRY_COMPARE(runtime_->processing()->property("brightness").toDouble(),brightness);
+    enterText("contrastField",QStringLiteral("0.8751234567890123"));
+    enterText("gammaField",QStringLiteral("1.34567891234567"));
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && toneSaved(brightness,contrast,gamma),10000);
+    QCOMPARE(runtime_->processing()->property("brightness").toDouble(),brightness);
+    QCOMPARE(runtime_->processing()->property("contrast").toDouble(),contrast);
+    QCOMPARE(runtime_->processing()->property("gamma").toDouble(),gamma);
+    QCOMPARE(item("presetSelector")->property("currentValue").toString(),QStringLiteral("custom"));
+
+    for(const auto* invalid:{".","0"}) {
+        enterText("gammaField",QString::fromLatin1(invalid));
+        QVERIFY(!runtime_->processing()->validationError().isEmpty());
+        QCOMPARE(runtime_->processing()->property("gamma").toDouble(),gamma);
+        QVERIFY(toneSaved(brightness,contrast,gamma));
+        QVERIFY(item("processingMessages")->isVisible());
+        QVERIFY(QQuickTest::qWaitForPolish(window_));
+        QVERIFY(window_->contentItem()->boundingRect().contains(
+            item("processingMessages")->mapRectToScene(item("processingMessages")->boundingRect())));
+    }
+    enterText("gammaField",QStringLiteral("1.34567891234567"));
+    QVERIFY(runtime_->processing()->validationError().isEmpty());
+    for(const auto* toggle:{"brightnessContrastEnabled","gammaEnabled"}) {
+        revealProcessing(toggle); click(toggle);
+        QCOMPARE(runtime_->processing()->property("brightness").toDouble(),brightness);
+        QCOMPARE(runtime_->processing()->property("contrast").toDouble(),contrast);
+        QCOMPARE(runtime_->processing()->property("gamma").toDouble(),gamma);
+        QVERIFY(!item(toggle==QStringLiteral("gammaEnabled") ? "gammaField" : "brightnessField")->isEnabled());
+        click(toggle);
+    }
+    revealProcessing("gammaSlider");
+    QTest::keyClick(window_,Qt::Key_Right);
+    QTRY_VERIFY(runtime_->processing()->property("gamma").toDouble()>gamma);
+    revealProcessing("brightnessSlider");
+    auto* slider=item("brightnessSlider");
+    const auto start=slider->mapToScene(QPointF(slider->width()*0.4,slider->height()/2)).toPoint();
+    const auto finish=slider->mapToScene(QPointF(slider->width()*0.65,slider->height()/2)).toPoint();
+    QTest::mousePress(window_,Qt::LeftButton,Qt::NoModifier,start);
+    QTest::mouseMove(window_,finish);
+    QTest::mouseRelease(window_,Qt::LeftButton,Qt::NoModifier,finish);
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending(),5000);
+    QVERIFY(runtime_->processing()->property("brightness").toDouble()!=brightness);
+    QCOMPARE(viewportPixels(),frozen);
+    capture("tone-paused");
+
+    // Replacing a draft while a slider is held must survive its later release.
+    revealProcessing("brightnessSlider");
+    QTest::mousePress(window_,Qt::LeftButton,Qt::NoModifier,start);
+    QTest::mouseMove(window_,finish);
+    QVERIFY(slider->property("pressed").toBool());
+    QVERIFY(runtime_->processing()->selectPreset(QStringLiteral("high-contrast")));
+    QTest::mouseMove(window_,start);
+    QTest::mouseRelease(window_,Qt::LeftButton,Qt::NoModifier,finish);
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending(),5000);
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("high-contrast"));
+    QCOMPARE(runtime_->processing()->property("brightness").toDouble(),0.0);
+
+    QCOMPARE(slider->property("value").toDouble(),0.0);
+    QTest::keyClick(window_,Qt::Key_Right);
+    QTRY_VERIFY(runtime_->processing()->property("brightness").toDouble()>0.0);
+
+    // A preset can replace dirty input while the same editor remains enabled.
+    enterText("gammaField",QStringLiteral("4.567"),false);
+    QVERIFY(runtime_->processing()->selectPreset(QStringLiteral("standard")));
+    QTest::keyClick(window_,Qt::Key_Return);
+    item("presetSelector")->forceActiveFocus();
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending(),5000);
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("standard"));
+    QCOMPARE(runtime_->processing()->property("gamma").toDouble(),1.0);
+
+    // An external preset/reset can replace a focused draft before focus loss.
+    // Reset also disables tone fields; that transition must not submit old text.
+    enterText("gammaField",QStringLiteral("4.567"),false);
+    QVERIFY(runtime_->processing()->resetProcessing());
+    item("presetSelector")->forceActiveFocus();
+    QTRY_COMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("original"));
+    QCOMPARE(runtime_->processing()->property("gamma").toDouble(),1.0);
+    QVERIFY(!item("gammaField")->isEnabled());
+    QVERIFY(!item("brightnessField")->isEnabled());
+    enterText("windowField",QStringLiteral("12000"),false);
+    QVERIFY(runtime_->processing()->resetProcessing()); // Same Original ID.
+    QTRY_COMPARE(item("windowField")->property("text").toString(),QStringLiteral("65535"));
+    QTest::keyClick(window_,Qt::Key_Return);
+    item("presetSelector")->forceActiveFocus();
+    QCOMPARE(runtime_->processing()->selectedPresetId(),QStringLiteral("original"));
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && persistedPresetIs("original"),5000);
+    QCOMPARE(viewportPixels(),frozen);
+    capture("tone-reset-paused");
+
+    revealProcessing("brightnessContrastEnabled"); click("brightnessContrastEnabled");
+    revealProcessing("gammaEnabled"); click("gammaEnabled");
+    enterText("brightnessField",QStringLiteral("-0.125123456789012"));
+    enterText("contrastField",QStringLiteral("0.8751234567890123"));
+    enterText("gammaField",QStringLiteral("1.34567891234567"));
+    QTRY_VERIFY_WITH_TIMEOUT(!runtime_->processing()->pending() && toneSaved(brightness,contrast,gamma),10000);
+    QCOMPARE(viewer->sourceFrameId(),frozenId);
+    QCOMPARE(viewer->displayMode(),QStringLiteral("compare"));
+    QCOMPARE(viewer->playbackState(),QStringLiteral("Paused"));
+    QCOMPARE(viewer->imageItem().imageRects(),rectangles);
+    QCOMPARE(viewportPixels(),frozen);
+    QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
+    QCOMPARE(pipeline_->snapshot().camera->sessionGeneration,camera.sessionGeneration);
+    QCOMPARE(pipeline_->snapshot().camera->confirmedRevision,camera.confirmedRevision);
+    QCOMPARE(runtime_->camera()->currentSummary(),readback);
+    click("resumeButton");
+    QTRY_VERIFY_WITH_TIMEOUT(viewer->sourceFrameId()!=frozenId,5000);
+    click("originalButton");
+    QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
 void QmlWorkstationTests::presetsAndResetPreserveCameraPausedFrameAndViewport() {
     // Missing bindings, accidental index-change activation, Reset touching the
@@ -373,6 +574,7 @@ void QmlWorkstationTests::keepsLiveContentUsable() {
     QVERIFY(runtime_->viewer()->setDisplayMode(mode));
     QTRY_COMPARE_WITH_TIMEOUT(runtime_->viewer()->displayMode(),mode,5000);
     QTRY_COMPARE(window_->size(),size);
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
     for(const auto* name:{"evaluationBanner","imageArea","statusStrip","viewingToolbar"}) {
         auto* content=item(name);
         QVERIFY2(content,name);
@@ -383,16 +585,19 @@ void QmlWorkstationTests::keepsLiveContentUsable() {
     }
     QVERIFY(item("evaluationBanner")->property("text").toString().contains("NOT FOR CLINICAL USE"));
     QVERIFY(item("imageArea")->width()>300);
-    for(const auto* name:{"presetSelector","resetProcessingButton"}) {
+    for(const auto* name:{"presetSelector","resetProcessingButton","processingStatus","activePresetSummary"}) {
         auto* control=item(name);
         QVERIFY2(control,name);
         QVERIFY(control->isEnabled());
         QVERIFY(window_->contentItem()->boundingRect().contains(control->mapRectToScene(control->boundingRect())));
     }
+    revealProcessing("gammaField");
+    revealProcessing("brightnessField");
     capture(mode == "compare" ? "live-compare" : "live");
     QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
 }
 void QmlWorkstationTests::stopDisconnectAndExplicitSavedResume() {
+    const auto expectedProcessing=runtime_->coordinator().processingControls()->draft();
     QVERIFY(!runtime_->camera()->applyConfiguration());
     click("stopButton");
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->startEnabled(),5000);
@@ -403,8 +608,11 @@ void QmlWorkstationTests::stopDisconnectAndExplicitSavedResume() {
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->connectEnabled(),5000);
     destroyRuntime();
     createRuntime();
-    QTRY_COMPARE(runtime_->processing()->property("selectedPresetId").toString(),QStringLiteral("high-contrast"));
-    QCOMPARE(item("presetSelector")->property("currentValue").toString(),QStringLiteral("high-contrast"));
+    const auto expectedId=QString::fromStdString(expectedProcessing.selectedId.value);
+    QTRY_COMPARE(runtime_->processing()->selectedPresetId(),expectedId);
+    QCOMPARE(item("presetSelector")->property("currentValue").toString(),expectedId);
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,expectedProcessing.activePipeline));
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->resumeLiveEnabled(),10000);
     QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
     QVERIFY(!runtime_->viewer()->hasFrame());
