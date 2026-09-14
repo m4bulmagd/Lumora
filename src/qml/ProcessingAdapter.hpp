@@ -27,6 +27,20 @@ class ProcessingAdapter final : public QObject {
     Q_PROPERTY(double levelMinimum READ levelMinimum CONSTANT)
     Q_PROPERTY(double levelMaximum READ levelMaximum CONSTANT)
     Q_PROPERTY(double nominalStep READ nominalStep CONSTANT)
+    Q_PROPERTY(bool brightnessContrastEnabled READ brightnessContrastEnabled NOTIFY stateChanged)
+    Q_PROPERTY(bool gammaEnabled READ gammaEnabled NOTIFY stateChanged)
+    Q_PROPERTY(double brightness READ brightness NOTIFY stateChanged)
+    Q_PROPERTY(QString brightnessText READ brightnessText NOTIFY stateChanged)
+    Q_PROPERTY(double brightnessMinimum READ brightnessMinimum CONSTANT)
+    Q_PROPERTY(double brightnessMaximum READ brightnessMaximum CONSTANT)
+    Q_PROPERTY(double contrast READ contrast NOTIFY stateChanged)
+    Q_PROPERTY(QString contrastText READ contrastText NOTIFY stateChanged)
+    Q_PROPERTY(double contrastMinimum READ contrastMinimum CONSTANT)
+    Q_PROPERTY(double contrastMaximum READ contrastMaximum CONSTANT)
+    Q_PROPERTY(double gamma READ gamma NOTIFY stateChanged)
+    Q_PROPERTY(QString gammaText READ gammaText NOTIFY stateChanged)
+    Q_PROPERTY(double gammaMinimum READ gammaMinimum CONSTANT)
+    Q_PROPERTY(double gammaMaximum READ gammaMaximum CONSTANT)
     Q_PROPERTY(bool pending READ pending NOTIFY stateChanged)
     Q_PROPERTY(bool hasAcknowledged READ hasAcknowledged NOTIFY stateChanged)
     Q_PROPERTY(QString activeSummary READ activeSummary NOTIFY stateChanged)
@@ -63,6 +77,20 @@ public:
     [[nodiscard]] double levelMinimum() const { return 0.0; }
     [[nodiscard]] double levelMaximum() const { return 65535.0; }
     [[nodiscard]] double nominalStep() const { return 100.0; }
+    [[nodiscard]] bool brightnessContrastEnabled() const { return state_.brightnessContrastEnabled; }
+    [[nodiscard]] bool gammaEnabled() const { return state_.gammaEnabled; }
+    [[nodiscard]] double brightness() const { return state_.brightness; }
+    [[nodiscard]] QString brightnessText() const { return state_.brightnessText; }
+    [[nodiscard]] double brightnessMinimum() const { return -1.0; }
+    [[nodiscard]] double brightnessMaximum() const { return 1.0; }
+    [[nodiscard]] double contrast() const { return state_.contrast; }
+    [[nodiscard]] QString contrastText() const { return state_.contrastText; }
+    [[nodiscard]] double contrastMinimum() const { return 0.0; }
+    [[nodiscard]] double contrastMaximum() const { return 4.0; }
+    [[nodiscard]] double gamma() const { return state_.gamma; }
+    [[nodiscard]] QString gammaText() const { return state_.gammaText; }
+    [[nodiscard]] double gammaMinimum() const { return 0.1; }
+    [[nodiscard]] double gammaMaximum() const { return 5.0; }
     [[nodiscard]] bool pending() const { return state_.pending; }
     [[nodiscard]] bool hasAcknowledged() const { return state_.hasAcknowledged; }
     [[nodiscard]] QString activeSummary() const { return state_.activeSummary; }
@@ -90,11 +118,26 @@ public:
     Q_INVOKABLE bool dragLevel(double value);
     Q_INVOKABLE bool releaseWindow(double value);
     Q_INVOKABLE bool releaseLevel(double value);
+    Q_INVOKABLE bool setBrightnessContrastEnabled(bool enabled);
+    Q_INVOKABLE bool setGammaEnabled(bool enabled);
+    Q_INVOKABLE bool commitBrightness(double value);
+    Q_INVOKABLE bool commitBrightnessText(const QString& text);
+    Q_INVOKABLE bool dragBrightness(double value);
+    Q_INVOKABLE bool releaseBrightness();
+    Q_INVOKABLE bool commitContrast(double value);
+    Q_INVOKABLE bool commitContrastText(const QString& text);
+    Q_INVOKABLE bool dragContrast(double value);
+    Q_INVOKABLE bool releaseContrast();
+    Q_INVOKABLE bool commitGamma(double value);
+    Q_INVOKABLE bool commitGammaText(const QString& text);
+    Q_INVOKABLE bool dragGamma(double value);
+    Q_INVOKABLE bool releaseGamma();
     Q_INVOKABLE bool retry();
 
 signals:
     void stateChanged();
     void presetsChanged();
+    void draftReplaced();
 
 private:
     struct State final {
@@ -104,6 +147,10 @@ private:
         double window{0.0};
         double level{0.0};
         QString windowText, levelText;
+        bool brightnessContrastEnabled{false};
+        bool gammaEnabled{false};
+        double brightness{0.0}, contrast{0.0}, gamma{0.0};
+        QString brightnessText, contrastText, gammaText;
         bool pending{false};
         bool hasAcknowledged{false};
         QString activeSummary, activeRevision, selectedPresetId, draftPresetName;
@@ -114,9 +161,22 @@ private:
         bool operator==(const State&) const = default;
     };
 
+    void refreshState(bool draftWasReplaced);
     bool editValue(double processing::WindowLevelParameters::* member, double value,
         presentation::ProcessingEditPhase phase);
-    bool commitText(double processing::WindowLevelParameters::* member, const QString& text);
+    bool editValue(double processing::BrightnessContrastParameters::* member, double value,
+        presentation::ProcessingEditPhase phase);
+    bool editValue(double processing::GammaParameters::* member, double value,
+        presentation::ProcessingEditPhase phase);
+    template<typename Parameters>
+    bool editStageValue(processing::StageId id, double Parameters::* member, double value,
+        double minimum, double maximum, const QString& label, presentation::ProcessingEditPhase phase);
+    template<typename Parameters>
+    bool commitText(double Parameters::* member, const QString& text);
+    template<typename Parameters>
+    bool setEnabled(processing::StageId id, bool enabled);
+    template<typename Parameters>
+    bool releaseStage(processing::StageId id);
     bool rejectInput(const QString& message);
     presentation::WorkstationCoordinator& coordinator_;
     State state_;

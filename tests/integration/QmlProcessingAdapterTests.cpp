@@ -185,6 +185,343 @@ void expectSavedCollection(const application::PresetState& actual,
     }
 }
 
+const processing::BrightnessContrastParameters& brightnessContrast(const processing::PipelineDefinition& value) {
+    for (const auto& stage : value.stages)
+        if (stage.id == processing::StageId::BrightnessContrast)
+            return std::get<processing::BrightnessContrastParameters>(stage.parameters);
+    throw std::runtime_error("Missing brightness/contrast stage");
+}
+
+const processing::GammaParameters& gamma(const processing::PipelineDefinition& value) {
+    for (const auto& stage : value.stages)
+        if (stage.id == processing::StageId::Gamma)
+            return std::get<processing::GammaParameters>(stage.parameters);
+    throw std::runtime_error("Missing gamma stage");
+}
+
+application::PresetState toneSeed() {
+    auto seed = savedPresetSeed();
+    seed.selectedId = {"custom"};
+    seed.activePipeline = seed.customPresets.front().pipeline;
+    seed.activePipeline.stages[2].enabled = false;
+    seed.activePipeline.stages[2].parameters = processing::BrightnessContrastParameters{
+        0.12345678901234568, 1.2345678901234567};
+    seed.activePipeline.stages[3].parameters = processing::GammaParameters{0.9876543210987654};
+    return seed;
+}
+
+// Default snapshots, decimal rounding or refresh-triggered submissions would
+// discard loaded native precision before the operator deliberately edits it.
+TEST(QmlProcessingAdapter, ToneLoadProjectsExactValuesWithoutSubmittingOnRefresh) {
+    const auto seed = toneSeed();
+    Fixture fixture(true, false, seed);
+    ASSERT_TRUE(fixture.start());
+    EXPECT_FALSE(fixture.adapter.available());
+    fixture.io->release();
+    ASSERT_TRUE(fixture.settled());
+    EXPECT_FALSE(fixture.adapter.brightnessContrastEnabled());
+    EXPECT_TRUE(fixture.adapter.gammaEnabled());
+    EXPECT_DOUBLE_EQ(fixture.adapter.brightness(), 0.12345678901234568);
+    EXPECT_DOUBLE_EQ(fixture.adapter.contrast(), 1.2345678901234567);
+    EXPECT_DOUBLE_EQ(fixture.adapter.gamma(), 0.9876543210987654);
+    EXPECT_EQ(fixture.adapter.brightnessText(), QStringLiteral("0.12345678901234568"));
+    EXPECT_EQ(fixture.adapter.contrastText(), QStringLiteral("1.2345678901234567"));
+    EXPECT_EQ(fixture.adapter.gammaText(), QStringLiteral("0.9876543210987654"));
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    QSignalSpy changes(&fixture.adapter, &qml::ProcessingAdapter::stateChanged);
+    for (int i = 0; i < 20; ++i) fixture.adapter.refresh();
+    EXPECT_EQ(changes.count(), 0);
+    EXPECT_FALSE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+}
+
+// Each typed member must edit a fresh whole draft; toggling either stage must
+// keep its stored parameters and every unrelated stage and saved recipe intact.
+TEST(QmlProcessingAdapter, ToneExactCommitsAndTogglesPreserveCompleteDraft) {
+    const auto seed = toneSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.loaded());
+    QSignalSpy replacements(&fixture.adapter, &qml::ProcessingAdapter::draftReplaced);
+    ASSERT_TRUE(fixture.adapter.setBrightnessContrastEnabled(true));
+    EXPECT_DOUBLE_EQ(fixture.adapter.brightness(), 0.12345678901234568);
+    EXPECT_DOUBLE_EQ(fixture.adapter.contrast(), 1.2345678901234567);
+    ASSERT_TRUE(fixture.adapter.commitBrightnessText("-0.23456789012345678"));
+    ASSERT_TRUE(fixture.adapter.commitContrastText("2.3456789012345678"));
+    ASSERT_TRUE(fixture.adapter.commitGammaText("1.2345678901234567"));
+    EXPECT_DOUBLE_EQ(fixture.adapter.brightness(), -0.23456789012345678);
+    EXPECT_DOUBLE_EQ(fixture.adapter.contrast(), 2.3456789012345678);
+    EXPECT_DOUBLE_EQ(fixture.adapter.gamma(), 1.2345678901234567);
+    EXPECT_DOUBLE_EQ(fixture.adapter.brightnessText().toDouble(), -0.23456789012345678);
+    EXPECT_DOUBLE_EQ(fixture.adapter.contrastText().toDouble(), 2.3456789012345678);
+    EXPECT_DOUBLE_EQ(fixture.adapter.gammaText().toDouble(), 1.2345678901234567);
+    ASSERT_TRUE(fixture.adapter.setBrightnessContrastEnabled(false));
+    ASSERT_TRUE(fixture.adapter.setGammaEnabled(false));
+    EXPECT_FALSE(fixture.adapter.brightnessContrastEnabled());
+    EXPECT_FALSE(fixture.adapter.gammaEnabled());
+    auto expected = seed.activePipeline;
+    expected.stages[2].parameters = processing::BrightnessContrastParameters{-0.23456789012345678, 2.3456789012345678};
+    expected.stages[3].enabled = false;
+    expected.stages[3].parameters = processing::GammaParameters{1.2345678901234567};
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, expected));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+    ASSERT_TRUE(fixture.adapter.setGammaEnabled(true));
+    EXPECT_DOUBLE_EQ(fixture.adapter.gamma(), 1.2345678901234567);
+    EXPECT_EQ(replacements.count(), 0);
+}
+
+struct ToneField final {
+    const char* name;
+    bool (qml::ProcessingAdapter::*commit)(double);
+    bool (qml::ProcessingAdapter::*commitText)(const QString&);
+    bool (qml::ProcessingAdapter::*drag)(double);
+    bool (qml::ProcessingAdapter::*release)();
+    double (qml::ProcessingAdapter::*value)() const;
+    double minimum, maximum;
+};
+constexpr ToneField toneFields[]{
+    {"brightness", &qml::ProcessingAdapter::commitBrightness, &qml::ProcessingAdapter::commitBrightnessText,
+        &qml::ProcessingAdapter::dragBrightness, &qml::ProcessingAdapter::releaseBrightness,
+        &qml::ProcessingAdapter::brightness, -1.0, 1.0},
+    {"contrast", &qml::ProcessingAdapter::commitContrast, &qml::ProcessingAdapter::commitContrastText,
+        &qml::ProcessingAdapter::dragContrast, &qml::ProcessingAdapter::releaseContrast,
+        &qml::ProcessingAdapter::contrast, 0.0, 4.0},
+    {"gamma", &qml::ProcessingAdapter::commitGamma, &qml::ProcessingAdapter::commitGammaText,
+        &qml::ProcessingAdapter::dragGamma, &qml::ProcessingAdapter::releaseGamma,
+        &qml::ProcessingAdapter::gamma, 0.1, 5.0}};
+
+// Parser permissiveness, nonfinite acceptance or endpoint clamping must not
+// mutate or save a rejected draft; valid inclusive endpoints remain exact.
+TEST(QmlProcessingAdapter, ToneRejectsMalformedNonfiniteAndOutOfRangeWithoutMutationOrSave) {
+    Fixture fixture(false, false, toneSeed());
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    for (const auto& field : toneFields) {
+        SCOPED_TRACE(field.name);
+        for (const auto* text : {"", " ", "NaN", "inf", "-inf", "1e999", "1,234", "1.2x", "0x1", "+-0", "++0", "--0", "1 2"}) {
+            EXPECT_FALSE((fixture.adapter.*field.commitText)(QString::fromLatin1(text))) << text;
+            EXPECT_FALSE(fixture.adapter.validationError().isEmpty()) << text;
+        }
+        for (const auto value : {field.minimum - 0.01, field.maximum + 0.01,
+            std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(),
+            -std::numeric_limits<double>::infinity()}) {
+            EXPECT_FALSE((fixture.adapter.*field.commit)(value));
+            EXPECT_FALSE((fixture.adapter.*field.drag)(value));
+        }
+        EXPECT_FALSE((fixture.adapter.*field.commitText)(QString::number(field.minimum - 0.01)));
+        EXPECT_FALSE((fixture.adapter.*field.commitText)(QString::number(field.maximum + 0.01)));
+    }
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    EXPECT_EQ(fixture.coordinator.processingControls()->draft().selectedId, before.selectedId);
+    for (int i = 0; i < 20; ++i) fixture.coordinator.poll();
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    for (const auto& field : toneFields) {
+        SCOPED_TRACE(field.name);
+        ASSERT_TRUE((fixture.adapter.*field.commit)(field.minimum));
+        EXPECT_DOUBLE_EQ((fixture.adapter.*field.value)(), field.minimum);
+        ASSERT_TRUE((fixture.adapter.*field.commitText)(QString::number(field.maximum)));
+        EXPECT_DOUBLE_EQ((fixture.adapter.*field.value)(), field.maximum);
+        ASSERT_TRUE((fixture.adapter.*field.commitText)(QStringLiteral(" +5e-1 ")));
+        EXPECT_DOUBLE_EQ((fixture.adapter.*field.value)(), 0.5);
+        EXPECT_TRUE(fixture.adapter.validationError().isEmpty());
+    }
+    ASSERT_TRUE(fixture.adapter.commitBrightnessText("-0"));
+    EXPECT_DOUBLE_EQ(fixture.adapter.brightness(), 0);
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), before);
+}
+
+void expectToneCommandsUnavailable(qml::ProcessingAdapter& adapter) {
+    EXPECT_FALSE(adapter.setBrightnessContrastEnabled(true));
+    EXPECT_FALSE(adapter.setGammaEnabled(true));
+    for (const auto& field : toneFields) {
+        SCOPED_TRACE(field.name);
+        EXPECT_FALSE((adapter.*field.commit)(0.5));
+        EXPECT_FALSE((adapter.*field.commitText)(QStringLiteral("0.5")));
+        EXPECT_FALSE((adapter.*field.drag)(0.5));
+        EXPECT_FALSE((adapter.*field.release)());
+    }
+}
+
+// A cached available flag is insufficient once shutdown starts; every command
+// must consult the live coordinator before touching the model or settings.
+TEST(QmlProcessingAdapter, ToneCommandsRejectLoadingFailedLoadAndClosing) {
+    Fixture fixture(true, false, toneSeed());
+    QSignalSpy replacements(&fixture.adapter, &qml::ProcessingAdapter::draftReplaced);
+    expectToneCommandsUnavailable(fixture.adapter);
+    ASSERT_TRUE(fixture.start());
+    expectToneCommandsUnavailable(fixture.adapter);
+    EXPECT_FALSE(fixture.adapter.selectPreset("original"));
+    EXPECT_FALSE(fixture.adapter.resetProcessing());
+    EXPECT_FALSE(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision);
+    fixture.io->release();
+    ASSERT_TRUE(fixture.settled());
+    const auto before = fixture.coordinator.processingControls()->draft();
+    const auto saved = fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision;
+    fixture.coordinator.beginShutdown();
+    // Deliberately do not refresh the adapter first.
+    expectToneCommandsUnavailable(fixture.adapter);
+    EXPECT_FALSE(fixture.adapter.selectPreset("original"));
+    EXPECT_FALSE(fixture.adapter.resetProcessing());
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, before.activePipeline));
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), before);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    EXPECT_EQ(replacements.count(), 0);
+    Fixture failed(false, true);
+    ASSERT_TRUE(failed.start());
+    ASSERT_TRUE(failed.wait([&] { return failed.coordinator.processingState().loadCompleted; }));
+    expectToneCommandsUnavailable(failed.adapter);
+    EXPECT_FALSE(failed.preferences.latestStatus()->latestAttemptedPresetSaveRevision);
+}
+
+// Removing Drag phase throttling or not flushing an unchanged Release would
+// publish too early, or leave a final operator change pending indefinitely.
+TEST(QmlProcessingAdapter, ToneDragThrottlesAndEveryReleaseFlushesCurrentDraft) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    for (const auto& field : toneFields) {
+        SCOPED_TRACE(field.name);
+        const auto revision = fixture.adapter.activeRevision();
+        ASSERT_TRUE((fixture.adapter.*field.drag)(0.25));
+        ASSERT_TRUE((fixture.adapter.*field.drag)(0.5));
+        for (int i = 0; i < 20; ++i) { fixture.coordinator.poll(); fixture.adapter.refresh(); }
+        EXPECT_TRUE(fixture.adapter.pending());
+        EXPECT_EQ(fixture.adapter.activeRevision(), revision);
+        ASSERT_TRUE((fixture.adapter.*field.release)());
+        ASSERT_TRUE(fixture.wait([&] { return !fixture.adapter.pending(); }));
+        EXPECT_NE(fixture.adapter.activeRevision(), revision);
+        EXPECT_DOUBLE_EQ((fixture.adapter.*field.value)(), 0.5);
+        const auto& accepted = fixture.coordinator.processingControls()->acknowledged()->activePipeline;
+        EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+            accepted, fixture.coordinator.processingControls()->draft().activePipeline));
+    }
+    const auto revision = fixture.adapter.activeRevision();
+    ASSERT_TRUE(fixture.adapter.dragGamma(0.75));
+    fixture.clock.advance(34ms);
+    ASSERT_TRUE(fixture.wait([&] { return !fixture.adapter.pending(); }));
+    EXPECT_NE(fixture.adapter.activeRevision(), revision);
+    EXPECT_DOUBLE_EQ(gamma(fixture.coordinator.processingControls()->acknowledged()->activePipeline).gamma, 0.75);
+}
+
+// A release carrying an obsolete slider value after draft replacement would
+// restore Custom and overwrite the newly selected recipe or reset values.
+TEST(QmlProcessingAdapter, ToneReleaseAfterPresetAndResetNeverRestoresObsoleteDrag) {
+    const auto seed = savedPresetSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    ASSERT_TRUE(fixture.adapter.dragBrightness(0.375));
+    ASSERT_TRUE(fixture.adapter.dragContrast(3.125));
+    ASSERT_TRUE(fixture.adapter.dragGamma(2.25));
+    ASSERT_TRUE(fixture.adapter.selectPreset("saved-fractional"));
+    for (const auto& field : toneFields) ASSERT_TRUE((fixture.adapter.*field.release)());
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("saved-fractional"));
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        fixture.coordinator.processingControls()->draft().activePipeline, seed.customPresets.front().pipeline));
+    ASSERT_TRUE(fixture.wait([&] { return !fixture.adapter.pending(); }));
+    ASSERT_TRUE(fixture.adapter.dragBrightness(-0.375));
+    ASSERT_TRUE(fixture.adapter.dragContrast(2.125));
+    ASSERT_TRUE(fixture.adapter.dragGamma(3.25));
+    ASSERT_TRUE(fixture.adapter.resetProcessing());
+    for (const auto& field : toneFields) ASSERT_TRUE((fixture.adapter.*field.release)());
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("original"));
+    EXPECT_DOUBLE_EQ(fixture.adapter.brightness(), 0.0);
+    EXPECT_DOUBLE_EQ(fixture.adapter.contrast(), 1.0);
+    EXPECT_DOUBLE_EQ(fixture.adapter.gamma(), 1.0);
+    ASSERT_TRUE(fixture.wait([&] { return !fixture.adapter.pending(); }));
+    EXPECT_EQ(fixture.coordinator.processingControls()->acknowledged()->selectedId.value, "original");
+    expectSavedCollection(fixture.coordinator.processingControls()->draft(), seed);
+}
+
+// Preset/reset cancellation needs its own notification even when Reset leaves
+// selectedId unchanged; signal observers must already see the replaced draft.
+TEST(QmlProcessingAdapter, DraftReplacementNotifiesAfterEveryAdmittedPresetAndReset) {
+    Fixture fixture(false, false, savedPresetSeed());
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    QSignalSpy replacements(&fixture.adapter, &qml::ProcessingAdapter::draftReplaced);
+    QString notifiedId;
+    double notifiedGamma{};
+    QStringList notifications;
+    QObject::connect(&fixture.adapter, &qml::ProcessingAdapter::stateChanged, [&] {
+        notifications.push_back(QStringLiteral("state"));
+    });
+    QObject::connect(&fixture.adapter, &qml::ProcessingAdapter::draftReplaced, [&] {
+        notifications.push_back(QStringLiteral("replacement"));
+        notifiedId = fixture.adapter.selectedPresetId();
+        notifiedGamma = fixture.adapter.gamma();
+    });
+    ASSERT_TRUE(fixture.adapter.selectPreset("saved-fractional"));
+    EXPECT_EQ(replacements.count(), 1);
+    EXPECT_EQ(notifiedId, QStringLiteral("saved-fractional"));
+    EXPECT_DOUBLE_EQ(notifiedGamma, 1.25);
+    EXPECT_EQ(notifications, (QStringList{"replacement", "state"}));
+    notifications.clear();
+    ASSERT_TRUE(fixture.adapter.resetProcessing());
+    EXPECT_EQ(replacements.count(), 2);
+    EXPECT_EQ(notifiedId, QStringLiteral("original"));
+    EXPECT_DOUBLE_EQ(notifiedGamma, 1.0);
+    EXPECT_EQ(notifications, (QStringList{"replacement", "state"}));
+    notifications.clear();
+    ASSERT_TRUE(fixture.adapter.resetProcessing());
+    EXPECT_EQ(replacements.count(), 3);
+    EXPECT_EQ(notifications, (QStringList{"replacement"}));
+    EXPECT_FALSE(fixture.adapter.selectPreset("missing-preset"));
+    EXPECT_EQ(replacements.count(), 3);
+    // Admission succeeds before asynchronous engine preparation rejects CLAHE.
+    ASSERT_TRUE(fixture.adapter.selectPreset("standard"));
+    EXPECT_EQ(replacements.count(), 4);
+    EXPECT_EQ(notifiedId, QStringLiteral("standard"));
+}
+
+// Saving the draft before successful acknowledgement, rebuilding only tone
+// stages, or lossy text conversion would corrupt the persisted/reopened recipe.
+TEST(QmlProcessingAdapter, ToneSuccessfulActivationPersistsExactWholeRecipeAndReopens) {
+    const auto seed = toneSeed();
+    Fixture fixture(false, false, seed);
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.settled());
+    const auto active = fixture.adapter.activeSummary();
+    const auto saved = fixture.preferences.latestStatus()->latestSavedPresetRevision;
+    ASSERT_TRUE(fixture.adapter.commitBrightnessText("-0.23456789012345678"));
+    ASSERT_TRUE(fixture.adapter.commitContrastText("2.3456789012345678"));
+    ASSERT_TRUE(fixture.adapter.commitGammaText("1.2345678901234567"));
+    ASSERT_TRUE(fixture.adapter.setBrightnessContrastEnabled(true));
+    ASSERT_TRUE(fixture.adapter.setGammaEnabled(false));
+    EXPECT_TRUE(fixture.adapter.pending());
+    EXPECT_EQ(fixture.adapter.activeSummary(), active);
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestAttemptedPresetSaveRevision, saved);
+    ASSERT_TRUE(fixture.wait([&] {
+        return !fixture.adapter.pending() && fixture.preferences.latestStatus()->latestSavedPresetRevision > saved;
+    }));
+    const auto loaded = fixture.io->store.load();
+    ASSERT_TRUE(loaded.hasValue());
+    const auto& persisted = loaded.value().presets;
+    EXPECT_DOUBLE_EQ(brightnessContrast(persisted.activePipeline).brightness, -0.23456789012345678);
+    EXPECT_DOUBLE_EQ(brightnessContrast(persisted.activePipeline).contrast, 2.3456789012345678);
+    EXPECT_DOUBLE_EQ(gamma(persisted.activePipeline).gamma, 1.2345678901234567);
+    EXPECT_TRUE(persisted.activePipeline.stages[2].enabled);
+    EXPECT_FALSE(persisted.activePipeline.stages[3].enabled);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(persisted.activePipeline,
+        fixture.coordinator.processingControls()->acknowledged()->activePipeline));
+    expectSavedCollection(persisted, seed);
+    Fixture reopened(fixture.io->store.path());
+    ASSERT_TRUE(reopened.start());
+    ASSERT_TRUE(reopened.loaded());
+    EXPECT_DOUBLE_EQ(reopened.adapter.brightness(), -0.23456789012345678);
+    EXPECT_DOUBLE_EQ(reopened.adapter.contrast(), 2.3456789012345678);
+    EXPECT_DOUBLE_EQ(reopened.adapter.gamma(), 1.2345678901234567);
+    EXPECT_TRUE(reopened.adapter.brightnessContrastEnabled());
+    EXPECT_FALSE(reopened.adapter.gammaEnabled());
+    expectSavedCollection(reopened.coordinator.processingControls()->draft(), seed);
+}
+
 // Missing rows, reordered IDs, name normalization and spurious list notifications
 // would rebind the operator's choice while the shared model is being refreshed.
 TEST(QmlProcessingAdapter, PresetRowsAppearAfterLoadAndRemainStableAcrossNumericEdits) {

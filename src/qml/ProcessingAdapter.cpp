@@ -13,6 +13,8 @@ namespace lumora::qml {
 namespace {
 using Phase = presentation::ProcessingEditPhase;
 using WindowLevel = processing::WindowLevelParameters;
+using BrightnessContrast = processing::BrightnessContrastParameters;
+using Gamma = processing::GammaParameters;
 using StageId = processing::StageId;
 
 QString number(double value) {
@@ -23,10 +25,10 @@ QString summary(const std::optional<core::Error>& error) {
     return error ? QString::fromStdString(error->operatorSummary) : QString{};
 }
 
-auto windowLevelStage(processing::PipelineDefinition& pipeline) {
-    return std::find_if(pipeline.stages.begin(), pipeline.stages.end(), [](const auto& stage) {
-        return stage.id == StageId::WindowLevel
-            && std::holds_alternative<WindowLevel>(stage.parameters);
+template<typename Parameters>
+auto findStage(processing::PipelineDefinition& pipeline, StageId id) {
+    return std::find_if(pipeline.stages.begin(), pipeline.stages.end(), [id](const auto& stage) {
+        return stage.id == id && std::holds_alternative<Parameters>(stage.parameters);
     });
 }
 
@@ -106,7 +108,9 @@ ProcessingAdapter::ProcessingAdapter(presentation::WorkstationCoordinator& coord
     refresh();
 }
 
-void ProcessingAdapter::refresh() {
+void ProcessingAdapter::refresh() { refreshState(false); }
+
+void ProcessingAdapter::refreshState(bool draftWasReplaced) {
     State next;
     QVariantList nextPresets;
     const auto& processing = coordinator_.processingState();
@@ -142,7 +146,7 @@ void ProcessingAdapter::refresh() {
         }
         auto draft = model->draft();
         next.selectedPresetId = QString::fromStdString(draft.selectedId.value);
-        const auto stage = windowLevelStage(draft.activePipeline);
+        const auto stage = findStage<WindowLevel>(draft.activePipeline, StageId::WindowLevel);
         next.available = workstation.controlsEnabled && stage != draft.activePipeline.stages.end();
         if (stage != draft.activePipeline.stages.end()) {
             const auto& parameters = std::get<WindowLevel>(stage->parameters);
@@ -151,6 +155,22 @@ void ProcessingAdapter::refresh() {
             next.level = parameters.level;
             next.windowText = number(parameters.window);
             next.levelText = number(parameters.level);
+        }
+        const auto toneStage = findStage<BrightnessContrast>(draft.activePipeline, StageId::BrightnessContrast);
+        if (toneStage != draft.activePipeline.stages.end()) {
+            const auto& parameters = std::get<BrightnessContrast>(toneStage->parameters);
+            next.brightnessContrastEnabled = toneStage->enabled;
+            next.brightness = parameters.brightness;
+            next.contrast = parameters.contrast;
+            next.brightnessText = number(parameters.brightness);
+            next.contrastText = number(parameters.contrast);
+        }
+        const auto gammaStage = findStage<Gamma>(draft.activePipeline, StageId::Gamma);
+        if (gammaStage != draft.activePipeline.stages.end()) {
+            const auto& parameters = std::get<Gamma>(gammaStage->parameters);
+            next.gammaEnabled = gammaStage->enabled;
+            next.gamma = parameters.gamma;
+            next.gammaText = number(parameters.gamma);
         }
         next.draftPresetName = presetName(draft, *model);
         next.pending = model->pending();
@@ -166,10 +186,12 @@ void ProcessingAdapter::refresh() {
     next.validationError = inputError_;
     const bool listChanged = nextPresets != presets_;
     if (listChanged) presets_ = std::move(nextPresets);
-    if (next != state_) {
-        state_ = std::move(next);
-        emit stateChanged();
-    }
+    const bool changed = next != state_;
+    if (changed) state_ = std::move(next);
+    // Cancel uncommitted editor text before changed enable flags can cause a
+    // focus-loss commit. Observers already see the complete replacement snapshot.
+    if (draftWasReplaced) emit draftReplaced();
+    if (changed) emit stateChanged();
     if (listChanged) emit presetsChanged();
 }
 
@@ -185,7 +207,7 @@ bool ProcessingAdapter::selectPreset(const QString& id) {
         return rejectInput(tr("Processing controls are unavailable."));
     const auto result = model->selectPreset({id.toStdString()});
     if (result.hasValue()) inputError_.clear();
-    refresh();
+    refreshState(result.hasValue());
     return result.hasValue();
 }
 
@@ -195,18 +217,19 @@ bool ProcessingAdapter::resetProcessing() {
         return rejectInput(tr("Processing controls are unavailable."));
     const auto result = model->reset();
     if (result.hasValue()) inputError_.clear();
-    refresh();
+    refreshState(result.hasValue());
     return result.hasValue();
 }
 
-bool ProcessingAdapter::setStageEnabled(bool enabled) {
+template<typename Parameters>
+bool ProcessingAdapter::setEnabled(StageId id, bool enabled) {
     auto* model = coordinator_.processingControls();
     if (!model || !coordinator_.state().controlsEnabled)
         return rejectInput(tr("Processing controls are unavailable."));
     auto pipeline = model->draft().activePipeline;
-    const auto stage = windowLevelStage(pipeline);
+    const auto stage = findStage<Parameters>(pipeline, id);
     if (stage == pipeline.stages.end())
-        return rejectInput(tr("Window/level settings are unavailable."));
+        return rejectInput(tr("%1 settings are unavailable.").arg(stageLabel(id)));
     stage->enabled = enabled;
     inputError_.clear();
     const auto result = model->edit(std::move(pipeline), Phase::Commit);
@@ -214,28 +237,59 @@ bool ProcessingAdapter::setStageEnabled(bool enabled) {
     return result.hasValue();
 }
 
-bool ProcessingAdapter::editValue(double WindowLevel::* member, double value, Phase phase) {
+bool ProcessingAdapter::setStageEnabled(bool enabled) {
+    return setEnabled<WindowLevel>(StageId::WindowLevel, enabled);
+}
+
+bool ProcessingAdapter::setBrightnessContrastEnabled(bool enabled) {
+    return setEnabled<BrightnessContrast>(StageId::BrightnessContrast, enabled);
+}
+
+bool ProcessingAdapter::setGammaEnabled(bool enabled) {
+    return setEnabled<Gamma>(StageId::Gamma, enabled);
+}
+
+template<typename Parameters>
+bool ProcessingAdapter::editStageValue(StageId id, double Parameters::* member, double value,
+    double minimum, double maximum, const QString& label, Phase phase) {
     auto* model = coordinator_.processingControls();
     if (!model || !coordinator_.state().controlsEnabled)
         return rejectInput(tr("Processing controls are unavailable."));
-    const bool isWindow = member == &WindowLevel::window;
-    const auto minimum = isWindow ? windowMinimum() : levelMinimum();
-    const auto maximum = isWindow ? windowMaximum() : levelMaximum();
     if (!std::isfinite(value) || value < minimum || value > maximum)
         return rejectInput(tr("%1 must be a finite number from %2 to %3.")
-            .arg(isWindow ? tr("Window") : tr("Level"), number(minimum), number(maximum)));
+            .arg(label, number(minimum), number(maximum)));
     auto pipeline = model->draft().activePipeline;
-    const auto stage = windowLevelStage(pipeline);
+    const auto stage = findStage<Parameters>(pipeline, id);
     if (stage == pipeline.stages.end())
-        return rejectInput(tr("Window/level settings are unavailable."));
-    std::get<WindowLevel>(stage->parameters).*member = value;
+        return rejectInput(tr("%1 settings are unavailable.").arg(stageLabel(id)));
+    std::get<Parameters>(stage->parameters).*member = value;
     inputError_.clear();
     const auto result = model->edit(std::move(pipeline), phase);
     refresh();
     return result.hasValue();
 }
 
-bool ProcessingAdapter::commitText(double WindowLevel::* member, const QString& text) {
+bool ProcessingAdapter::editValue(double WindowLevel::* member, double value, Phase phase) {
+    const bool isWindow = member == &WindowLevel::window;
+    return editStageValue(StageId::WindowLevel, member, value,
+        isWindow ? windowMinimum() : levelMinimum(), isWindow ? windowMaximum() : levelMaximum(),
+        isWindow ? tr("Window") : tr("Level"), phase);
+}
+
+bool ProcessingAdapter::editValue(double BrightnessContrast::* member, double value, Phase phase) {
+    const bool isBrightness = member == &BrightnessContrast::brightness;
+    return editStageValue(StageId::BrightnessContrast, member, value,
+        isBrightness ? brightnessMinimum() : contrastMinimum(),
+        isBrightness ? brightnessMaximum() : contrastMaximum(),
+        isBrightness ? tr("Brightness") : tr("Contrast"), phase);
+}
+
+bool ProcessingAdapter::editValue(double Gamma::* member, double value, Phase phase) {
+    return editStageValue(StageId::Gamma, member, value, gammaMinimum(), gammaMaximum(), tr("Gamma"), phase);
+}
+
+template<typename Parameters>
+bool ProcessingAdapter::commitText(double Parameters::* member, const QString& text) {
     const auto bytes = text.trimmed().toUtf8();
     const char* begin = bytes.constData();
     const char* end = begin + bytes.size();
@@ -259,6 +313,35 @@ bool ProcessingAdapter::dragWindow(double value) { return editValue(&WindowLevel
 bool ProcessingAdapter::dragLevel(double value) { return editValue(&WindowLevel::level, value, Phase::Drag); }
 bool ProcessingAdapter::releaseWindow(double value) { return editValue(&WindowLevel::window, value, Phase::Release); }
 bool ProcessingAdapter::releaseLevel(double value) { return editValue(&WindowLevel::level, value, Phase::Release); }
+
+template<typename Parameters>
+bool ProcessingAdapter::releaseStage(StageId id) {
+    auto* model = coordinator_.processingControls();
+    if (!model || !coordinator_.state().controlsEnabled)
+        return rejectInput(tr("Processing controls are unavailable."));
+    auto pipeline = model->draft().activePipeline;
+    if (findStage<Parameters>(pipeline, id) == pipeline.stages.end())
+        return rejectInput(tr("%1 settings are unavailable.").arg(stageLabel(id)));
+    inputError_.clear();
+    // A preset/reset may have replaced the drag. Flush only the model's current
+    // whole draft, preserving its preset identity and exact stored values.
+    const auto result = model->edit(std::move(pipeline), Phase::Release);
+    refresh();
+    return result.hasValue();
+}
+
+bool ProcessingAdapter::commitBrightness(double value) { return editValue(&BrightnessContrast::brightness, value, Phase::Commit); }
+bool ProcessingAdapter::commitContrast(double value) { return editValue(&BrightnessContrast::contrast, value, Phase::Commit); }
+bool ProcessingAdapter::commitGamma(double value) { return editValue(&Gamma::gamma, value, Phase::Commit); }
+bool ProcessingAdapter::commitBrightnessText(const QString& text) { return commitText(&BrightnessContrast::brightness, text); }
+bool ProcessingAdapter::commitContrastText(const QString& text) { return commitText(&BrightnessContrast::contrast, text); }
+bool ProcessingAdapter::commitGammaText(const QString& text) { return commitText(&Gamma::gamma, text); }
+bool ProcessingAdapter::dragBrightness(double value) { return editValue(&BrightnessContrast::brightness, value, Phase::Drag); }
+bool ProcessingAdapter::dragContrast(double value) { return editValue(&BrightnessContrast::contrast, value, Phase::Drag); }
+bool ProcessingAdapter::dragGamma(double value) { return editValue(&Gamma::gamma, value, Phase::Drag); }
+bool ProcessingAdapter::releaseBrightness() { return releaseStage<BrightnessContrast>(StageId::BrightnessContrast); }
+bool ProcessingAdapter::releaseContrast() { return releaseStage<BrightnessContrast>(StageId::BrightnessContrast); }
+bool ProcessingAdapter::releaseGamma() { return releaseStage<Gamma>(StageId::Gamma); }
 
 bool ProcessingAdapter::retry() {
     refresh();
