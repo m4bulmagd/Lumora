@@ -93,21 +93,21 @@ Use `linux-gcc-release-sim-qml` for Release. `lumora_app` remains the Widgets wo
 
 The pilot uses the separate `LumoraQmlPilot` application identity and preference directory. Select SIM-LIVE, **Connect → Apply → review current readback → Confirm → Start Live**. Saved settings may reconnect for inspection, but streaming always requires an explicit Start or eligible **Resume saved Live** action. Stop and Disconnect can cancel pending startup. The simulator still requests 640×480 Mono12 in UInt16 at 30 FPS through the existing pipeline.
 
-The QML frontend provides Original/Enhanced/Compare, Pause/Resume, Fit and logical 100%, pointer zoom/pan, and exact window/level fields and sliders. Image pixels and frame ownership remain in C++. Processing preferences save only after matching successful activation. Full camera, preset and installation editors remain later migration work; camera readback and installation orientation are read-only here. Use the Widgets application for those existing editors.
+The QML frontend provides Original/Enhanced/Compare, Pause/Resume, Fit and logical 100%, pointer zoom/pan, and exact window/level fields and sliders. The processing selector includes Original, Standard, High Contrast, Soft Detail, Custom and loaded saved recipes; Reset processing returns to Original while preserving camera confirmation, paused pixels and viewport state. Image pixels and frame ownership remain in C++. Processing preferences save only after matching successful activation; failed activation restores the accepted selection. See the [preset/reset checkpoint](../architecture/milestones/qml-presets.md). Remaining processing controls, preset save/rename/delete, camera settings and installation editors remain later migration work; camera readback and installation orientation are read-only here. Use the Widgets application for those existing editors.
 
 Click or Tab to the image surface before using Space=Pause/Resume, F=Fit, 1=100%, and +/-=zoom. Those keys do not intercept numeric entry. Evaluation, camera/viewer state, timestamp/age, stale/pause, orientation and errors remain visible around the image.
 
 `Qml.Workstation` drives the compiled scene through real controls and the simulator. `Qml.Runtime` and `Qml.ProcessingAdapter` cover adapter/lifetime and activation/persistence behavior. For native Linux software-rendered captures:
 
 ```bash
-LUMORA_QML_CAPTURE_DIR="$PWD/out/qa/qml-live/captures" \
+LUMORA_QML_CAPTURE_DIR="$PWD/out/qa/qml-presets/captures-manual" \
   xvfb-run -a cmake -E env QT_QPA_PLATFORM=xcb QT_QUICK_BACKEND=software \
   out/build/linux-gcc-debug-sim-qml/tests/lumora_qml_tests
 ```
 
 Use the matching Qt platform-plugin path if required by the installed prefix. The retained worktree uses the matching official Qt 6.11.1 SDK at `.tools/qt-official`, with non-Qt dependencies from the original vcpkg prefix. Its Debug application links Release Qt libraries. Reconfigure that cache with the recorded `CMAKE_PREFIX_PATH`; do not replace it with an unrelated Qt version. Xvfb/software or llvmpipe passes do not establish physical-display/GPU or native Windows/DPI acceptance.
 
-The Linux-only `QmlPilot` install component stages the executable, scanned QML imports, runtime libraries/plugins and existing notices outside the build tree. See the [live checkpoint record](../architecture/milestones/qml-live.md) for verified commands, dependency isolation and the scope of this internal stage. It is not an accepted installer or distribution bundle.
+The Linux-only `QmlPilot` install component stages the executable, scanned QML imports, runtime libraries/plugins and existing notices outside the build tree. See the [live checkpoint record](../architecture/milestones/qml-live.md) for deployment mechanics and the [preset/reset record](../architecture/milestones/qml-presets.md) for the latest fresh stage. It is not an accepted installer or distribution bundle.
 
 ## QML renderer experiment
 
