@@ -675,6 +675,11 @@ TEST(QmlProcessingAdapter, DenoiseSuccessfulActivationPersistsAndReopensWholeRec
     const auto stored = fixture.io->store.load();
     ASSERT_TRUE(stored.hasValue());
     const auto& persisted = stored.value().presets;
+    auto expected = seed.activePipeline;
+    expected.stages[5].enabled = true;
+    expected.stages[5].parameters = processing::DenoiseParameters{
+        processing::DenoiseMode::Gaussian, 5U, 4.876543210987654};
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(persisted.activePipeline, expected));
     EXPECT_TRUE(persisted.activePipeline.stages[5].enabled);
     EXPECT_EQ(denoise(persisted.activePipeline).mode, processing::DenoiseMode::Gaussian);
     EXPECT_EQ(denoise(persisted.activePipeline).kernelSize, 5U);
@@ -690,6 +695,8 @@ TEST(QmlProcessingAdapter, DenoiseSuccessfulActivationPersistsAndReopensWholeRec
     EXPECT_EQ(reopened.adapter.denoiseMode(), QStringLiteral("gaussian"));
     EXPECT_EQ(reopened.adapter.denoiseKernelSize(), 5);
     EXPECT_DOUBLE_EQ(reopened.adapter.denoiseSigma(), 4.876543210987654);
+    EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+        reopened.coordinator.processingControls()->draft().activePipeline, expected));
     expectSavedCollection(reopened.coordinator.processingControls()->draft(), seed);
 }
 
