@@ -67,7 +67,7 @@ ctest --preset windows-msvc-debug-sim -R '^Qml\.' --output-on-failure
 
 The application uses the production `Lumora` organization/application identity and existing production preferences. Former `LumoraQmlPilot` settings remain untouched in their separate directory; there is no automatic merge or import. Preserve both sets of files. Any selected pilot migration is a later explicit opt-in procedure.
 
-Camera and installation controls are QML. Installation editing requires `--installation` and actual OS administrator authority; the flag alone grants none. Saved-preset creation/rename/deletion, fullscreen and layout editing remain later features.
+Camera and installation controls are QML. Installation editing requires `--installation` and actual OS administrator authority; the flag alone grants none. Saved-preset creation/rename/deletion remains later work. The shared QML source adds fullscreen (F11/Escape), collapsible panels, optional frame Details and saved window layout; native Windows validation of these controls remains pending.
 
 Native Windows graphics and 100%/125%/150%/200% display scaling require separate recorded results. Linux SDK/Xvfb/llvmpipe evidence does not establish them. The Linux `QmlPilot` staging component retains its compatibility name; it is not a Windows installer or M13 acceptance.
 

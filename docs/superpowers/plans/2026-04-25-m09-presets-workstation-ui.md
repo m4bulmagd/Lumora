@@ -6,13 +6,13 @@
 
 **Architecture:** Qt views bind to presentation models and publish complete application commands. Presets are versioned pipeline definitions; UI edits are coalesced but final values are exact.
 
-**Tech Stack:** C++20, Qt 6 Widgets/Core/Test in the current implementation, existing application/processing/configuration modules, GoogleTest/CTest. Qt Quick/QML is the selected frontend for the upcoming migration; its dependencies and targets are not implemented yet.
+**Tech Stack:** C++20, Qt 6 Quick/QML/Quick Controls, existing application/processing/configuration modules, GoogleTest/CTest. The normal `lumora_app` is QML-only; unique Widgets regression tests remain behind an explicit opt-in build option.
 
 **Spec:** `docs/superpowers/specs/2026-04-25-xray-imaging-workstation-design.md`
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**Next-session direction (2026-09-13):** [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) records the owner's Qt Quick/QML choice. Continue from Task 4E, now [integrated into local main at `e2de210`](../../architecture/milestones/m09-camera-controls.md#local-main-integration), using the [migration proposal](../specs/2026-09-13-qt-quick-qml-migration-design.md) and [handoff](../../PROGRESS.md#next-session-qt-quickqml). Plan the initial shared-presentation and renderer work first. Existing Widgets behavior is the parity baseline; remaining Task 5 functionality should be implemented in the selected frontend after its plan is refined.
+**Current direction (2026-09-15):** The owner’s 2026-09-13 Qt Quick/QML decision in [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) has been implemented: the [QML application migration](../../architecture/milestones/qml-only-workstation.md) supplies the normal application and camera/processing parity. Task 5 development follows the [refined QML layout plan](2026-09-15-qml-layout.md) and [layout milestone record](../../architecture/milestones/qml-layout.md); native/staged verification passes and the implementation is integrated locally at `5f6b82f`. The Task 1–4 file lists and original steps below retain their historical implementation context, rather than directing new Widgets work. Formal M9 acceptance remains separate.
 
 ## Global Constraints
 
@@ -192,9 +192,9 @@ git commit -m "feat(ui): add synchronized original enhanced comparison"
 
 ### Task 4: Camera selection and safe settings dialog
 
-The owner-authorized [Task 4A refined plan](2026-09-10-m09-camera-settings.md) and [camera-settings record](../../architecture/milestones/m09-camera-settings.md) implement stopped exposure/gain editing first, preserving the existing startup panel and preferences policy. The subsequent [Task 4B frame-rate continuation](../../architecture/milestones/m09-frame-rate.md#pr-21-integration) implements low-FPS watchdog correction and stopped numeric FPS editing, merged through PR #21 after Linux/Windows Debug/Release CI passed. The local [Task 4C ROI/format continuation](../../architecture/milestones/m09-format-roi.md) implements same-device resource rebinding, followed by [Task 4D camera profiles and installation orientation](../../architecture/milestones/m09-camera-profiles.md) at `10e1018`. Task 4D passes Linux Debug/Release 66/66, targeted sanitizers and supplemental native checks; Windows execution remains separate. The local [Task 4E camera controls continuation](../../architecture/milestones/m09-camera-controls.md) completes the compact panel and explicit capability access at `2be3a85`, including absent gain/read-only FPS, authoritative current readback and fingerprint-2 migration. The combined Task 4 implementation is locally verified on Linux; Windows, physical-camera and formal milestone acceptance remain separate. The subsequent Qt Quick/QML decision redirects the next session to migration planning; Task 5 remains the next unfinished M9 product task for that frontend.
+The owner-authorized [Task 4A refined plan](2026-09-10-m09-camera-settings.md) and [camera-settings record](../../architecture/milestones/m09-camera-settings.md) implement stopped exposure/gain editing first, preserving the existing startup panel and preferences policy. The subsequent [Task 4B frame-rate continuation](../../architecture/milestones/m09-frame-rate.md#pr-21-integration) implements low-FPS watchdog correction and stopped numeric FPS editing, merged through PR #21 after Linux/Windows Debug/Release CI passed. The local [Task 4C ROI/format continuation](../../architecture/milestones/m09-format-roi.md) implements same-device resource rebinding, followed by [Task 4D camera profiles and installation orientation](../../architecture/milestones/m09-camera-profiles.md) at `10e1018`. Task 4D passes Linux Debug/Release 66/66, targeted sanitizers and supplemental native checks; Windows execution remains separate. The local [Task 4E camera controls continuation](../../architecture/milestones/m09-camera-controls.md) completes the compact panel and explicit capability access at `2be3a85`, including absent gain/read-only FPS, authoritative current readback and fingerprint-2 migration. The combined Task 4 implementation is locally verified on Linux; Windows, physical-camera and formal milestone acceptance remain separate. These Task 4A–4E records describe the historical Widgets parity baseline. As of 2026-09-15, the [QML completion record](../../architecture/milestones/qml-only-workstation.md) documents that workflow in the normal QML application; Task 5 is implemented, locally verified and integrated in QML as recorded below.
 
-Extend the [M5 startup contract](../../architecture/milestones/m05-preflight.md#3-minimal-startup-ui-and-persistence). M5 already provides minimal startup controls, typed saved preferences, capability comparison, confirmation/revision guards, and asynchronous persistence. This task replaces/expands the small `CameraStartupPanel` with the complete panel/dialog without duplicating its controller policy or stored last-camera record.
+The historical Task 4 implementation extended the [M5 startup contract](../../architecture/milestones/m05-preflight.md#3-minimal-startup-ui-and-persistence): startup controls, typed saved preferences, capability comparison, confirmation/revision guards and asynchronous persistence. It expanded `CameraStartupPanel` without duplicating controller policy or stored camera records. The QML adapters now preserve those shared C++ contracts.
 
 **Files:**
 - Create: `src/ui/include/lumora/ui/CameraSettingsDialog.hpp`
@@ -254,46 +254,45 @@ git commit -m "feat(ui): add capability-driven camera controls"
 
 ### Task 5: Fullscreen, collapsible sidebar, and persisted UI preferences
 
-**Unimplemented; frontend plan to be adapted.** The file list and mechanics below are the original Widgets plan. Preserve the functional checks and persistence requirements, but refine the QML ownership, files and verification in a bounded plan before implementing this task. Fullscreen and sidebar collapse do not precede the initial QML migration work described above.
+**Implemented, locally verified and integrated in QML (2026-09-15).** The [refined implementation plan](2026-09-15-qml-layout.md) replaces the original Widgets file list and mechanics. The [milestone record](../../architecture/milestones/qml-layout.md) tracks source-bound evidence, review and remaining gates.
 
-**Files:**
-- Create: `src/ui/include/lumora/ui/UiPreferences.hpp`
-- Create: `src/ui/src/FullscreenController.cpp`
-- Create: `tests/unit/ui/FullscreenControllerTests.cpp`
-- Modify: `src/ui/src/MainWindow.cpp`
-- Modify: `src/configuration/include/lumora/configuration/ApplicationConfiguration.hpp`
-- Modify: `src/configuration/src/ConfigurationCodec.cpp`
+**Implemented files:**
+
+- `src/application/include/lumora/application/UiPreferences.hpp` and UI status additions in `StartupPreferences.hpp`
+- `src/configuration/include/lumora/configuration/UiPreferencesCodec.hpp`, `src/configuration/src/UiPreferencesCodec.cpp`, and the existing `StartupPreferencesService.hpp/.cpp`
+- `src/qml/LayoutAdapter.hpp/.cpp` and `QmlWorkstation.hpp/.cpp`
+- `src/qml/qml/Main.qml`, `StatusStrip.qml`, `CameraStartup.qml` and processing editor input-cancellation bindings
+- `tests/unit/configuration/UiPreferencesTests.cpp`, `StartupPreferencesTests.cpp`, `tests/integration/QmlLayoutAdapterTests.cpp` and `QmlWorkstationTests.cpp`
 
 **Interfaces:**
-- Consumes: Qt window state, UI preference section, and camera/error presentation state.
-- Produces: sidebar collapse, fullscreen enter/exit, Escape handling, persistent evaluation/paused/stale/orientation/critical-status overlays, and validated window-geometry persistence.
 
-- [ ] **Step 1: Write failing fullscreen safety tests**
+- `LayoutAdapter` observes the existing QQuickWindow, exposes panel/fullscreen/diagnostics state and warnings, handles F11/Escape, and emits `layoutChanging` before focus or visibility transitions.
+- `UiPreferences` stores ordinary geometry, `panelsCollapsed`, maximized/fullscreen preferences and diagnostics visibility. `postUiSave` and dirty-field `postUiUpdate` use the existing asynchronous document writer with independent UI revisions.
+- One ApplicationWindow and ViewerSurface retain image ownership and transforms. Mandatory evaluation, acquisition/error, paused/stale/timestamp/age, orientation and processing status remain visible alongside priority Stop/Disconnect controls.
 
-Enter fullscreen, assert sidebar/footer hidden, `EVALUATION — NOT FOR CLINICAL USE`, Live/Error, PAUSED timestamp/age, STALE IMAGE / NOT LIVE, and active orientation remain visible when applicable; Escape exits and a camera-disconnected update remains visible.
+- [x] **Step 1: Write failing fullscreen safety tests**
 
-- [ ] **Step 2: Implement UI state transitions**
+Behavioral RED tests cover panel/fullscreen transitions, same-surface paused Compare identity and transform, required status, Escape with an open popup, fallback/disconnection, and close/reopen persistence. Layout transitions cancel uncommitted editor input without implying processing edits, Apply, Confirm or Start.
 
-Do not reparent/destroy the viewport during fullscreen. Save ordinary window geometry only when valid/on-screen. Collapsing sidebar expands viewer and does not change pipeline/viewport transform.
+- [x] **Step 2: Implement UI state transitions**
 
-- [ ] **Step 3: Persist and migrate preferences**
+One remembered panel choice covers camera and processing panels. Fullscreen temporarily hides both without changing that choice; exit restores the previous ordinary/maximized state. F11 and a visible action toggle fullscreen; Escape exits it, while viewer-local F remains Fit. The viewport is neither replaced nor reparented.
 
-Store sidebar collapsed, window geometry, maximized/fullscreen preference, and diagnostics visibility. On invalid/off-screen geometry, center a default 1280x800 window on the primary screen.
+- [x] **Step 3: Persist and recover preferences**
 
-- [ ] **Step 4: Exclude unready recording UI**
+The version-1 `ui.layout` codec preserves unrelated keys and configuration sections. Partial updates merge after loading, retaining untouched saved fields even when shutdown precedes load completion. Unsafe documents prevent writes; future layout versions block UI writes. Ordinary geometry is saved only outside fullscreen/minimized states and validated against available screens. Invalid/inaccessible geometry falls back to centered 1280×800 bounded by available space and the window minimum. Debounced updates flush before the existing worker drain.
 
-Do not include a Record widget/action in v1 production or evaluation compositions. Recording experiments use non-shipping harnesses until a separate specification is approved. Assert UI object discovery and menus contain no Record action.
+- [x] **Step 4: Exclude unready recording UI**
+
+No Record action is introduced. Diagnostics hides only optional detail; required status remains visible in ordinary, collapsed and fullscreen presentation.
 
 - [ ] **Step 5: Run full UI/integration suite and manual resolutions**
 
-Test offscreen automation on Linux and Windows CI plus manual Windows 1280x720, 1920x1080, 2560x1440 and scaling 100/125/150%. Verify all English strings use Qt translation facilities and critical text is understandable without color.
+Final Linux Debug and Release CTest each pass **66/66** on the source snapshot beginning `0c40`. All six native software/threaded OpenGL/DPR 2 scene configurations pass 28/28. The installed application passes normal close and second-process layout restoration. Windows execution and the manual Windows 1280×720, 1920×1080, 2560×1440, 100/125/150% scaling matrix remain pending. Translation readiness and critical text independent of color remain verification requirements; Linux results do not close the Windows or milestone gates.
 
-- [ ] **Step 6: Commit workstation UI completion**
+- [x] **Step 6: Commit workstation UI completion**
 
-```powershell
-git add src/ui src/configuration tests/unit/ui
-git commit -m "feat(ui): complete workstation presentation modes"
-```
+Local implementation `5f6b82f` is integrated into main. The linked milestone binds source, tests and reviews. No push or formal M9 acceptance is claimed here.
 
 ## Milestone 9 acceptance gate
 
