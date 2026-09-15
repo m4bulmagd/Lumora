@@ -18,7 +18,8 @@ jobs:
   simulator-release:
     name: Windows MSVC Debug and Release Simulator
     runs-on: windows-2022
-    timeout-minutes: 90
+    # A cold Qt Quick Debug/Release dependency build can exceed 90 minutes.
+    timeout-minutes: 180
 
     env:
       VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/out/vcpkg-cache,readwrite
