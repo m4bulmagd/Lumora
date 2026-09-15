@@ -36,6 +36,13 @@ macro(lumora_find_dependencies)
       endif()
     endforeach()
 
+    get_target_property(lumora_qt_gui_features Qt6::Gui QT_ENABLED_PUBLIC_FEATURES)
+    if(NOT "imageformat_png" IN_LIST lumora_qt_gui_features)
+      message(FATAL_ERROR
+        "The Qt Quick workstation requires Qt Gui PNG decoding for Qt Quick Controls. "
+        "Enable qtbase[png] with vcpkg, or use a Qt SDK with PNG support.")
+    endif()
+
     message(STATUS
       "Lumora QML UI: resolved matching Qt ${Qt6Core_VERSION} modules: "
       "${lumora_qt_components}")

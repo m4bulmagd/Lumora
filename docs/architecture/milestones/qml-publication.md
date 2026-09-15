@@ -13,9 +13,19 @@ Both initial hosted runs at the full `d97b269` commit above concluded **cancelle
 
 Neither run reached QML lint, tests or the Lumora Release stages. These are job-limit cancellations, not passing hosted builds or tests. Linux restored 31 older cached packages and Windows restored 16; saving newly built packages was skipped after cancellation. Tool-cache service warnings were nonfatal and do not explain the cancellations.
 
-The recovery change raises both workflow job caps from **90 to 180 minutes**, leaving dependency pins, application build commands and tests unchanged. It gives the initial dependency build more time to complete and enables subsequent hosted verification; changing the cap is not itself verification.
+The timeout recovery at `0740ead` raises both workflow job caps from **90 to 180 minutes**, leaving dependency pins, application build commands and tests unchanged. It gives the initial dependency build more time to complete and enables subsequent hosted verification; changing the cap is not itself verification.
 
-For later run conclusions, use the [Linux main workflow page](https://github.com/m4bulmagd/Lumora/actions/workflows/linux-simulator.yml?query=branch%3Amain) and [Windows main workflow page](https://github.com/m4bulmagd/Lumora/actions/workflows/windows-simulator.yml?query=branch%3Amain), checking the exact commit and job results. This record preserves the initial publication and recovery evidence without asserting a current branch head or a successor CI outcome.
+For later run conclusions, use the [Linux main workflow page](https://github.com/m4bulmagd/Lumora/actions/workflows/linux-simulator.yml?query=branch%3Amain) and [Windows main workflow page](https://github.com/m4bulmagd/Lumora/actions/workflows/windows-simulator.yml?query=branch%3Amain), checking the exact commit and job results. This record preserves the initial publication and recovery evidence without asserting a current branch head or an unverified CI outcome.
+
+## PNG dependency failure after timeout recovery
+
+The timeout-recovery Linux run [34991995125](https://github.com/m4bulmagd/Lumora/actions/runs/34991995125), at `0740ead`, completed the Debug build and QML lint but failed `Qml.Workstation` initialization: Qt Quick Controls Basic PNG icons reported **Unsupported image format**. The other **66 of 67** test groups passed; the overall test command failed. Lumora Release and native desktop checks did not run. This is a distinct dependency-capability failure after the earlier job-limit cancellations.
+
+The completed package cache was uploaded successfully (**1,552,049,858 bytes**). Subsequent runs can reuse compatible packages, but enabling PNG changes the Qt package build and requires the affected Qt packages to be rebuilt. The companion Windows run [34991995204](https://github.com/m4bulmagd/Lumora/actions/runs/34991995204) was still configuring when this correction was prepared; no passing Windows outcome is recorded here.
+
+The correction explicitly requests `qtbase[png]` within the `qml-ui` vcpkg feature and requires the exported `Qt6::Gui` public feature `imageformat_png` in `cmake/Dependencies.cmake`. This supplies the image-format support used by Basic controls and rejects a Qt configuration without it before application build or scene initialization. These dependency/build checks do not establish a passing successor CI result. The original `d97b269` local results below remain bound to their recorded source and retained Qt SDK.
+
+Local correction checks bind to the 431-file aggregate **`5ac63c515d10037332a7711b959cad76dcb45dabe59a6035d3982324a9056f2d`**: Debug/Release builds and QML lint pass, and the full suites pass **66/66** each (73.007 s / 41.982 s). A vcpkg dry run with the CI Linux host/target triplet requests Qt PNG support. Configuration accepts the retained PNG-capable SDK and rejects a probe with `imageformat_png` removed from its imported capability metadata, even with tests disabled. This negative probe checks the configuration error; it does not emulate PNG decoding. Fresh hosted runs remain responsible for verifying the corrected vcpkg-built Qt on both platforms.
 
 ## Local publication checks
 

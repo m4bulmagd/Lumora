@@ -43,6 +43,7 @@
           "name": "qtbase",
           "default-features": false,
           "features": [
+            "png",
             {
               "name": "opengl",
               "platform": "linux"
