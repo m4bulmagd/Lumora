@@ -31,13 +31,12 @@ CI cache keys separate operating systems and architectures; vcpkg checks package
 
 ## Configure, build, and test
 
-The commands below build the current Widgets workstation. An opt-in [QML SIM-LIVE pilot](#optional-qml-sim-live-pilot) is also available. The pilot reuses shared C++ controller/presentation policy and the simulator pipeline; see the [migration plan](../superpowers/plans/2026-09-13-qml-stage-one.md). Existing `minimal` smoke tests do not verify Quick rendering or native Windows visual/DPI behavior.
-
+Normal builds produce the sole `lumora_app` Qt Quick/QML workstation. Qt Widgets is not required unless the separate legacy regression option is enabled. These instructions describe the intended native Windows build; the local Linux default switch does not establish Windows compilation, graphics, visual/DPI, installer or hardware acceptance.
 Debug simulator build:
 
 ```powershell
 cmake --preset windows-msvc-debug-sim --fresh "-DCMAKE_TOOLCHAIN_FILE=$LumoraVcpkgRoot\scripts\buildsystems\vcpkg.cmake"
-cmake --build --preset windows-msvc-debug-sim --parallel
+cmake --build --preset windows-msvc-debug-sim --parallel 3
 ctest --preset windows-msvc-debug-sim --output-on-failure -LE hardware
 ```
 
@@ -45,48 +44,55 @@ Release simulator build:
 
 ```powershell
 cmake --preset windows-msvc-release-sim --fresh "-DCMAKE_TOOLCHAIN_FILE=$LumoraVcpkgRoot\scripts\buildsystems\vcpkg.cmake"
-cmake --build --preset windows-msvc-release-sim --parallel
+cmake --build --preset windows-msvc-release-sim --parallel 3
 ctest --preset windows-msvc-release-sim --output-on-failure -LE hardware
 ```
 
-These presets force `LUMORA_ENABLE_BASLER=OFF`, so a pylon installation is not required. They use the dynamic `x64-windows` triplet to preserve the approved Qt LGPL linking boundary. The Qt smoke test uses the `minimal` platform plugin and does not open an interactive desktop window.
+These presets force `LUMORA_ENABLE_BASLER=OFF`, so a pylon installation is not required. They use the dynamic `x64-windows` triplet to preserve the approved Qt LGPL linking boundary. Quick tests use the `offscreen` platform plugin and software rendering without opening an interactive desktop window.
 
-CTest sets the smoke test's `QT_QPA_PLATFORM_PLUGIN_PATH` from the imported `Qt6::QMinimalIntegrationPlugin` target, selecting the installed plugin directory for the active Debug or Release configuration. Copying Qt DLLs beside the executable alone does not provide this plugin path. This test-only environment does not replace deploying the Qt runtime and the `windows` platform plugin with the future Windows installer.
+CTest sets each Quick test's `QT_QPA_PLATFORM_PLUGIN_PATH` from the imported `Qt6::QMinimalIntegrationPlugin` target, selecting the installed plugin directory for the active Debug or Release configuration. Copying Qt DLLs beside the executable alone does not provide this plugin path. This test-only environment does not replace deploying the Qt runtime and the `windows` platform plugin with the future Windows installer.
 
 Basler presets are reserved for the later camera-adapter milestone. Machine-specific pylon paths belong in ignored `CMakeUserPresets.json`, never in the shared presets.
 
-## Optional QML SIM-LIVE pilot
+## QML dependencies and compatibility names
 
-Use the separate QML presets to enable `LUMORA_BUILD_QML_UI` and manifest feature `qml-ui`, with dependencies in `out/vcpkg_qml_installed`. The complete Qt module set remains at 6.11.1, dynamically linked. The feature adds Declarative (QML, Quick, Quick Controls and Quick Test), SVG, Shader Tools and Language Server. It does not replace `lumora_app`.
+Every normal preset enables `qml-ui`, the default manifest feature, using `out/vcpkg_qml_installed`. Qt Core, Gui, Qml, Quick, QuickControls2 and test modules must all match 6.11.1 and remain dynamically linked. `LUMORA_BUILD_QML_UI=OFF` is rejected; there is no Widgets application fallback.
+
+The old `windows-msvc-{debug,release}-sim-qml` presets and build-only `lumora_qml_app` target remain compatibility names. They produce the same `lumora_app`, not a second executable. Run QML lint with:
 
 ```powershell
-cmake --preset windows-msvc-debug-sim-qml "-DCMAKE_TOOLCHAIN_FILE=$LumoraVcpkgRoot\scripts\buildsystems\vcpkg.cmake"
-cmake --build --preset windows-msvc-debug-sim-qml --parallel
-cmake --build --preset windows-msvc-debug-sim-qml --target all_qmllint
-ctest --preset windows-msvc-debug-sim-qml -R '^Qml\.' --output-on-failure
-cmake -E env QT_QPA_PLATFORM=windows `
-  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_qml_installed/x64-windows/debug/Qt6/plugins/platforms" `
-  out/build/windows-msvc-debug-sim-qml/src/qml/Debug/lumora_qml_app.exe
+cmake --build --preset windows-msvc-debug-sim --target all_qmllint --parallel 3
+ctest --preset windows-msvc-debug-sim -R '^Qml\.' --output-on-failure
 ```
 
-For Release, use `windows-msvc-release-sim-qml`, `src/qml/Release`, and the platform-plugin directory without `debug/`. QML is compiled into the application module; standard Qt imports and plugins still need their matching development/runtime installation.
+The application uses the production `Lumora` organization/application identity and existing production preferences. Former `LumoraQmlPilot` settings remain untouched in their separate directory; there is no automatic merge or import. Preserve both sets of files. Any selected pilot migration is a later explicit opt-in procedure.
 
-The pilot uses the isolated `LumoraQmlPilot` preference identity. It follows **Connect → Apply → review → Confirm → Start**, with explicit saved Resume, completed Original/Enhanced/Compare, Pause, viewport controls and acknowledged window/level persistence. Full camera/preset/installation editors remain later migration work. The default executable remains Widgets.
+Camera and installation controls are QML. Installation editing requires `--installation` and actual OS administrator authority; the flag alone grants none. Saved-preset creation/rename/deletion, fullscreen and layout editing remain later features.
 
-These are developer build instructions, not a claim of verified Windows QML compilation or runtime behavior. Native Windows graphics and 100%/125%/150%/200% display scaling require separate recorded results. Linux SDK/Xvfb/llvmpipe evidence does not establish them. The scoped Linux pilot stage is not a Windows installer or M13 acceptance.
+Native Windows graphics and 100%/125%/150%/200% display scaling require separate recorded results. Linux SDK/Xvfb/llvmpipe evidence does not establish them. The Linux `QmlPilot` staging component retains its compatibility name; it is not a Windows installer or M13 acceptance.
+
+## Optional legacy regression tests
+
+The `windows-msvc-{debug,release}-sim-legacy-tests` presets enable `LUMORA_BUILD_LEGACY_WIDGETS_TESTS=ON` and manifest feature `legacy-widgets-tests`, with dependencies isolated in `out/vcpkg_legacy_tests_installed`. This adds unique legacy Widgets unit/mixed integration coverage and the non-shipping harness, not a second workstation. The normal build retains all 30 Qt-free ProcessingConfiguration, InstallationPipeline and CameraReconfiguration cases in `lumora_backend_integration_tests`.
+
+```powershell
+cmake --preset windows-msvc-debug-sim-legacy-tests --fresh "-DCMAKE_TOOLCHAIN_FILE=$LumoraVcpkgRoot\scripts\buildsystems\vcpkg.cmake"
+cmake --build --preset windows-msvc-debug-sim-legacy-tests --parallel 3
+ctest --preset windows-msvc-debug-sim-legacy-tests -L legacy-widgets --output-on-failure
+```
 
 ## Launch the desktop application
 
 After the Release simulator build, launch the normal application from the repository root:
 
 ```powershell
-cmake --build --preset windows-msvc-release-sim --target lumora_app --parallel
+cmake --build --preset windows-msvc-release-sim --target lumora_app --parallel 3
 cmake -E env QT_QPA_PLATFORM=windows `
-  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_installed/x64-windows/Qt6/plugins/platforms" `
-  out/build/windows-msvc-release-sim/src/Release/lumora_app.exe
+  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_qml_installed/x64-windows/Qt6/plugins/platforms" `
+  out/build/windows-msvc-release-sim/src/qml/Release/lumora_app.exe
 ```
 
-For Debug, use `windows-msvc-debug-sim`, `src/Debug/`, and `x64-windows/debug/Qt6/plugins/platforms`. Use the matching installed plugin directory if the dependency prefix differs. These are developer-build commands; native Windows execution and appearance remain subject to the deferred validation below.
+For Debug, use `windows-msvc-debug-sim`, `src/qml/Debug/`, and `x64-windows/debug/Qt6/plugins/platforms`. Use the matching installed plugin directory if the dependency prefix differs. These are developer-build commands; native Windows execution and appearance remain subject to the deferred validation below.
 
 The application starts in **Waiting for image**. Select **SIM-LIVE**, click **Connect**, click **Apply** and review the settings, then **Confirm** and **Start**. After M7 integration this streams synthetic Mono12 data in U16 storage through the production acquisition, processing and presentation pipeline, with Gray8 conversion only at the display boundary. The evaluation banner remains visible. No physical camera is connected by this composition.
 
@@ -96,33 +102,33 @@ An older M5 Mono8 saved request differs from M7 and leaves startup disconnected.
 
 ## M4 synthetic viewer and remaining Windows checks
 
-Test-enabled builds also produce a separate non-shipping synthetic viewer harness. It supplements the normal application checks above. From the repository root, after the Release build:
+The optional legacy regression builds produce a separate non-shipping synthetic viewer harness. It supplements the normal application checks above. From the repository root, after the Release build:
 
 ```powershell
-cmake --build --preset windows-msvc-release-sim --target lumora_viewer_harness --parallel
+cmake --build --preset windows-msvc-release-sim-legacy-tests --target lumora_viewer_harness --parallel 3
 cmake -E env QT_QPA_PLATFORM=windows `
-  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_installed/x64-windows/Qt6/plugins/platforms" `
-  out/build/windows-msvc-release-sim/src/Release/lumora_viewer_harness.exe --start
+  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_legacy_tests_installed/x64-windows/Qt6/plugins/platforms" `
+  out/build/windows-msvc-release-sim-legacy-tests/src/Release/lumora_viewer_harness.exe --start
 ```
 
-For Debug, use `windows-msvc-debug-sim`, `src/Debug/`, and `x64-windows/debug/Qt6/plugins/platforms`. Use the matching installed plugin directory if the dependency prefix differs. These are developer-build launch instructions, not installer deployment. They require native Windows verification; Linux runs cannot establish Windows appearance or compatibility.
+For Debug, use `windows-msvc-debug-sim-legacy-tests`, `src/Debug/`, and `x64-windows/debug/Qt6/plugins/platforms`. Use the matching installed plugin directory if the dependency prefix differs. These are developer-build launch instructions, not installer deployment. They require native Windows verification; Linux runs cannot establish Windows appearance or compatibility.
 
 The harness starts a synthetic 640x480 Mono8 moving bar only with `--start`. Without it the view waits. Close the window to stop/join the worker. Exercise Pause/Live, Fit, 100%, zoom, pan, and resize, and confirm the persistent evaluation banner and paused/stale indications. Recoverable 50 ms retrieval timeouts are visibly reported and counted; configured 30 FPS is not a measured throughput guarantee. No real patient data or physical camera is permitted in this evaluation harness.
 
 The separate 600-second Release stress gate is opt-in:
 
 ```powershell
-cmake --preset windows-msvc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=ON
-cmake --build --preset windows-msvc-release-sim --parallel
-ctest --preset windows-msvc-release-sim --output-on-failure --no-tests=error -L stress
-cmake --preset windows-msvc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=OFF
+cmake --preset windows-msvc-release-sim-legacy-tests -DLUMORA_ENABLE_STRESS_TESTS=ON
+cmake --build --preset windows-msvc-release-sim-legacy-tests --parallel 3
+ctest --preset windows-msvc-release-sim-legacy-tests --output-on-failure --no-tests=error -L stress
+cmake --preset windows-msvc-release-sim-legacy-tests -DLUMORA_ENABLE_STRESS_TESTS=OFF
 ```
 
-Restore OFF even after failure/interruption. Save the source SHA, duration, platform, result, publication/paint counts, and timeout count from `out/build/windows-msvc-release-sim/Testing/Temporary/LastTest.log`. Normal CI does not implicitly run this stress case.
+Restore OFF even after failure/interruption. Save the source SHA, duration, platform, result, publication/paint counts, and timeout count from `out/build/windows-msvc-release-sim-legacy-tests/Testing/Temporary/LastTest.log`. Normal CI does not implicitly run this stress case.
 
 ### Run Windows stress from Linux through GitHub Actions
 
-The **Windows Simulator** workflow adds the 600-second Release stress test only on an explicit manual dispatch. Push and pull-request runs keep their short Debug/Release suites; `LUMORA_ENABLE_STRESS_TESTS` still defaults OFF. A manual run first passes those same suites, enables stress, builds the integration target, and invokes `cmake/RunStress.cmake`. Cleanup attempts to restore OFF even after a failed stress run. Cancellation or runner loss can prevent cleanup/upload; a later run uses a fresh hosted workspace.
+The **Windows Simulator** workflow adds the 600-second Release stress test only on an explicit manual dispatch. Push and pull-request runs keep their short Debug/Release suites; `LUMORA_ENABLE_STRESS_TESTS` still defaults OFF. A manual run first passes those same QML suites, configures the separate legacy regression preset with stress enabled, builds its integration target, and invokes `cmake/RunStress.cmake`. Cleanup attempts to restore OFF even after a failed stress run. Cancellation or runner loss can prevent cleanup/upload; a later run uses a fresh hosted workspace.
 
 After the workflow change is merged into `main`, run from Linux with GitHub CLI repository write access:
 

@@ -52,14 +52,13 @@ CI cache keys separate operating systems and architectures. Each run saves a new
 
 ## Configure, build, and test
 
-The commands below build the current Widgets workstation. An opt-in [QML SIM-LIVE pilot](#optional-qml-sim-live-pilot) and a separate [renderer experiment](#qml-renderer-experiment) are also available. Both frontends reuse shared C++ workstation and presentation policy; see the [migration plan](../superpowers/plans/2026-09-13-qml-stage-one.md). Existing `minimal` smoke tests do not verify Quick rendering.
-
+The normal build produces `lumora_app`, the Qt Quick/QML workstation. It uses `QGuiApplication` and does not require or link Qt Widgets. Shared C++ camera, processing, presentation and persistence policy remains in the existing libraries. The owner-approved [completion plan](../superpowers/plans/2026-09-15-qml-only-workstation.md) separates this local default switch from Windows, installer and hardware acceptance.
 Debug simulator build:
 
 ```bash
 cmake --preset linux-gcc-debug-sim --fresh \
   -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/vcpkg/scripts/buildsystems/vcpkg.cmake"
-cmake --build --preset linux-gcc-debug-sim --parallel
+cmake --build --preset linux-gcc-debug-sim --parallel 3
 ctest --preset linux-gcc-debug-sim --output-on-failure -LE hardware
 ```
 
@@ -68,46 +67,64 @@ Release simulator build:
 ```bash
 cmake --preset linux-gcc-release-sim --fresh \
   -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/vcpkg/scripts/buildsystems/vcpkg.cmake"
-cmake --build --preset linux-gcc-release-sim --parallel
+cmake --build --preset linux-gcc-release-sim --parallel 3
 ctest --preset linux-gcc-release-sim --output-on-failure -LE hardware
 ```
 
-The simulator presets force `LUMORA_ENABLE_BASLER=OFF`; pylon is neither searched for nor linked. The test presets set `QT_QPA_PLATFORM=minimal`, allowing the existing Qt tests to run without a display server. The reduced Qt build supplies `minimal` for these tests and, on Linux only, `xcb` for desktop windows. Linux also enables Fontconfig for system font discovery. These platform-qualified features do not change the Windows dependency selection or the pinned Qt version.
+The simulator presets force `LUMORA_ENABLE_BASLER=OFF`; pylon is neither searched for nor linked. All normal presets select the default `qml-ui` vcpkg feature and matching dynamic Qt 6.11.1 Core, Gui, Qml, Quick and QuickControls2 modules (plus Test and QuickTest when tests are enabled). Dependencies use `out/vcpkg_qml_installed`. Widgets is not a normal dependency. `LUMORA_BUILD_QML_UI=OFF` is rejected because there is no alternative application frontend.
 
-CTest also selects the smoke test's plugin directory from `Qt6::QMinimalIntegrationPlugin` for the active Debug or Release configuration, without requiring a machine-wide Qt plugin-path setting.
+CTest configures each Quick test with the matching platform-plugin directory, `offscreen` and the software renderer. These tests need no display server. Linux X11/XCB, Fontconfig and OpenGL support are selected by the manifest; native Wayland is not enabled.
 
-## Optional QML SIM-LIVE pilot
-
-The `-sim-qml` presets enable `LUMORA_BUILD_QML_UI` and the `qml-ui` vcpkg feature. They use separate build and dependency directories (`out/vcpkg_qml_installed`), preserving the original Widgets installation. The feature adds Qt Declarative (QML, Quick, Quick Controls and Quick Test), SVG, Shader Tools and Language Server at matching Qt 6.11.1 versions; it enables Qt's OpenGL feature on Linux. Qt libraries remain dynamically linked.
+## QML workstation and compatibility names
 
 ```bash
-cmake --preset linux-gcc-debug-sim-qml \
+cmake --build --preset linux-gcc-debug-sim --target all_qmllint --parallel 3
+ctest --preset linux-gcc-debug-sim -R '^Qml\.' --output-on-failure
+cmake --build --preset linux-gcc-debug-sim --target run-lumora
+```
+
+The old `linux-gcc-{debug,release}-sim-qml` presets remain compatibility names with separate build directories. They build the same sole `lumora_app`; `run-lumora-qml` also launches it. `lumora_qml_app` is a build-only compatibility target, not a second executable. The executable is now `out/build/<preset>/src/qml/lumora_app`; fresh Linux staging installs `bin/lumora_app`. An old build tree may still contain an obsolete `lumora_qml_app` file: do not launch that stale artifact.
+
+The application uses the production `Lumora` organization/application identity and existing production preferences. The former `LumoraQmlPilot` directory is left untouched. There is no automatic merge, overwrite or import of pilot settings. Keep both directories and explicitly migrate selected pilot preferences later through a separately reviewed opt-in procedure; changing this build does not migrate them. Existing production configuration remains authoritative.
+
+Select SIM-LIVE, **Connect → Apply → review current readback → Confirm → Start Live**. Saved settings can reconnect for inspection, but streaming requires explicit Start or eligible **Resume saved Live**. The default simulator requests 640×480 Mono12 in UInt16 at 30 FPS. Camera settings and installation are nonmodal QML dialogs; installation editing requires deliberate `--installation` plus actual OS authority. The command-line flag does not grant authority.
+
+Processing provides preset selection/reset, window/level, tone, local contrast, denoise, sharpen and invert. Original/Enhanced/Compare, Pause/Resume, Fit, logical 100%, zoom and pan remain presentation controls. Image pixels and frame ownership remain in C++. Saved-preset creation/rename/deletion, fullscreen and layout editing are later workstation features; they are not reasons to launch a Widgets application.
+
+Click or Tab to the image before Space=Pause/Resume, F=Fit, 1=100%, and +/-=zoom. These keys do not intercept numeric entry. The compiled `Qml.Workstation` scene tests exercise real controls with the simulator; `Qml.Runtime`, `Qml.ProcessingAdapter`, `Qml.CameraSettingsAdapter` and `Qml.InstallationAdapter` cover their C++ adapters.
+
+For native Linux software captures, always choose a new output directory:
+
+```bash
+LUMORA_QML_CAPTURE_DIR="$PWD/out/qa/qml-workstation-captures-new" \
+  xvfb-run -a -s '-screen 0 2560x2160x24' cmake -E env \
+  QT_QPA_PLATFORM=xcb QT_QUICK_BACKEND=software \
+  out/build/linux-gcc-debug-sim/tests/lumora_qml_tests
+```
+
+Use the matching Qt platform-plugin path when required. The retained migration worktree uses the matching official Qt 6.11.1 SDK at `.tools/qt-official` and non-Qt dependencies from the original vcpkg prefix; its Debug application links Release Qt libraries. Preserve that cache's recorded `CMAKE_PREFIX_PATH` when reconfiguring. These SDK checks do not establish a fresh vcpkg build or native Windows behavior.
+
+The Linux install component retains the name `QmlPilot` for existing staging automation. It now stages the sole workstation executable, scanned QML imports, runtime libraries/plugins and notices:
+
+```bash
+cmake --install out/build/linux-gcc-release-sim --component QmlPilot --prefix /tmp/lumora-stage-new
+python3 tools/qa/verify-qml-stage.py /tmp/lumora-stage-new --output out/qa/stage-new.json
+```
+
+Use a fresh stage and independently check runtime imports, dependency isolation, normal close and preference persistence. This is local staging, not an accepted installer or distribution bundle. Xvfb/software or llvmpipe does not establish physical-display/GPU, Windows/DPI, hardware or clinical acceptance.
+
+## Optional legacy regression coverage
+
+`LUMORA_BUILD_LEGACY_WIDGETS_TESTS=OFF` is the default. The `linux-gcc-{debug,release}-sim-legacy-tests` presets explicitly enable it and the `legacy-widgets-tests` manifest feature, using `out/vcpkg_legacy_tests_installed`. They add the retained Widgets unit/mixed integration tests and non-shipping viewer harness; they never build a second workstation application.
+
+```bash
+cmake --preset linux-gcc-debug-sim-legacy-tests --fresh \
   -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/vcpkg/scripts/buildsystems/vcpkg.cmake"
-cmake --build --preset linux-gcc-debug-sim-qml --parallel
-cmake --build --preset linux-gcc-debug-sim-qml --target all_qmllint
-ctest --preset linux-gcc-debug-sim-qml -R '^Qml\.' --output-on-failure
-cmake --build --preset linux-gcc-debug-sim-qml --target run-lumora-qml
+cmake --build --preset linux-gcc-debug-sim-legacy-tests --parallel 3
+ctest --preset linux-gcc-debug-sim-legacy-tests -L legacy-widgets --output-on-failure
 ```
 
-Use `linux-gcc-release-sim-qml` for Release. `lumora_app` remains the Widgets workstation and is also built by these presets. Option OFF does not search for the declarative modules. A manually supplied Qt prefix must contain matching Core, Widgets, Qml, Quick, QuickControls2 and test modules; mixing an installed Widgets runtime with unrelated Quick libraries is unsupported.
-
-The pilot uses the separate `LumoraQmlPilot` application identity and preference directory. Select SIM-LIVE, **Connect → Apply → review current readback → Confirm → Start Live**. Saved settings may reconnect for inspection, but streaming always requires an explicit Start or eligible **Resume saved Live** action. Stop and Disconnect can cancel pending startup. The simulator still requests 640×480 Mono12 in UInt16 at 30 FPS through the existing pipeline.
-
-The QML frontend provides Original/Enhanced/Compare, Pause/Resume, Fit and logical 100%, pointer zoom/pan, and exact window/level, brightness/contrast and gamma fields and sliders. Local contrast adds an exact clip-limit field (0.1–40) and slider, plus a whole-number tile-grid field (2–32) without a slider. Brightness/Contrast, Gamma and Local contrast switches preserve their values while disabled. Tab navigation reveals the focused adjustment; activation feedback and the active preset stay visible above the scroll area. The processing selector includes Original, Standard, High Contrast, Soft Detail, Custom and loaded saved recipes; Reset processing returns to Original while preserving camera confirmation, paused pixels and viewport state. Image pixels and frame ownership remain in C++. Processing preferences save only after matching successful activation; failed activation restores the accepted selection. See the [preset/reset checkpoint](../architecture/milestones/qml-presets.md), [tone editor checkpoint](../architecture/milestones/qml-tone.md), and [local contrast checkpoint](../architecture/milestones/qml-local-contrast.md). Denoise, sharpen, invert, preset save/rename/delete, camera settings and installation editors remain later migration work; camera readback and installation orientation are read-only here. Use the Widgets application for those existing editors.
-
-Click or Tab to the image surface before using Space=Pause/Resume, F=Fit, 1=100%, and +/-=zoom. Those keys do not intercept numeric entry. Evaluation, camera/viewer state, timestamp/age, stale/pause, orientation and errors remain visible around the image.
-
-`Qml.Workstation` drives the compiled scene through real controls and the simulator. `Qml.Runtime` and `Qml.ProcessingAdapter` cover adapter/lifetime and activation/persistence behavior. For native Linux software-rendered captures:
-
-```bash
-LUMORA_QML_CAPTURE_DIR="$PWD/out/qa/qml-local-contrast/captures-manual" \
-  xvfb-run -a cmake -E env QT_QPA_PLATFORM=xcb QT_QUICK_BACKEND=software \
-  out/build/linux-gcc-debug-sim-qml/tests/lumora_qml_tests
-```
-
-Use the matching Qt platform-plugin path if required by the installed prefix. The retained worktree uses the matching official Qt 6.11.1 SDK at `.tools/qt-official`, with non-Qt dependencies from the original vcpkg prefix. Its Debug application links Release Qt libraries. Reconfigure that cache with the recorded `CMAKE_PREFIX_PATH`; do not replace it with an unrelated Qt version. Xvfb/software or llvmpipe passes do not establish physical-display/GPU or native Windows/DPI acceptance.
-
-The Linux-only `QmlPilot` install component stages the executable, scanned QML imports, runtime libraries/plugins and existing notices outside the build tree. See the [live checkpoint record](../architecture/milestones/qml-live.md) for deployment mechanics and the [local contrast record](../architecture/milestones/qml-local-contrast.md) for the latest fresh stage. It is not an accepted installer or distribution bundle.
+Unique mixed lifecycle/controller coverage stays available in this opt-in suite. The 30 Qt-free ProcessingConfiguration, InstallationPipeline and CameraReconfiguration cases remain in the normal `lumora_backend_integration_tests` target under their original CTest group names; no Widgets application is needed to run them.
 
 ## QML renderer experiment
 
@@ -170,7 +187,7 @@ The merged M9 Task 2 controls appear under **Processing** after settings finish 
 
 The **Original**, **Enhanced** and **Compare** buttons above the sidebar scroll select the display mode. Compare shows Original on the left and Enhanced on the right; Fit, 100%, zoom and pan act on both panes. These buttons change presentation only: **Original mode** retains the active processing settings, while the **Original preset** changes the processing definition. Mode switching also works on the same frozen bundle while paused, preserving its timestamp and increasing age.
 
-A bundle without Enhanced falls back to Original and disables Enhanced/Compare with a visible reason. Recovery re-enables the buttons but leaves Original selected until the operator chooses a mode. A paused pair remains available despite later processing failures; Resume evaluates the newest bundle. The [Task 3 record](../architecture/milestones/m09-compare.md#verification-record) records passing local and hosted Linux/Windows verification, including the retained timeout evidence. Remaining camera configuration and fullscreen are subsequent work.
+A bundle without Enhanced falls back to Original and disables Enhanced/Compare with a visible reason. Recovery re-enables the buttons but leaves Original selected until the operator chooses a mode. A paused pair remains available despite later processing failures; Resume evaluates the newest bundle. The [Task 3 record](../architecture/milestones/m09-compare.md#verification-record) records passing local and hosted Linux/Windows verification, including the retained timeout evidence. Fullscreen remains subsequent work.
 
 Upgrading from the M5 Mono8 simulator to M7 Mono12 changes the reported capabilities. An older saved Mono8 request keeps startup disconnected: explicitly select **SIM-LIVE**, **Connect**, **Apply** and review, then **Confirm** and **Start**. It cannot authorize an unchanged-settings Resume. The separate M4 harness below still uses Mono8.
 
@@ -186,42 +203,42 @@ The desktop test exercises the real `xcb` backend and waits for the window to be
 cmake --preset linux-gcc-debug-sim --fresh \
   -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/vcpkg/scripts/buildsystems/vcpkg.cmake" \
   -DLUMORA_TEST_LINUX_DESKTOP=ON
-cmake --build --preset linux-gcc-debug-sim --parallel
+cmake --build --preset linux-gcc-debug-sim --parallel 3
 ctest --preset linux-gcc-debug-sim --output-on-failure -LE 'hardware|desktop'
-xvfb-run -a ctest --preset linux-gcc-debug-sim --output-on-failure -L desktop --no-tests=error
+xvfb-run -a -s '-screen 0 2560x2160x24' ctest --preset linux-gcc-debug-sim --output-on-failure -L desktop --no-tests=error
 ```
 
-Repeat with `linux-gcc-release-sim` for Release. Linux CI performs both checks in each configuration. Xvfb verifies desktop-plugin loading and window exposure, not appearance on a physical monitor; use `run-lumora` for the manual visual check.
+Repeat with `linux-gcc-release-sim` for Release. Linux CI performs both checks in each configuration. The desktop label runs the full QML scene with software and OpenGL/basic backends. Xvfb does not verify appearance on a physical monitor; use `run-lumora` for the manual visual check.
 
 ## M4 synthetic live-viewer harness
 
-With the normal test-enabled build, launch the non-shipping harness from the repository root in a graphical session:
+With the optional legacy regression build, launch the non-shipping harness from the repository root in a graphical session:
 
 ```bash
-cmake --build --preset linux-gcc-debug-sim --target lumora_viewer_harness --parallel 3
+cmake --build --preset linux-gcc-debug-sim-legacy-tests --target lumora_viewer_harness --parallel 3
 cmake -E env QT_QPA_PLATFORM=xcb \
-  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_installed/x64-linux-dynamic/debug/Qt6/plugins/platforms" \
-  out/build/linux-gcc-debug-sim/src/lumora_viewer_harness --start
+  "QT_QPA_PLATFORM_PLUGIN_PATH=$PWD/out/vcpkg_legacy_tests_installed/x64-linux-dynamic/debug/Qt6/plugins/platforms" \
+  out/build/linux-gcc-debug-sim-legacy-tests/src/lumora_viewer_harness --start
 ```
 
-For Release, use `linux-gcc-release-sim` and remove `debug/` from the plugin path. If reusing an existing pinned installation through `CMAKE_PREFIX_PATH`, use that installation's matching plugin directory instead. Omitting `--start` leaves the viewer waiting; no acquisition begins automatically. Close the window to stop and join the simulator worker.
+For Release, use `linux-gcc-release-sim-legacy-tests` and remove `debug/` from the plugin path. If reusing an existing pinned installation through `CMAKE_PREFIX_PATH`, use that installation's matching plugin directory instead. Omitting `--start` leaves the viewer waiting; no acquisition begins automatically. Close the window to stop and join the simulator worker.
 
-The feed is a synthetic 640x480 Mono8 moving bar, configured for 30 FPS. Try Pause/Live, Fit, 100%, zoom, pan, and resize. Pause freezes the displayed image while acquisition continues. The evaluation banner must stay visible. This harness is built only with `LUMORA_BUILD_TESTS=ON`, is not installed, and is not linked into `lumora_app`. It does not access a physical X-ray system or patient data.
+The feed is a synthetic 640x480 Mono8 moving bar, configured for 30 FPS. Try Pause/Live, Fit, 100%, zoom, pan, and resize. Pause freezes the displayed image while acquisition continues. The evaluation banner must stay visible. This harness is built only with `LUMORA_BUILD_TESTS=ON` and `LUMORA_BUILD_LEGACY_WIDGETS_TESTS=ON`, is not installed, and is not linked into `lumora_app`. It does not access a physical X-ray system or patient data.
 
 The 50 ms whole-retrieval budget can produce recoverable timeouts under load, especially in Debug. Those exact typed timeouts are retained and counted, reported in the title and stderr, and retried; terminal errors remain failures. A timeout count is not evidence of achieving 30 FPS or the later latency/performance targets.
 
 ## Opt-in M4 Release stress test
 
-Normal CTest runs include the short integration case, not the ten-minute run. After configuring the Release build above:
+The optional legacy suite includes the short viewer case. After configuring its Release preset, explicitly enable the ten-minute case:
 
 ```bash
-cmake --preset linux-gcc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=ON
-cmake --build --preset linux-gcc-release-sim --parallel 3
-ctest --preset linux-gcc-release-sim --output-on-failure --no-tests=error -L stress
-cmake --preset linux-gcc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=OFF
+cmake --preset linux-gcc-release-sim-legacy-tests -DLUMORA_ENABLE_STRESS_TESTS=ON
+cmake --build --preset linux-gcc-release-sim-legacy-tests --parallel 3
+ctest --preset linux-gcc-release-sim-legacy-tests --output-on-failure --no-tests=error -L stress
+cmake --preset linux-gcc-release-sim-legacy-tests -DLUMORA_ENABLE_STRESS_TESTS=OFF
 ```
 
-Restore the option to OFF even if the test fails or is interrupted. Record the source SHA, platform, duration, publication/paint counts, timeout count, and result from `out/build/linux-gcc-release-sim/Testing/Temporary/LastTest.log`. The test exercises 600 seconds of simulator/viewer interaction under `minimal`; it does not verify physical scan-out, Windows DPI, hardware throughput, or clinical suitability. M4 also requires matching Windows CI, Windows Release stress, and native Windows 11 visual/scaling evidence.
+Restore the option to OFF even if the test fails or is interrupted. Record the source SHA, platform, duration, publication/paint counts, timeout count, and result from `out/build/linux-gcc-release-sim-legacy-tests/Testing/Temporary/LastTest.log`. The test exercises 600 seconds of simulator/viewer interaction under `minimal`; it does not verify physical scan-out, Windows DPI, hardware throughput, or clinical suitability. M4 also requires matching Windows CI, Windows Release stress, and native Windows 11 visual/scaling evidence.
 
 ## Clean generated builds
 
