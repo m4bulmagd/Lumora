@@ -8,6 +8,7 @@ ColumnLayout {
     spacing: Theme.spacingSm
 
     ComboBox {
+        id: selector
         objectName: "presetSelector"
         Layout.fillWidth: true
         model: root.processing.presets
@@ -25,5 +26,9 @@ ColumnLayout {
         enabled: root.processing.available
         Accessible.name: qsTr("Reset processing to Original")
         onClicked: root.processing.resetProcessing()
+    }
+    Connections {
+        target: root.processing
+        function onDraftReplaced() { selector.popup.close() }
     }
 }

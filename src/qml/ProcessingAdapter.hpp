@@ -217,6 +217,8 @@ public:
     Q_INVOKABLE bool commitSharpenThresholdText(const QString& text);
     Q_INVOKABLE bool setInvertEnabled(bool enabled);
     Q_INVOKABLE bool retry();
+    // Cancel editor-local text and gestures without changing the recipe.
+    Q_INVOKABLE void cancelUncommittedInput();
 
 signals:
     void stateChanged();

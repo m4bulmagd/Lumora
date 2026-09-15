@@ -224,6 +224,7 @@ add_library(
   configuration/src/PipelineDefinitionCodec.hpp
   configuration/src/PipelineDefinitionCodec.cpp
   configuration/src/StartupPreferencesService.cpp
+  configuration/src/UiPreferencesCodec.cpp
   configuration/include/lumora/configuration/InstallationProfileStore.hpp
   configuration/include/lumora/configuration/InstallationProfileCodec.hpp
   configuration/include/lumora/configuration/InstallationProfilesService.hpp

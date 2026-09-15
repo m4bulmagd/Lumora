@@ -3,6 +3,7 @@
 #include <lumora/configuration/ConfigurationCodec.hpp>
 #include <lumora/configuration/ConfigurationStore.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
+#include <lumora/configuration/UiPreferencesCodec.hpp>
 #include <lumora/processing/ProcessingDefaults.hpp>
 
 #include <QFile>
@@ -1746,6 +1747,267 @@ TEST(StartupPreferencesService, LoadExceptionSettlesBothPendingSections) {
         EXPECT_TRUE(state->savedDocuments.empty());
         ASSERT_TRUE(status->warning.has_value());
         EXPECT_EQ(status->warning->code, "startup_service_worker_exception");
+    }
+}
+
+TEST(StartupPreferencesService, UiLoadPublishesWithoutWritingOrReplacingUnknownMetadata) {
+    auto state = std::make_shared<IoState>();
+    ApplicationConfiguration initial;
+    initial.ui = {{"other", 17}, {"layout", QJsonObject{{"version", 1}, {"panelsCollapsed", true}}}};
+    state->loadedDocument = initial;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ASSERT_TRUE(service.start().hasValue());
+    service.requestStop(); service.join();
+    const auto status = service.latestStatus();
+    ASSERT_TRUE(status->loadedUiPreferences);
+    EXPECT_TRUE(status->loadedUiPreferences->panelsCollapsed);
+    EXPECT_TRUE(status->uiPreferencesWritable);
+    EXPECT_FALSE(status->uiWarning);
+    EXPECT_FALSE(status->latestAttemptedUiSaveRevision);
+    EXPECT_TRUE(state->savedDocuments.empty());
+}
+
+TEST(StartupPreferencesService, UiCameraPresetSectionsCoalesceIndependentlyAndDrainWholeDocument) {
+    auto state = std::make_shared<IoState>();
+    state->blockLoad = true;
+    ApplicationConfiguration initial;
+    initial.cameraProfiles.profiles = {preferences()};
+    auto other = preferences(); other.identity.serial = "OTHER"; other.cameraId = {"other"};
+    initial.cameraProfiles.profiles.push_back(other);
+    initial.processing = {{"keepProcessing", 3}};
+    initial.capture = {{"keepCapture", 4}};
+    initial.legacyCameraProfiles = {{"keepLegacy", 5}};
+    initial.ui = {{"other", 17}, {"layout", QJsonObject{{"version", 1}, {"extension", "keep"}}}};
+    state->loadedDocument = initial;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    EXPECT_FALSE(service.postUiSave(1, {}).hasValue());
+    ASSERT_TRUE(service.start().hasValue()); ASSERT_TRUE(release.wait());
+    application::UiPreferences ui;
+    EXPECT_FALSE(service.postUiSave(0, ui).hasValue());
+    ui.normalGeometry = application::WindowGeometry{0, 0, -1, 600};
+    EXPECT_FALSE(service.postUiSave(1, ui).hasValue());
+    ui.normalGeometry = application::WindowGeometry{-1200, 20, 1000, 700};
+    ASSERT_TRUE(service.postUiSave(1, ui).hasValue());
+    EXPECT_FALSE(service.postUiSave(1, ui).hasValue());
+    ui.panelsCollapsed = true;
+    ASSERT_TRUE(service.postUiSave(2, ui).hasValue());
+    ASSERT_TRUE(service.postSave(1, preferences()).hasValue());
+    ASSERT_TRUE(service.postPresetSave(1, standardPresets()).hasValue());
+    service.requestStop();
+    EXPECT_FALSE(service.postUiSave(3, {}).hasValue());
+    release.release(); service.join();
+    ASSERT_EQ(state->savedDocuments.size(), 1U);
+    const auto& saved = state->savedDocuments.front();
+    EXPECT_EQ(UiPreferencesCodec::decode(saved.ui).preferences, ui);
+    EXPECT_EQ(saved.ui.value("other"), initial.ui.value("other"));
+    EXPECT_EQ(saved.ui.value("layout").toObject().value("extension"), "keep");
+    EXPECT_EQ(saved.processing, initial.processing);
+    EXPECT_EQ(saved.capture, initial.capture);
+    EXPECT_EQ(saved.legacyCameraProfiles, initial.legacyCameraProfiles);
+    ASSERT_EQ(saved.cameraProfiles.profiles.size(), 2U);
+    EXPECT_EQ(saved.cameraProfiles.profiles.front().identity.serial, "OTHER");
+    EXPECT_EQ(saved.presets.selectedId.value, "standard");
+    const auto status = service.latestStatus();
+    EXPECT_EQ(status->latestAttemptedUiSaveRevision, 2U);
+    EXPECT_EQ(status->latestSavedUiRevision, 2U);
+    EXPECT_EQ(status->latestSavedRevision, 1U);
+    EXPECT_EQ(status->latestSavedPresetRevision, 1U);
+    ASSERT_TRUE(status->loadedUiPreferences);
+    EXPECT_FALSE(status->loadedUiPreferences->panelsCollapsed);
+    EXPECT_EQ(state->saveThreads.front(), state->loadThread);
+}
+
+TEST(StartupPreferencesService, FutureUiBlocksOnlyUiWritesAndPreservesFutureObject) {
+    auto state = std::make_shared<IoState>(); state->blockLoad = true;
+    ApplicationConfiguration initial;
+    initial.ui = {{"other", 17}, {"layout", QJsonObject{{"version", 2}, {"future", "keep"}}}};
+    state->loadedDocument = initial;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue()); ASSERT_TRUE(release.wait());
+    ASSERT_TRUE(service.postUiSave(3, {}).hasValue());
+    ASSERT_TRUE(service.postSave(1, preferences()).hasValue());
+    ASSERT_TRUE(service.postPresetSave(1, standardPresets()).hasValue());
+    service.requestStop(); release.release(); service.join();
+    const auto status = service.latestStatus();
+    EXPECT_FALSE(status->uiPreferencesWritable);
+    EXPECT_TRUE(status->uiWarning);
+    EXPECT_EQ(status->latestAttemptedUiSaveRevision, 3U);
+    EXPECT_FALSE(status->latestSavedUiRevision);
+    EXPECT_EQ(status->latestSavedRevision, 1U);
+    EXPECT_EQ(status->latestSavedPresetRevision, 1U);
+    ASSERT_EQ(state->savedDocuments.size(), 1U);
+    EXPECT_EQ(state->savedDocuments.front().ui, initial.ui);
+}
+
+TEST(StartupPreferencesService, UnsafeOrExceptionalLoadSettlesUiWithoutWriting) {
+    for (int failure = 0; failure < 3; ++failure) {
+        auto state = std::make_shared<IoState>(); state->blockLoad = true;
+        state->unpreservedLoad = failure == 0; state->failLoad = failure == 1;
+        state->loadException = failure == 2 ? 1 : 0;
+        StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+        ReleaseLoadOnExit release{state};
+        ASSERT_TRUE(service.start().hasValue()); ASSERT_TRUE(release.wait());
+        ASSERT_TRUE(service.postUiSave(3, {}).hasValue());
+        service.requestStop(); release.release(); service.join();
+        const auto status = service.latestStatus();
+        EXPECT_FALSE(status->uiPreferencesWritable);
+        EXPECT_TRUE(status->uiWarning);
+        EXPECT_EQ(status->latestAttemptedUiSaveRevision, 3U);
+        EXPECT_FALSE(status->latestSavedUiRevision);
+        EXPECT_TRUE(state->savedDocuments.empty());
+    }
+}
+
+TEST(StartupPreferencesService, FailedUiWriteBecomesDurableOnLaterCameraWrite) {
+    auto state = std::make_shared<IoState>(); state->failSave = true;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ASSERT_TRUE(service.start().hasValue());
+    application::UiPreferences ui; ui.panelsCollapsed = true;
+    ASSERT_TRUE(service.postUiSave(7, ui).hasValue());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    while (!service.latestStatus()->uiWarning && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::yield();
+    const auto failed = service.latestStatus();
+    ASSERT_TRUE(failed->uiWarning);
+    EXPECT_EQ(failed->latestAttemptedUiSaveRevision, 7U);
+    EXPECT_FALSE(failed->latestSavedUiRevision);
+    { std::lock_guard lock(state->mutex); state->failSave = false; }
+    ASSERT_TRUE(service.postSave(1, preferences()).hasValue());
+    service.requestStop(); service.join();
+    ASSERT_EQ(state->savedDocuments.size(), 2U);
+    EXPECT_EQ(UiPreferencesCodec::decode(state->savedDocuments.back().ui).preferences, ui);
+    EXPECT_EQ(service.latestStatus()->latestSavedUiRevision, 7U);
+    EXPECT_FALSE(service.latestStatus()->uiWarning);
+    EXPECT_FALSE(failed->latestSavedUiRevision);
+}
+
+TEST(StartupPreferencesService, UiCoalescesBehindActiveWriteAndExceptionNeverClaimsDurability) {
+    for (const bool fail : {false, true}) {
+        auto state = std::make_shared<IoState>(); state->blockFirstSave = true;
+        state->saveException = fail ? 1 : 0;
+        StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+        ReleaseSaveOnExit release{state};
+        ASSERT_TRUE(service.start().hasValue());
+        ASSERT_TRUE(service.postUiSave(1, {}).hasValue()); ASSERT_TRUE(release.wait());
+        application::UiPreferences ui; ui.fullscreen = true;
+        ASSERT_TRUE(service.postUiSave(2, ui).hasValue());
+        ui.panelsCollapsed = true;
+        ASSERT_TRUE(service.postUiSave(3, ui).hasValue());
+        service.requestStop(); release.release(); service.join();
+        const auto status = service.latestStatus();
+        EXPECT_EQ(status->latestAttemptedUiSaveRevision, 3U);
+        if (fail) {
+            EXPECT_FALSE(status->latestSavedUiRevision);
+            EXPECT_TRUE(status->uiWarning);
+            EXPECT_FALSE(status->uiPreferencesWritable);
+        } else {
+            EXPECT_EQ(status->latestSavedUiRevision, 3U);
+            ASSERT_EQ(state->savedDocuments.size(), 2U);
+            EXPECT_EQ(UiPreferencesCodec::decode(state->savedDocuments.back().ui).preferences, ui);
+        }
+    }
+}
+
+TEST(StartupPreferencesService, PartialUiEditDuringLoadAndShutdownPreservesUntouchedLoadedValues) {
+    auto state = std::make_shared<IoState>(); state->blockLoad = true;
+    const application::UiPreferences initialUi{
+        application::WindowGeometry{-1280, 40, 1100, 700}, false, true, true, true};
+    ApplicationConfiguration initial;
+    const auto encoded = UiPreferencesCodec::merge({{"unrelated", 91}}, initialUi);
+    ASSERT_TRUE(encoded.hasValue()); initial.ui = encoded.value();
+    initial.cameraProfiles.profiles = {preferences()};
+    initial.presets = standardPresets(); initial.capture = {{"keep", 7}};
+    state->loadedDocument = initial;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue()); ASSERT_TRUE(release.wait());
+    application::UiPreferencesUpdate update; update.panelsCollapsed = true;
+    ASSERT_TRUE(service.postUiUpdate(1, update).hasValue());
+    service.requestStop(); release.release(); service.join();
+    ASSERT_EQ(state->savedDocuments.size(), 1U);
+    auto expected = initialUi; expected.panelsCollapsed = true;
+    const auto& document = state->savedDocuments.front();
+    EXPECT_EQ(UiPreferencesCodec::decode(document.ui).preferences, expected);
+    EXPECT_EQ(document.ui.value("unrelated"), 91);
+    EXPECT_EQ(document.capture, initial.capture);
+    ASSERT_EQ(document.cameraProfiles.profiles.size(), 1U);
+    EXPECT_EQ(document.cameraProfiles.profiles.front().identity.serial, "SIM-1");
+    EXPECT_EQ(document.presets.selectedId.value, "standard");
+    EXPECT_EQ(service.latestStatus()->latestSavedUiRevision, 1U);
+    EXPECT_EQ(service.latestStatus()->loadedUiPreferences, initialUi);
+}
+
+TEST(StartupPreferencesService, PendingUiUpdatesMergeFieldsAndFullSavesReplaceAllFieldsInOrder) {
+    for (const bool fullSave : {false, true}) {
+        auto state = std::make_shared<IoState>(); state->blockLoad = true;
+        StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+        ReleaseLoadOnExit release{state};
+        ASSERT_TRUE(service.start().hasValue()); ASSERT_TRUE(release.wait());
+        application::UiPreferencesUpdate first;
+        first.panelsCollapsed = true; first.fullscreen = true;
+        first.normalGeometry = std::optional{application::WindowGeometry{-900, 0, 900, 600}};
+        ASSERT_TRUE(service.postUiUpdate(1, first).hasValue());
+        if (fullSave) { ASSERT_TRUE(service.postUiSave(2, {}).hasValue()); }
+        application::UiPreferencesUpdate last; last.diagnosticsVisible = true;
+        last.panelsCollapsed = false;
+        ASSERT_TRUE(service.postUiUpdate(3, last).hasValue());
+        EXPECT_FALSE(service.postUiUpdate(3, first).hasValue());
+        service.requestStop(); release.release(); service.join();
+        ASSERT_EQ(state->savedDocuments.size(), 1U);
+        const auto saved = UiPreferencesCodec::decode(state->savedDocuments.front().ui).preferences;
+        EXPECT_FALSE(saved.panelsCollapsed);
+        EXPECT_TRUE(saved.diagnosticsVisible);
+        EXPECT_EQ(saved.fullscreen, !fullSave);
+        EXPECT_EQ(saved.normalGeometry.has_value(), !fullSave);
+        EXPECT_EQ(service.latestStatus()->latestSavedUiRevision, 3U);
+    }
+}
+
+TEST(StartupPreferencesService, PartialUiValidationAndExplicitGeometryClearDoNotConsumeInvalidRevision) {
+    auto state = std::make_shared<IoState>(); state->blockLoad = true;
+    ApplicationConfiguration initial;
+    const auto encoded = UiPreferencesCodec::merge({}, application::UiPreferences{
+        application::WindowGeometry{0, 0, 1200, 800}, true, false, false, true});
+    ASSERT_TRUE(encoded.hasValue()); initial.ui = encoded.value(); state->loadedDocument = initial;
+    StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+    ReleaseLoadOnExit release{state};
+    ASSERT_TRUE(service.start().hasValue()); ASSERT_TRUE(release.wait());
+    application::UiPreferencesUpdate invalid;
+    invalid.normalGeometry = std::optional{application::WindowGeometry{0, 0, 0, 800}};
+    EXPECT_FALSE(service.postUiUpdate(1, invalid).hasValue());
+    application::UiPreferencesUpdate clear;
+    clear.normalGeometry = std::optional<application::WindowGeometry>{};
+    ASSERT_TRUE(clear.normalGeometry.has_value());
+    ASSERT_TRUE(service.postUiUpdate(1, clear).hasValue());
+    service.requestStop(); release.release(); service.join();
+    ASSERT_EQ(state->savedDocuments.size(), 1U);
+    const auto saved = UiPreferencesCodec::decode(state->savedDocuments.front().ui).preferences;
+    EXPECT_FALSE(saved.normalGeometry);
+    EXPECT_TRUE(saved.panelsCollapsed);
+    EXPECT_TRUE(saved.diagnosticsVisible);
+    EXPECT_EQ(service.latestStatus()->latestSavedUiRevision, 1U);
+}
+
+TEST(StartupPreferencesService, PendingPartialUiUpdatesCannotOverwriteUnsafeOrFutureSources) {
+    for (const bool future : {false, true}) {
+        auto state = std::make_shared<IoState>(); state->blockLoad = true;
+        state->unpreservedLoad = !future;
+        ApplicationConfiguration initial;
+        initial.ui = {{"layout", QJsonObject{{"version", 2}, {"future", "keep"}}}};
+        if (future) state->loadedDocument = initial;
+        StartupPreferencesService service(std::make_unique<RecordingIo>(state));
+        ReleaseLoadOnExit release{state};
+        ASSERT_TRUE(service.start().hasValue()); ASSERT_TRUE(release.wait());
+        application::UiPreferencesUpdate update; update.panelsCollapsed = true;
+        ASSERT_TRUE(service.postUiUpdate(1, update).hasValue());
+        service.requestStop(); release.release(); service.join();
+        EXPECT_TRUE(state->savedDocuments.empty());
+        EXPECT_FALSE(service.latestStatus()->uiPreferencesWritable);
+        EXPECT_TRUE(service.latestStatus()->uiWarning);
+        EXPECT_EQ(service.latestStatus()->latestAttemptedUiSaveRevision, 1U);
+        EXPECT_FALSE(service.latestStatus()->latestSavedUiRevision);
     }
 }
 

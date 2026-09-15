@@ -27,6 +27,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtQuickTest/quicktest.h>
@@ -68,6 +69,10 @@ private slots:
     void keepsLiveContentUsable();
     void stopDisconnectAndExplicitSavedResume();
     void exposesFallbackAndExplicitProcessingRetry();
+    void layoutTransitionsRetainPausedCompareAndImageTransform();
+    void layoutKeysCancelDraftsWithoutCameraOrProcessingCommands();
+    void hiddenPanelsKeepPriorityCommandsAndFallbackVisible();
+    void layoutPreferencesSurviveCloseWithoutChangingCameraOrPresets();
     void closesWithRenderingOwnersOutstanding();
     void cleanupTestCase();
 private:
@@ -108,10 +113,17 @@ private:
     void revealProcessing(const char* name);
     void enterText(const char* name,const QString& text,bool commit=true);
     QImage viewportPixels() const;
+    QObject* layoutAdapter() const { return runtime_->property("layout").value<QObject*>(); }
+    QJsonObject savedDocument() const {
+        QFile file(directory_.filePath("pilot.json"));
+        if (!file.open(QIODevice::ReadOnly)) return {};
+        return QJsonDocument::fromJson(file.readAll()).object();
+    }
     bool toneSaved(double brightness,double contrast,double gamma) const;
     bool localContrastSaved(double clip,int grid,bool enabled=true) const;
     bool persistedPresetIs(const std::string& id) const;
-    void createRuntime(std::shared_ptr<EnhancementFailure> fault = {}, bool administrator = false);
+    void createRuntime(std::shared_ptr<EnhancementFailure> fault = {}, bool administrator = false,
+                       bool preserveSavedLayout = false);
     void destroyRuntime();
     QTemporaryDir directory_;
     core::SystemClock clock_;
@@ -125,7 +137,8 @@ private:
     QStringList warnings_;
 };
 void QmlWorkstationTests::initTestCase() { createRuntime(); }
-void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> fault, bool administrator) {
+void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> fault, bool administrator,
+                                      bool preserveSavedLayout) {
     warnings_.clear();
     QVERIFY(directory_.isValid());
     installations_=std::make_unique<configuration::InstallationProfilesService>(
@@ -202,6 +215,17 @@ void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> faul
     window_=qobject_cast<QQuickWindow*>(engine_->rootObjects().constFirst());
     QVERIFY(window_);
     QTRY_VERIFY_WITH_TIMEOUT(window_->isExposed(),5000);
+    QVERIFY(layoutAdapter());
+    QTRY_VERIFY_WITH_TIMEOUT(layoutAdapter()->property("ready").toBool(),5000);
+    if (!preserveSavedLayout) {
+        // Ordinary scene cases deliberately use the established test workspace,
+        // independently of a small offscreen platform's screen-derived default.
+        // Wait for restoration first so a delayed load cannot undo this resize.
+        QTRY_COMPARE(window_->visibility(), QWindow::Windowed);
+        window_->resize(1280, 800);
+        QTRY_COMPARE(window_->size(), QSize(1280, 800));
+        QVERIFY(QQuickTest::qWaitForPolish(window_));
+    }
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->selectionEnabled(),5000);
     QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
     capture("waiting");
@@ -823,6 +847,9 @@ void QmlWorkstationTests::choosePreset(const QString& id) {
     const auto& acknowledged=runtime_->coordinator().processingControls()->acknowledged();
     QVERIFY(acknowledged);
     QCOMPARE(QString::fromStdString(acknowledged->selectedId.value),id);
+    // Preset text and enabled fields can change layout hints. Geometry/pixel
+    // assertions must observe the settled layout, not its pre-polish values.
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
 }
 bool QmlWorkstationTests::persistedPresetIs(const std::string& id) const {
     const auto loaded=configuration::ConfigurationStore{directory_.filePath("pilot.json").toStdString()}.load();
@@ -1652,7 +1679,19 @@ void QmlWorkstationTests::presetsAndResetPreserveCameraPausedFrameAndViewport() 
         QCOMPARE(viewer->playbackState(),QStringLiteral("Paused"));
         QCOMPARE(viewer->displayMode(),QStringLiteral("compare"));
         QCOMPARE(viewer->imageItem().imageRects(),rectangles);
-        QCOMPARE(capturePixels(),frozenPixels);
+        const auto selectedPixels=capturePixels();
+        if (selectedPixels!=frozenPixels) {
+            const auto captureDirectory=qEnvironmentVariable("LUMORA_QML_CAPTURE_DIR");
+            if (!captureDirectory.isEmpty()) {
+                frozenPixels.save(captureDirectory+QStringLiteral("/preset-frozen-expected.png"));
+                selectedPixels.save(captureDirectory+QStringLiteral("/preset-frozen-actual.png"));
+                window_->grabWindow().save(captureDirectory+QStringLiteral("/preset-frozen-window.png"));
+                qInfo()<<"Preset pixel mismatch"<<id<<frozenPixels.size()<<selectedPixels.size()
+                    <<frozenPixels.format()<<selectedPixels.format()
+                    <<frozenPixels.devicePixelRatio()<<selectedPixels.devicePixelRatio();
+            }
+        }
+        QCOMPARE(selectedPixels,frozenPixels);
         QCOMPARE(pipeline_->snapshot().camera->state,application::CameraSessionState::Streaming);
         QCOMPARE(pipeline_->snapshot().camera->sessionGeneration,cameraBefore.sessionGeneration);
         QCOMPARE(pipeline_->snapshot().camera->confirmedRevision,cameraBefore.confirmedRevision);
@@ -1862,6 +1901,356 @@ void QmlWorkstationTests::exposesFallbackAndExplicitProcessingRetry() {
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->enhancedAvailable(),10000);
     QVERIFY(runtime_->processing()->processingError().isEmpty());
 }
+void QmlWorkstationTests::layoutTransitionsRetainPausedCompareAndImageTransform() {
+    auto* layout = layoutAdapter();
+    QVERIFY2(layout, "The workstation must expose its layout adapter");
+    QTRY_VERIFY(layout->property("ready").toBool());
+    window_->resize(1280, 800);
+    QTRY_COMPARE(window_->size(), QSize(1280, 800));
+    auto* viewer = runtime_->viewer();
+    QTRY_VERIFY(viewer->compareAvailable());
+    click("compareButton");
+    click("pauseButton");
+    QTRY_COMPARE(viewer->playbackState(), QStringLiteral("Paused"));
+    QTRY_VERIFY(viewer->hasFrame());
+    auto& image = viewer->imageItem();
+    auto* surface = item("viewerSurface");
+    QVERIFY(surface);
+    QCOMPARE(image.parentItem(), surface);
+    click("actualPixelsButton");
+    // Keep the image larger than every tested pane, so legitimate edge
+    // clamping cannot disguise a lost image-space center during a resize.
+    QVERIFY(viewer->zoomAt(image.width() / 4, image.height() / 2, 8.0));
+    QVERIFY(viewer->panBy(20, -10));
+    const auto sourceCenter = [&] {
+        const auto rect = image.imageRects()[0];
+        return QPointF((image.width() / 4 - rect.x()) / rect.width(),
+                       (image.height() / 2 - rect.y()) / rect.height());
+    };
+    const auto center = sourceCenter();
+    const auto imageSize = image.imageRects()[0].size();
+    const auto frame = viewer->sourceFrameId();
+    const auto timestamp = viewer->frameTimestamp();
+    const auto age = viewer->frameAgeMs();
+    const auto orientation = viewer->orientation();
+    const auto ordinaryWidth = image.width();
+    const auto retained = [&] {
+        QTRY_VERIFY(viewer->hasFrame());
+        QCOMPARE(item("viewerSurface"), surface);
+        QCOMPARE(image.parentItem(), surface);
+        QCOMPARE(viewer->sourceFrameId(), frame);
+        QCOMPARE(viewer->frameTimestamp(), timestamp);
+        QCOMPARE(viewer->orientation(), orientation);
+        QCOMPARE(viewer->playbackState(), QStringLiteral("Paused"));
+        QCOMPARE(viewer->displayMode(), QStringLiteral("compare"));
+        QVERIFY(item("imageStateOverlay") && item("imageStateOverlay")->isVisible());
+        QVERIFY(item("imageStateLabel")->property("text").toString().contains("PAUSED"));
+        QVERIFY(item("frameStatus")->property("text").toString().contains(timestamp));
+        QCOMPARE(image.imageRects()[0].size(), imageSize);
+        QCOMPARE(image.imageRects()[1].size(), imageSize);
+        QVERIFY(QLineF(sourceCenter(), center).length() < 0.000001);
+        QCOMPARE(pipeline_->snapshot().camera->state, application::CameraSessionState::Streaming);
+    };
+    click("panelsButton");
+    QTRY_VERIFY(layout->property("panelsCollapsed").toBool());
+    QTRY_VERIFY(image.width() > ordinaryWidth);
+    QVERIFY(!item("cameraPanel")->isVisible());
+    QVERIFY(!item("processingPanel")->isVisible());
+    retained();
+    capture("layout-paused-compare-collapsed");
+    QTest::keyClick(window_, Qt::Key_F11);
+    QTRY_VERIFY(layout->property("fullscreen").toBool());
+    QTRY_COMPARE(window_->visibility(), QWindow::FullScreen);
+    QVERIFY(!item("panelsButton")->isEnabled());
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    retained();
+    QTRY_VERIFY(viewer->frameAgeMs() > age);
+    capture("layout-paused-compare-fullscreen");
+    QTest::keyClick(window_, Qt::Key_Escape);
+    QTRY_VERIFY(!layout->property("fullscreen").toBool());
+    QTRY_COMPARE(window_->size(), QSize(1280, 800));
+    QVERIFY(layout->property("panelsCollapsed").toBool());
+    click("panelsButton");
+    QTRY_VERIFY(window_->property("panelsVisible").toBool());
+    QTRY_COMPARE(image.width(), ordinaryWidth);
+    retained();
+    click("resumeButton");
+    QTRY_VERIFY(viewer->sourceFrameId() != frame);
+    click("originalButton");
+    click("fitButton");
+    QVERIFY2(warnings_.isEmpty(), qPrintable(diagnostics()));
+}
+
+void QmlWorkstationTests::layoutKeysCancelDraftsWithoutCameraOrProcessingCommands() {
+    auto* layout = layoutAdapter();
+    QVERIFY(layout);
+    QTRY_VERIFY(layout->property("ready").toBool());
+    const auto cameraBefore = pipeline_->snapshot().camera;
+    QVERIFY(cameraBefore && cameraBefore->requestedConfiguration);
+    const auto processingBefore = runtime_->coordinator().processingControls()->draft();
+    const auto acknowledgedBefore = runtime_->processing()->level();
+    const auto uncommitted = acknowledgedBefore == 12345.6789
+        ? QStringLiteral("23456.7891") : QStringLiteral("12345.6789");
+    // A pointer press must not steal editor focus and commit its valid draft
+    // before the panel action has a chance to cancel uncommitted input.
+    enterText("levelField", uncommitted, false);
+    click("panelsButton");
+    QTRY_VERIFY(layout->property("panelsCollapsed").toBool());
+    QCOMPARE(runtime_->processing()->level(), acknowledgedBefore);
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,
+        processingBefore.activePipeline));
+    click("panelsButton");
+    QTRY_VERIFY(window_->property("panelsVisible").toBool());
+    QVERIFY(item("levelField")->property("text").toString() != uncommitted);
+    QCOMPARE(runtime_->coordinator().processingControls()->draft().selectedId,
+             processingBefore.selectedId);
+    const auto cameraAfterPointer = pipeline_->snapshot().camera;
+    QCOMPARE(cameraAfterPointer->sessionGeneration, cameraBefore->sessionGeneration);
+    QCOMPARE(cameraAfterPointer->requestedRevision, cameraBefore->requestedRevision);
+    QCOMPARE(cameraAfterPointer->appliedRevision, cameraBefore->appliedRevision);
+    QCOMPARE(cameraAfterPointer->confirmedRevision, cameraBefore->confirmedRevision);
+    QCOMPARE(cameraAfterPointer->state, application::CameraSessionState::Streaming);
+    QVERIFY(application::cameraConfigurationsEqual(*cameraAfterPointer->requestedConfiguration,
+        *cameraBefore->requestedConfiguration));
+    // This is a valid alternative: an accidental editingFinished commit must
+    // change the model and fail the oracle, rather than being rejected anyway.
+    enterText("levelField", uncommitted, false);
+    QTest::keyClick(window_, Qt::Key_F11);
+    QTRY_VERIFY(layout->property("fullscreen").toBool());
+    QTest::keyClick(window_, Qt::Key_Escape);
+    QTRY_VERIFY(!layout->property("fullscreen").toBool());
+    QVERIFY(item("viewerSurface")->hasActiveFocus());
+    QVERIFY(item("levelField")->property("text").toString() != uncommitted);
+    QCOMPARE(runtime_->processing()->level(), acknowledgedBefore);
+    QCOMPARE(runtime_->coordinator().processingControls()->draft().selectedId,
+             processingBefore.selectedId);
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,
+        processingBefore.activePipeline));
+
+    auto* selector = item("presetSelector");
+    QVERIFY(selector);
+    const auto selected = selector->property("currentValue").toString();
+    const auto selectedIndex = selector->property("currentIndex").toInt();
+    const auto presetCount = selector->property("count").toInt();
+    QVERIFY(presetCount > 1);
+    selector->forceActiveFocus();
+    QTest::keyClick(window_, Qt::Key_Space);
+    auto* popup = selector->property("popup").value<QObject*>();
+    QVERIFY(popup);
+    QTRY_VERIFY(popup->property("visible").toBool());
+    QTest::keyClick(window_, selectedIndex == presetCount - 1 ? Qt::Key_Home : Qt::Key_End);
+    QTRY_VERIFY(selector->property("highlightedIndex").toInt() != selectedIndex);
+    QTest::keyClick(window_, Qt::Key_F11);
+    QTRY_VERIFY(layout->property("fullscreen").toBool());
+    QTRY_VERIFY(!popup->property("visible").toBool());
+    QCOMPARE(selector->property("currentValue").toString(), selected);
+    QCOMPARE(runtime_->coordinator().processingControls()->draft().selectedId,
+             processingBefore.selectedId);
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,
+        processingBefore.activePipeline));
+    QTest::keyClick(window_, Qt::Key_Escape);
+    QTRY_VERIFY(!layout->property("fullscreen").toBool());
+
+    click("cameraSettingsButton");
+    QTRY_VERIFY(runtime_->camera()->settings()->isOpen());
+    QTest::keyClick(window_, Qt::Key_F11);
+    QTRY_VERIFY(layout->property("fullscreen").toBool());
+    QTRY_VERIFY(!runtime_->camera()->settings()->isOpen());
+    // Existing public authority checks admit inspection while streaming. Open
+    // through that seam because the camera panel is intentionally hidden.
+    QVERIFY(runtime_->camera()->settings()->openSettings());
+    QTRY_VERIFY(runtime_->camera()->settings()->isOpen());
+    QTest::keyClick(window_, Qt::Key_Escape);
+    QTRY_VERIFY(!layout->property("fullscreen").toBool());
+    QTRY_VERIFY(!runtime_->camera()->settings()->isOpen());
+    const auto cameraAfter = pipeline_->snapshot().camera;
+    QCOMPARE(cameraAfter->sessionGeneration, cameraBefore->sessionGeneration);
+    QCOMPARE(cameraAfter->requestedRevision, cameraBefore->requestedRevision);
+    QCOMPARE(cameraAfter->appliedRevision, cameraBefore->appliedRevision);
+    QCOMPARE(cameraAfter->confirmedRevision, cameraBefore->confirmedRevision);
+    QCOMPARE(cameraAfter->state, application::CameraSessionState::Streaming);
+    QVERIFY(application::cameraConfigurationsEqual(*cameraAfter->requestedConfiguration,
+        *cameraBefore->requestedConfiguration));
+    QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+        runtime_->coordinator().processingControls()->draft().activePipeline,
+        processingBefore.activePipeline));
+    QVERIFY2(warnings_.isEmpty(), qPrintable(diagnostics()));
+}
+
+void QmlWorkstationTests::hiddenPanelsKeepPriorityCommandsAndFallbackVisible() {
+    destroyRuntime();
+    auto fault = std::make_shared<EnhancementFailure>();
+    createRuntime(fault);
+    auto* layout = layoutAdapter();
+    QVERIFY(layout);
+    QTRY_VERIFY(layout->property("ready").toBool());
+    QTRY_VERIFY(runtime_->camera()->resumeLiveEnabled());
+    click("resumeLiveButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->processing()->fallback() && runtime_->viewer()->hasFrame(), 15000);
+    window_->resize(900, 600);
+    QTRY_COMPARE(window_->size(), QSize(900, 600));
+    click("panelsButton");
+    QTRY_VERIFY(!window_->property("panelsVisible").toBool());
+    const auto essential = [&] {
+        for (const auto* name : {"evaluationBanner", "statusStrip", "acquisitionStatus",
+                                "frameStatus", "processingFailure", "fullscreenButton",
+                                "compactStopButton", "compactDisconnectButton"}) {
+            auto* control = item(name);
+            QVERIFY2(control, name);
+            QVERIFY2(control->isVisible(), name);
+            QVERIFY2(window_->contentItem()->boundingRect().adjusted(-1,-1,1,1).contains(
+                control->mapRectToScene(QRectF(0,0,control->width(),control->height()))), name);
+        }
+        QVERIFY(item("evaluationBanner")->property("text").toString().contains("NOT FOR CLINICAL USE"));
+        QVERIFY(!item("processingFailure")->property("text").toString().isEmpty());
+        QVERIFY(item("compactStopButton")->isEnabled());
+        QVERIFY(item("compactDisconnectButton")->isEnabled());
+    };
+    essential();
+    capture("layout-minimum-collapsed-fallback");
+    click("fullscreenButton");
+    QTRY_COMPARE(window_->visibility(), QWindow::FullScreen);
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    essential();
+    capture("layout-fullscreen-fallback");
+    click("compactStopButton");
+    QTRY_COMPARE(pipeline_->snapshot().camera->state, application::CameraSessionState::ConnectedIdle);
+    click("compactDisconnectButton");
+    QTRY_VERIFY(runtime_->camera()->connectEnabled());
+    QVERIFY(item("acquisitionStatus")->property("text").toString().contains(
+        runtime_->camera()->status()));
+    QVERIFY(!item("acquisitionStatus")->property("text").toString().isEmpty());
+    capture("layout-fullscreen-disconnected");
+    click("fullscreenButton");
+    QTRY_VERIFY(!layout->property("fullscreen").toBool());
+    click("panelsButton");
+    window_->resize(1280, 800);
+    fault->enabled = false;
+    destroyRuntime();
+    createRuntime();
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->resumeLiveEnabled(), 10000);
+    click("resumeLiveButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame() && runtime_->viewer()->enhancedAvailable(), 15000);
+    click("originalButton");
+    // Validation failures are a separate status channel from Enhanced fallback.
+    // Reject through the public adapter while both panels are hidden, proving
+    // that an ordinary explanation remains readable outside ProcessingControls.
+    QVERIFY(!runtime_->processing()->fallback());
+    const auto pipelineBeforeRejection = runtime_->coordinator().processingControls()->draft();
+    click("panelsButton");
+    QTRY_VERIFY(!window_->property("panelsVisible").toBool());
+    QVERIFY(!runtime_->processing()->commitLevelText(QStringLiteral("not-a-number")));
+    const auto explanation = runtime_->processing()->validationError();
+    QVERIFY(!explanation.isEmpty());
+    const auto visibleExplanation = [&] {
+        auto* message = item("persistentProcessingMessages");
+        QVERIFY(message);
+        QTRY_VERIFY(message->isVisible());
+        QVERIFY(message->property("text").toString().contains(explanation));
+        QTRY_VERIFY(window_->contentItem()->boundingRect().adjusted(-1,-1,1,1).contains(
+            message->mapRectToScene(QRectF(0,0,message->width(),message->height()))));
+        QVERIFY(!runtime_->processing()->fallback());
+        QVERIFY(processing::semanticallyEqualPipelineDefinitions(
+            runtime_->coordinator().processingControls()->draft().activePipeline,
+            pipelineBeforeRejection.activePipeline));
+    };
+    visibleExplanation();
+    capture("layout-collapsed-validation-error");
+    click("fullscreenButton");
+    QTRY_COMPARE(window_->visibility(), QWindow::FullScreen);
+    visibleExplanation();
+    capture("layout-fullscreen-validation-error");
+    click("fullscreenButton");
+    QTRY_COMPARE(window_->visibility(), QWindow::Windowed);
+    click("panelsButton");
+    QTRY_VERIFY(window_->property("panelsVisible").toBool());
+    // Normal close/reopen clears transient input errors without submitting a
+    // processing edit merely to tidy the fixture for following cases.
+    destroyRuntime();
+    createRuntime();
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->resumeLiveEnabled(), 10000);
+    click("resumeLiveButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame(), 15000);
+    click("originalButton");
+    QVERIFY2(warnings_.isEmpty(), qPrintable(diagnostics()));
+}
+
+void QmlWorkstationTests::layoutPreferencesSurviveCloseWithoutChangingCameraOrPresets() {
+    auto* layout = layoutAdapter();
+    QVERIFY(layout);
+    QTRY_VERIFY(layout->property("ready").toBool());
+    click("stopButton");
+    QTRY_VERIFY(runtime_->camera()->startEnabled());
+    QTRY_VERIFY(preferences_->latestStatus()->latestSavedRevision
+        == preferences_->latestStatus()->latestAttemptedSaveRevision);
+    QTRY_VERIFY(preferences_->latestStatus()->latestSavedPresetRevision
+        == preferences_->latestStatus()->latestAttemptedPresetSaveRevision);
+    auto before = savedDocument();
+    QVERIFY(!before.isEmpty());
+    before.remove("ui");
+    window_->resize(1000, 700);
+    QTRY_COMPARE(window_->size(), QSize(1000, 700));
+    const auto normalGeometry = window_->geometry();
+    const bool normalGeometryOnScreen = window_->screen()
+        && window_->screen()->availableGeometry().contains(normalGeometry);
+    click("diagnosticsButton");
+    QTRY_VERIFY(layout->property("diagnosticsVisible").toBool());
+    click("panelsButton");
+    QTRY_VERIFY(layout->property("panelsCollapsed").toBool());
+    click("fullscreenButton");
+    QTRY_VERIFY(layout->property("fullscreen").toBool());
+    window_->close();
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->closed(), 10000);
+    destroyRuntime();
+    const auto finalSave = preferences_->latestStatus();
+    QVERIFY(finalSave->latestSavedUiRevision.has_value());
+    QCOMPARE(finalSave->latestSavedUiRevision, finalSave->latestAttemptedUiSaveRevision);
+    const auto persisted = savedDocument();
+    const auto ui = persisted.value("ui").toObject();
+    QVERIFY(!ui.isEmpty());
+    auto unchanged = persisted;
+    unchanged.remove("ui");
+    QCOMPARE(unchanged, before);
+    // This case observes actual restored fullscreen/geometry/preferences;
+    // unlike ordinary scene fixtures, do not normalize the window size.
+    createRuntime({}, false, true);
+    layout = layoutAdapter();
+    QVERIFY(layout);
+    QTRY_VERIFY(layout->property("ready").toBool());
+    QTRY_VERIFY(layout->property("fullscreen").toBool());
+    QTRY_COMPARE(window_->visibility(), QWindow::FullScreen);
+    QVERIFY(layout->property("panelsCollapsed").toBool());
+    QVERIFY(layout->property("diagnosticsVisible").toBool());
+    QVERIFY(!window_->property("panelsVisible").toBool());
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->resumeLiveEnabled(), 10000);
+    QCOMPARE(pipeline_->snapshot().camera->state, application::CameraSessionState::ConnectedIdle);
+    QVERIFY(!runtime_->viewer()->hasFrame());
+    QCOMPARE(savedDocument().value("ui").toObject(), ui);
+    auto reopened = savedDocument();
+    reopened.remove("ui");
+    QCOMPARE(reopened, before);
+    capture("layout-restored-fullscreen");
+    QTest::keyClick(window_, Qt::Key_Escape);
+    QTRY_VERIFY(!layout->property("fullscreen").toBool());
+    // Native cases use an on-screen ordinary rectangle and must restore it
+    // exactly. A small offscreen platform instead exercises safe fallback.
+    if (normalGeometryOnScreen) QTRY_COMPARE(window_->geometry(), normalGeometry);
+    QVERIFY(layout->property("panelsCollapsed").toBool());
+    click("panelsButton");
+    click("diagnosticsButton");
+    QTRY_VERIFY(!layout->property("diagnosticsVisible").toBool());
+    window_->resize(1280, 800);
+    QTRY_COMPARE(window_->size(), QSize(1280, 800));
+    click("resumeLiveButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame(), 15000);
+    click("originalButton");
+    click("fitButton");
+    QVERIFY2(warnings_.isEmpty(), qPrintable(diagnostics()));
+}
+
 void QmlWorkstationTests::closesWithRenderingOwnersOutstanding() {
     QVERIFY(runtime_->viewer()->hasFrame());
     window_->close();

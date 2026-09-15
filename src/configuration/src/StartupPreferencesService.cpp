@@ -1,5 +1,6 @@
 #include <lumora/configuration/StartupPreferencesService.hpp>
 #include <lumora/configuration/PresetCodec.hpp>
+#include <lumora/configuration/UiPreferencesCodec.hpp>
 
 #include <algorithm>
 #include <condition_variable>
@@ -60,6 +61,30 @@ public:
         std::uint64_t revision;
         application::PresetState presets;
     };
+
+    struct UiSaveSubmission final {
+        std::uint64_t revision;
+        application::UiPreferencesUpdate update;
+    };
+
+    static void mergeUiUpdate(application::UiPreferencesUpdate& target,
+        const application::UiPreferencesUpdate& update) {
+        if (update.normalGeometry) target.normalGeometry = update.normalGeometry;
+        if (update.panelsCollapsed) target.panelsCollapsed = update.panelsCollapsed;
+        if (update.maximized) target.maximized = update.maximized;
+        if (update.fullscreen) target.fullscreen = update.fullscreen;
+        if (update.diagnosticsVisible) target.diagnosticsVisible = update.diagnosticsVisible;
+    }
+
+    static application::UiPreferences applyUiUpdate(application::UiPreferences preferences,
+        const application::UiPreferencesUpdate& update) {
+        if (update.normalGeometry) preferences.normalGeometry = *update.normalGeometry;
+        if (update.panelsCollapsed) preferences.panelsCollapsed = *update.panelsCollapsed;
+        if (update.maximized) preferences.maximized = *update.maximized;
+        if (update.fullscreen) preferences.fullscreen = *update.fullscreen;
+        if (update.diagnosticsVisible) preferences.diagnosticsVisible = *update.diagnosticsVisible;
+        return preferences;
+    }
 
     explicit Impl(std::unique_ptr<IStartupPreferencesIo> io)
         : io_(std::move(io)),
@@ -207,6 +232,51 @@ public:
         return core::Result<void>::success();
     }
 
+    [[nodiscard]] core::Result<void> postUiSave(
+        std::uint64_t revision, application::UiPreferences preferences) {
+        application::UiPreferencesUpdate update;
+        update.normalGeometry = preferences.normalGeometry;
+        update.panelsCollapsed = preferences.panelsCollapsed;
+        update.maximized = preferences.maximized;
+        update.fullscreen = preferences.fullscreen;
+        update.diagnosticsVisible = preferences.diagnosticsVisible;
+        return postUiUpdate(revision, std::move(update));
+    }
+
+    [[nodiscard]] core::Result<void> postUiUpdate(
+        std::uint64_t revision, application::UiPreferencesUpdate update) {
+        if (!update.normalGeometry && !update.panelsCollapsed && !update.maximized
+            && !update.fullscreen && !update.diagnosticsVisible) {
+            return core::Result<void>::failure(serviceError(
+                "ui_update_empty", "Window preferences were not saved.",
+                "A partial UI update must contain at least one changed field."));
+        }
+        const auto valid = UiPreferencesCodec::validate(applyUiUpdate({}, update));
+        if (!valid.hasValue()) return valid;
+        std::lock_guard lock(mutex_);
+        const auto available = checkSaveAvailability();
+        if (!available.hasValue()) return available;
+        if (status_->loadCompleted && !status_->uiPreferencesWritable) {
+            return core::Result<void>::failure(status_->uiWarning.value_or(serviceError(
+                "ui_preferences_unavailable", "Window preferences cannot be saved.",
+                "The loaded UI preference section is not writable.")));
+        }
+        if (revision == 0 || revision <= latestAcceptedUiRevision_) {
+            return core::Result<void>::failure(serviceError(
+                "ui_save_revision_not_increasing", "Window preferences were not saved.",
+                "UI save revisions must increase independently of other preference sections."));
+        }
+        if (pendingUi_) {
+            mergeUiUpdate(pendingUi_->update, update);
+            pendingUi_->revision = revision;
+        } else {
+            pendingUi_ = UiSaveSubmission{revision, std::move(update)};
+        }
+        latestAcceptedUiRevision_ = revision;
+        changed_.notify_all();
+        return core::Result<void>::success();
+    }
+
     [[nodiscard]] std::shared_ptr<const application::StartupPreferencesStatus>
     latestStatus() const {
         std::lock_guard lock(mutex_);
@@ -330,11 +400,18 @@ private:
             next.loadedPreferences = document.startup;
             next.loadedCameraPreferences = document.cameraProfiles;
             next.loadedPresets = document.presets;
+            const auto ui = UiPreferencesCodec::decode(document.ui);
+            next.loadedUiPreferences = ui.preferences;
+            next.uiPreferencesWritable = ui.writable;
+            next.uiWarning = ui.warning;
             next.warning = document.loadWarning;
             const auto initialWarning = document.loadWarning;
             const auto safeToSave = !(document.usedDefaults && document.loadWarning
                 && !document.preservedInvalidFile.has_value());
+            next.uiPreferencesWritable = safeToSave && ui.writable;
+            if (!safeToSave) next.uiWarning = document.loadWarning;
             std::lock_guard lock(mutex_);
+            initialUiWarning_ = next.uiWarning;
             document_ = std::move(document);
             knownIdentities_ = std::move(knownIdentities);
             initialWarning_ = initialWarning;
@@ -344,6 +421,7 @@ private:
             return;
         } else {
             next.warning = loaded.error();
+            next.uiWarning = loaded.error();
         }
         std::lock_guard lock(mutex_);
         safeToSave_ = false;
@@ -373,6 +451,12 @@ private:
                 next.latestAttemptedPresetSaveRevision = pendingPresets_->revision;
                 pendingPresets_.reset();
             }
+            if (pendingUi_) {
+                next.latestAttemptedUiSaveRevision = pendingUi_->revision;
+                pendingUi_.reset();
+            }
+            next.uiPreferencesWritable = false;
+            next.uiWarning = next.warning;
             accepting_ = false;
             safeToSave_ = false;
             status_ = std::make_shared<const application::StartupPreferencesStatus>(
@@ -388,13 +472,14 @@ private:
                 std::vector<SaveSubmission> submissions;
                 std::optional<SelectionSubmission> selection;
                 std::optional<PresetSaveSubmission> presetSubmission;
+                std::optional<UiSaveSubmission> uiSubmission;
                 {
                     std::unique_lock lock(mutex_);
                     changed_.wait(lock, stopSource_.get_token(), [&] {
                         return !pending_.empty() || pendingSelection_.has_value()
-                            || pendingPresets_.has_value();
+                            || pendingPresets_.has_value() || pendingUi_.has_value();
                     });
-                    if (pending_.empty() && !pendingSelection_ && !pendingPresets_
+                    if (pending_.empty() && !pendingSelection_ && !pendingPresets_ && !pendingUi_
                         && stopSource_.stop_requested()) {
                         break;
                     }
@@ -407,13 +492,15 @@ private:
                     }
                     selection = std::move(pendingSelection_);
                     presetSubmission = std::move(pendingPresets_);
+                    uiSubmission = std::move(pendingUi_);
                     pending_.clear();
                     pendingSelection_.reset();
                     pendingPresets_.reset();
+                    pendingUi_.reset();
                 }
-                if (!submissions.empty() || selection || presetSubmission) {
+                if (!submissions.empty() || selection || presetSubmission || uiSubmission) {
                     save(std::move(submissions), std::move(selection),
-                        std::move(presetSubmission));
+                        std::move(presetSubmission), std::move(uiSubmission));
                 }
             }
         } catch (const std::exception&) {
@@ -427,7 +514,8 @@ private:
 
     void save(std::vector<SaveSubmission> submissions,
         std::optional<SelectionSubmission> selection,
-        std::optional<PresetSaveSubmission> presetSubmission) {
+        std::optional<PresetSaveSubmission> presetSubmission,
+        std::optional<UiSaveSubmission> uiSubmission) {
         std::uint64_t cameraRevision = selection ? selection->revision : 0U;
         for (const auto& submission : submissions) {
             cameraRevision = std::max(cameraRevision, submission.revision);
@@ -441,7 +529,12 @@ private:
             if (presetSubmission) {
                 next.latestAttemptedPresetSaveRevision = presetSubmission->revision;
             }
+            if (uiSubmission) next.latestAttemptedUiSaveRevision = uiSubmission->revision;
             if (!safeToSave_) {
+                next.uiPreferencesWritable = false;
+                next.uiWarning = serviceError("startup_save_source_unsafe",
+                    "Window preferences were not saved.",
+                    "The source configuration could not be read or preserved safely.");
                 next.warning = serviceError(
                     "startup_save_source_unsafe", "Startup preferences were not saved.",
                     "The source configuration could not be read or preserved safely.");
@@ -532,7 +625,21 @@ private:
             document_->presets = std::move(presetSubmission->presets);
             documentPresetRevision_ = presetSubmission->revision;
         }
-        if (!cameraChanged && !presetSubmission) {
+        bool uiChanged = false;
+        if (uiSubmission) {
+            // Decode on the sole document worker after loading (and after any
+            // earlier write), so absent update fields retain the current values.
+            const auto preferences = applyUiUpdate(
+                UiPreferencesCodec::decode(document_->ui).preferences, uiSubmission->update);
+            auto merged = UiPreferencesCodec::merge(document_->ui, preferences);
+            if (merged.hasValue()) {
+                document_->ui = std::move(merged).value();
+                documentUiRevision_ = uiSubmission->revision;
+                initialUiWarning_.reset();
+                uiChanged = true;
+            }
+        }
+        if (!cameraChanged && !presetSubmission && !uiChanged) {
             std::lock_guard lock(mutex_);
             auto next = *status_;
             next.warning = unresolvedCameraFailure_
@@ -557,10 +664,14 @@ private:
             // earlier write failed. Report exactly the revisions now on disk.
             next.latestSavedRevision = documentCameraRevision_;
             next.latestSavedPresetRevision = documentPresetRevision_;
+            next.latestSavedUiRevision = documentUiRevision_;
+            next.uiWarning = initialUiWarning_;
             next.warning = unresolvedCameraFailure_
                 ? unresolvedCameraFailure_ : initialWarning_;
         } else {
             next.warning = saved.error();
+            if (documentUiRevision_ != next.latestSavedUiRevision)
+                next.uiWarning = saved.error();
         }
         status_ = std::make_shared<const application::StartupPreferencesStatus>(
             std::move(next));
@@ -578,13 +689,17 @@ private:
     std::vector<SaveSubmission> pending_;
     std::optional<SelectionSubmission> pendingSelection_;
     std::optional<PresetSaveSubmission> pendingPresets_;
+    std::optional<UiSaveSubmission> pendingUi_;
     std::optional<std::uint64_t> documentCameraRevision_;
     std::optional<std::uint64_t> documentPresetRevision_;
+    std::optional<std::uint64_t> documentUiRevision_;
     std::optional<std::uint64_t> unresolvedCameraFailureRevision_;
     std::optional<core::Error> unresolvedCameraFailure_;
     std::optional<core::Error> initialWarning_;
+    std::optional<core::Error> initialUiWarning_;
     std::uint64_t latestAcceptedRevision_{0U};
     std::uint64_t latestAcceptedPresetRevision_{0U};
+    std::uint64_t latestAcceptedUiRevision_{0U};
     bool started_{false};
     bool accepting_{false};
     bool safeToSave_{false};
@@ -620,6 +735,16 @@ core::Result<void> StartupPreferencesService::postSelection(
 core::Result<void> StartupPreferencesService::postPresetSave(
     std::uint64_t revision, application::PresetState presets) {
     return impl_->postPresetSave(revision, std::move(presets));
+}
+
+core::Result<void> StartupPreferencesService::postUiSave(
+    std::uint64_t revision, application::UiPreferences preferences) {
+    return impl_->postUiSave(revision, std::move(preferences));
+}
+
+core::Result<void> StartupPreferencesService::postUiUpdate(
+    std::uint64_t revision, application::UiPreferencesUpdate update) {
+    return impl_->postUiUpdate(revision, std::move(update));
 }
 
 std::shared_ptr<const application::StartupPreferencesStatus>

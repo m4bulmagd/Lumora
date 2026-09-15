@@ -33,7 +33,7 @@ if(LUMORA_BUILD_QML_UI)
       ENVIRONMENT
         "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>;QT_QUICK_BACKEND=software"
   )
-  foreach(adapter IN ITEMS Runtime ProcessingAdapter CameraSettingsAdapter InstallationAdapter)
+  foreach(adapter IN ITEMS Runtime ProcessingAdapter CameraSettingsAdapter InstallationAdapter LayoutAdapter)
     string(TOLOWER "${adapter}" adapter_lower)
     set(adapter_target "lumora_qml_${adapter_lower}_tests")
     qt_add_executable(${adapter_target} MANUAL_FINALIZATION
@@ -462,6 +462,7 @@ add_executable(
   unit/configuration/ConfigurationStoreTests.cpp
   unit/configuration/PresetCodecTests.cpp
   unit/configuration/StartupPreferencesTests.cpp
+  unit/configuration/UiPreferencesTests.cpp
   unit/configuration/InstallationProfilesTests.cpp
 )
 
@@ -475,7 +476,7 @@ lumora_enable_warnings(lumora_configuration_tests)
 add_test(NAME ConfigurationStore
   COMMAND lumora_configuration_tests --gtest_filter=ConfigurationStore.*:*/InvalidConfigurationTest.*)
 add_test(NAME Configuration.StartupPreferences
-  COMMAND lumora_configuration_tests --gtest_filter=StartupPreferencesTest.*:StartupPreferencesService.*)
+  COMMAND lumora_configuration_tests --gtest_filter=StartupPreferencesTest.*:StartupPreferencesService.*:UiPreferences.*)
 add_test(NAME Configuration.InstallationProfiles
   COMMAND lumora_configuration_tests --gtest_filter=InstallationProfiles*)
 set_tests_properties(Configuration.InstallationProfiles PROPERTIES TIMEOUT 60)

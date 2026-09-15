@@ -5,7 +5,11 @@ import QtQuick.Layouts
 Flow {
     id: root
     required property ViewerAdapter viewer
+    required property CameraAdapter camera
+    property bool showPriorityActions: false
     spacing: Theme.spacingXs
+    Button { objectName: "compactStopButton"; text: qsTr("Stop"); visible: root.showPriorityActions && (root.camera.stopVisible || (root.camera.pending && root.camera.stopEnabled)); enabled: root.camera.stopEnabled; onClicked: root.camera.stopLive() }
+    Button { objectName: "compactDisconnectButton"; text: qsTr("Disconnect"); visible: root.showPriorityActions && root.camera.disconnectVisible; enabled: root.camera.disconnectEnabled; onClicked: root.camera.disconnectCamera() }
     Button { objectName: "originalButton"; text: qsTr("Original"); checkable: true; checked: root.viewer.displayMode === "original"; enabled: root.viewer.originalAvailable; onClicked: root.viewer.setDisplayMode("original") }
     Button { objectName: "enhancedButton"; text: qsTr("Enhanced"); checkable: true; checked: root.viewer.displayMode === "enhanced"; enabled: root.viewer.enhancedAvailable; onClicked: root.viewer.setDisplayMode("enhanced") }
     Button { objectName: "compareButton"; text: qsTr("Compare"); checkable: true; checked: root.viewer.displayMode === "compare"; enabled: root.viewer.compareAvailable; onClicked: root.viewer.setDisplayMode("compare") }

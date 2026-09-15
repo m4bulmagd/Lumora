@@ -2,6 +2,7 @@
 
 #include <lumora/application/CameraProfile.hpp>
 #include <lumora/application/Preset.hpp>
+#include <lumora/application/UiPreferences.hpp>
 #include <lumora/camera/CameraTypes.hpp>
 #include <lumora/core/Error.hpp>
 #include <lumora/core/Result.hpp>
@@ -40,6 +41,11 @@ struct StartupPreferencesStatus final {
     std::optional<StartupPreferences> loadedPreferences;
     std::optional<CameraPreferences> loadedCameraPreferences;
     std::optional<PresetState> loadedPresets;
+    std::optional<UiPreferences> loadedUiPreferences;
+    bool uiPreferencesWritable{false};
+    std::optional<core::Error> uiWarning;
+    std::optional<std::uint64_t> latestAttemptedUiSaveRevision;
+    std::optional<std::uint64_t> latestSavedUiRevision;
     std::optional<std::uint64_t> latestAttemptedSaveRevision;
     std::optional<std::uint64_t> latestSavedRevision;
     std::optional<std::uint64_t> latestAttemptedPresetSaveRevision;

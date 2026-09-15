@@ -596,4 +596,6 @@ bool ProcessingAdapter::retry() {
     refresh();
     return result.hasValue();
 }
+void ProcessingAdapter::cancelUncommittedInput() { emit draftReplaced(); }
+
 } // namespace lumora::qml

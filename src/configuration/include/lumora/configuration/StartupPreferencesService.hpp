@@ -48,6 +48,14 @@ public:
     // The same admission, source safety and shutdown rules apply.
     [[nodiscard]] core::Result<void> postPresetSave(
         std::uint64_t revision, application::PresetState presets);
+    // UI revisions and coalescing are independent; the same worker preserves
+    // the loaded whole document and reports admission separately from durability.
+    [[nodiscard]] core::Result<void> postUiSave(
+        std::uint64_t revision, application::UiPreferences preferences);
+    // Partial edits made before load merge with the loaded UI values on the
+    // same worker. Pending edits coalesce field by field in revision order.
+    [[nodiscard]] core::Result<void> postUiUpdate(
+        std::uint64_t revision, application::UiPreferencesUpdate update);
     [[nodiscard]] std::shared_ptr<const application::StartupPreferencesStatus>
         latestStatus() const;
     void requestStop() noexcept;

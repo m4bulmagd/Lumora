@@ -8,6 +8,7 @@ ScrollView {
     required property InstallationAdapter installation
     clip: true
     contentWidth: availableWidth
+    onVisibleChanged: if (!visible) selector.popup.close()
     ColumnLayout {
         width: root.availableWidth
         spacing: Theme.spacingSm

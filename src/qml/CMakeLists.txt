@@ -26,6 +26,7 @@ qt_add_qml_module(lumora_qml_ui
     QmlWorkstation.hpp QmlWorkstation.cpp CameraAdapter.hpp CameraAdapter.cpp
     CameraSettingsAdapter.hpp CameraSettingsAdapter.cpp
     InstallationAdapter.hpp InstallationAdapter.cpp
+    LayoutAdapter.hpp LayoutAdapter.cpp
     ViewerAdapter.hpp ViewerAdapter.cpp ViewerSurface.hpp ViewerSurface.cpp
     ProcessingAdapter.hpp ProcessingAdapter.cpp)
 target_include_directories(lumora_qml_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
