@@ -1,6 +1,6 @@
 # Lumora progress
 
-**Updated:** 2026-09-14
+**Updated:** 2026-09-15
 
 **Latest local-main integration:** `e2de210cd6d8208191daefd969917a4ac3fde054`, fast-forwarded from `cd4c803` on 2026-09-13, includes M9 Tasks 4C–4E and the QML handoff. See the [local integration record](architecture/milestones/m09-camera-controls.md#local-main-integration).
 
@@ -30,7 +30,9 @@ Checkpoint 4 passes full Linux Debug/Release **77/77** suites and QML lint, nati
 
 **Stage 2F adds [QML Invert](architecture/milestones/qml-invert.md)** at source `77f55e9`, completing the basic processing editors. Its single checkbox preserves the full recipe and uses shared activation and acknowledged-only persistence. Full Linux Debug/Release suites pass **77/77** each; focused adapter tests pass **47/47**, and all six native actual-scene runs pass **19/19**. A fresh staged application verifies pointer/Space input, exact paused frames, preset/reset and second-process settings reopen with a new durable save. The linked record retains verification identities and scope.
 
-**Next in Stage 2:** stopped exposure/gain/FPS/ROI/format settings, capability-aware camera controls and operator/admin installation orientation. Preset save/rename/delete UI also remains later work. Stage 3 adds fullscreen, sidebar collapse and saved layout preferences. The default launcher switch follows later Linux/Windows runtime verification.
+**Stage 2G adds [QML stopped exposure/gain settings](architecture/milestones/qml-camera-exposure-gain.md)** at production `44a33e2`, with test-only verification successor `d041c76`. The nonmodal dialog preserves exact drafts, capability-aware modes/access, separate requested/actual readback and explicit Apply → review → Confirm → Start. Widgets and QML share the extracted draft lifecycle. Full Linux Debug/Release suites pass **79/79** each; all six native actual-scene runs pass **20/20**, and the installed app verifies cancellation, no premature saves, paused inspection and second-process persistence. The linked record preserves source/review identities, corrected asynchronous test and native-driver assumptions, and platform limits.
+
+**Next in Stage 2:** stopped FPS editing, followed by ROI/format settings, remaining capability-aware camera controls and operator/admin installation orientation. Preset save/rename/delete UI also remains later work. Stage 3 adds fullscreen, sidebar collapse and saved layout preferences. The default launcher switch follows later Linux/Windows runtime verification.
 
 Use the current camera workflows as the parity baseline: stopped exposure/gain/FPS/ROI/format settings, per-camera preferences, administrator-managed installation orientation, compact contextual controls and capability access/readback. Preserve **Stop → Apply → review → Confirm → Start**, same-bundle Compare, truthful Pause/stale state and persistence authority. Fullscreen, sidebar collapse and saved UI preferences remain M9 Task 5 and should be planned for QML. M10 capture follows remaining M9 work; the UI choice closes no acceptance gate.
 
