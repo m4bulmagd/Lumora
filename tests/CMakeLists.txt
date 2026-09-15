@@ -33,7 +33,7 @@ if(LUMORA_BUILD_QML_UI)
       ENVIRONMENT
         "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>;QT_QUICK_BACKEND=software"
   )
-  foreach(adapter IN ITEMS Runtime ProcessingAdapter CameraSettingsAdapter)
+  foreach(adapter IN ITEMS Runtime ProcessingAdapter CameraSettingsAdapter InstallationAdapter)
     string(TOLOWER "${adapter}" adapter_lower)
     set(adapter_target "lumora_qml_${adapter_lower}_tests")
     qt_add_executable(${adapter_target} MANUAL_FINALIZATION
@@ -93,6 +93,7 @@ add_executable(
   unit/presentation/FramePresenterTests.cpp
   unit/presentation/CameraActionPolicyTests.cpp
   unit/presentation/CameraSettingsDraftTests.cpp
+  unit/presentation/InstallationSettingsDraftTests.cpp
   unit/presentation/ProcessingControlsModelTests.cpp
   unit/presentation/ViewportTransformTests.cpp
   unit/presentation/WorkstationCoordinatorTests.cpp
@@ -117,6 +118,9 @@ set_tests_properties(SharedFramePresenter PresentationProtocol PROPERTIES TIMEOU
 add_test(NAME Presentation.CameraSettingsDraft
   COMMAND lumora_presentation_tests --gtest_filter=CameraSettingsDraft.*)
 set_tests_properties(Presentation.CameraSettingsDraft PROPERTIES TIMEOUT 60)
+add_test(NAME Presentation.InstallationSettingsDraft
+  COMMAND lumora_presentation_tests --gtest_filter=InstallationSettingsDraft.*)
+set_tests_properties(Presentation.InstallationSettingsDraft PROPERTIES TIMEOUT 60)
 add_test(
   NAME ProcessingControls
   COMMAND lumora_presentation_tests --gtest_filter=Controls.*
@@ -165,134 +169,143 @@ add_test(NAME Processing.Mono8PassThrough
   COMMAND lumora_processing_tests --gtest_filter=Mono8PassThroughProcessor.*)
 set_tests_properties(Processing.Mono8PassThrough PROPERTIES TIMEOUT 60)
 
-add_executable(
-  lumora_ui_tests
-  support/QtTestMain.cpp
-  unit/ui/CameraSettingsDialogTests.cpp
-  unit/ui/InstallationSettingsDialogTests.cpp
-  unit/ui/CameraStartupPanelTests.cpp
-  unit/ui/CameraPanelLayoutTests.cpp
-  unit/ui/ProcessingPanelTests.cpp
-  unit/ui/WorkstationControllerTests.cpp
-  unit/ui/FramePresenterTests.cpp
-  unit/ui/ImageViewportTests.cpp
-  unit/ui/ComparisonViewportTests.cpp
-  unit/ui/CompareWorkstationTests.cpp
-  unit/ui/MainWindowSmokeTests.cpp
-  unit/ui/WorkstationViewTests.cpp
-)
-
-target_include_directories(
-  lumora_ui_tests
-  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support"
-)
-
-target_link_libraries(
-  lumora_ui_tests
-  PRIVATE
-    lumora::ui
-    lumora::configuration
-    Qt6::Widgets
-    GTest::gtest
-)
-
-lumora_enable_warnings(lumora_ui_tests)
-
-add_test(
-  NAME FramePresenter
-  COMMAND lumora_ui_tests --gtest_filter=FramePresenter.*
-)
-add_test(
-  NAME MainWindowSmoke
-  COMMAND lumora_ui_tests --gtest_filter=MainWindowSmoke.*
-)
-add_test(
-  NAME ImageViewport
-  COMMAND lumora_ui_tests --gtest_filter=ImageViewport.*
-)
-add_test(NAME ComparisonViewport COMMAND lumora_ui_tests --gtest_filter=ComparisonViewport.*)
-add_test(NAME CompareWorkstation COMMAND lumora_ui_tests --gtest_filter=CompareWorkstation.*)
-add_test(
-  NAME WorkstationView
-  COMMAND lumora_ui_tests --gtest_filter=WorkstationView.*
-)
-add_test(
-  NAME CameraStartupPanel
-  COMMAND lumora_ui_tests --gtest_filter=CameraStartupPanel.*
-)
-add_test(NAME ProcessingPanel COMMAND lumora_ui_tests --gtest_filter=ProcessingPanel.*)
-add_test(NAME WorkstationController COMMAND lumora_ui_tests --gtest_filter=WorkstationController.*)
-# Surface stalled Qt startup promptly on unattended CI runners.
-add_test(NAME CameraSettingsDialog COMMAND lumora_ui_tests --gtest_filter=CameraSettingsDialog.*)
-add_test(NAME InstallationSettingsDialog COMMAND lumora_ui_tests --gtest_filter=InstallationSettingsDialog.*)
-add_test(NAME CameraPanelLayout COMMAND lumora_ui_tests --gtest_filter=CameraPanelLayout.*)
-
-# Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
-# does not make the installed Qt platform plugins discoverable by itself.
-set_tests_properties(
-  MainWindowSmoke ImageViewport ComparisonViewport CompareWorkstation WorkstationView FramePresenter CameraSettingsDialog InstallationSettingsDialog CameraStartupPanel CameraPanelLayout WorkstationController ProcessingPanel
-  PROPERTIES
-    TIMEOUT 60
-    ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
-)
-
-add_executable(
-  lumora_integration_tests
-  support/QtTestMain.cpp
-  integration/SimulatedViewerTests.cpp
+# These integration suites use the real backend without any Qt application.
+add_executable(lumora_backend_integration_tests
   integration/ProcessingConfigurationTests.cpp
-  integration/LivePipelineTests.cpp
   integration/InstallationPipelineTests.cpp
-  integration/InstallationControllerTests.cpp
-  integration/CameraReconfigurationTests.cpp
-  integration/CameraControlsTests.cpp
-  "${PROJECT_SOURCE_DIR}/src/app/SimulatorComposition.cpp"
-)
-target_include_directories(
-  lumora_integration_tests
-  PRIVATE
-    "${PROJECT_SOURCE_DIR}/src/processing/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/support"
-    "${PROJECT_SOURCE_DIR}/tools/viewer-harness"
-    "${PROJECT_SOURCE_DIR}/src/app"
-)
-target_link_libraries(
-  lumora_integration_tests
-  PRIVATE lumora::ui lumora::configuration lumora::camera_simulator lumora_viewer_harness_support Qt6::Widgets GTest::gtest
-)
-lumora_enable_warnings(lumora_integration_tests)
-add_test(NAME ProcessingConfiguration COMMAND lumora_integration_tests --gtest_filter=ProcessingConfiguration.*)
-set_tests_properties(ProcessingConfiguration PROPERTIES TIMEOUT 180
-  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
-add_test(NAME LivePipeline COMMAND lumora_integration_tests --gtest_filter=LivePipeline.*)
-add_test(NAME InstallationPipeline COMMAND lumora_integration_tests --gtest_filter=InstallationPipeline.*)
-add_test(NAME InstallationController COMMAND lumora_integration_tests --gtest_filter=InstallationController.*)
-add_test(NAME CameraControls COMMAND lumora_integration_tests --gtest_filter=CameraControls.*)
-set_tests_properties(CameraControls PROPERTIES TIMEOUT 60
-  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
-set_tests_properties(InstallationController PROPERTIES TIMEOUT 180
-  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
-set_tests_properties(InstallationPipeline PROPERTIES TIMEOUT 180
-  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
-set_tests_properties(LivePipeline PROPERTIES TIMEOUT 180
-  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
-add_test(NAME CameraReconfiguration COMMAND lumora_integration_tests --gtest_filter=CameraReconfiguration.*)
-set_tests_properties(CameraReconfiguration PROPERTIES TIMEOUT 180
-  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+  integration/CameraReconfigurationTests.cpp)
+target_link_libraries(lumora_backend_integration_tests PRIVATE
+  lumora::application lumora::camera_simulator GTest::gtest_main)
+lumora_enable_warnings(lumora_backend_integration_tests)
+foreach(suite IN ITEMS ProcessingConfiguration InstallationPipeline CameraReconfiguration)
+  add_test(NAME ${suite} COMMAND lumora_backend_integration_tests --gtest_filter=${suite}.*)
+  set_tests_properties(${suite} PROPERTIES TIMEOUT 180 LABELS backend)
+endforeach()
 
-add_test(
-  NAME SimulatedViewer
-  COMMAND lumora_integration_tests --gtest_filter=SimulatedViewer.ResponsiveTenSeconds
-)
-set_tests_properties(SimulatedViewer PROPERTIES TIMEOUT 60
-  ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
-if(LUMORA_ENABLE_STRESS_TESTS)
-  add_test(
-    NAME SimulatedViewer.Stress
-    COMMAND lumora_integration_tests --gtest_filter=SimulatedViewer.StressTenMinutes
+if(LUMORA_BUILD_LEGACY_WIDGETS_TESTS)
+  add_executable(
+    lumora_ui_tests
+    support/QtTestMain.cpp
+    unit/ui/CameraSettingsDialogTests.cpp
+    unit/ui/InstallationSettingsDialogTests.cpp
+    unit/ui/CameraStartupPanelTests.cpp
+    unit/ui/CameraPanelLayoutTests.cpp
+    unit/ui/ProcessingPanelTests.cpp
+    unit/ui/WorkstationControllerTests.cpp
+    unit/ui/FramePresenterTests.cpp
+    unit/ui/ImageViewportTests.cpp
+    unit/ui/ComparisonViewportTests.cpp
+    unit/ui/CompareWorkstationTests.cpp
+    unit/ui/MainWindowSmokeTests.cpp
+    unit/ui/WorkstationViewTests.cpp
   )
-  set_tests_properties(SimulatedViewer.Stress PROPERTIES LABELS stress TIMEOUT 750
+
+  target_include_directories(
+    lumora_ui_tests
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support"
+  )
+
+  target_link_libraries(
+    lumora_ui_tests
+    PRIVATE
+      lumora::ui
+      lumora::configuration
+      Qt6::Widgets
+      GTest::gtest
+  )
+
+  lumora_enable_warnings(lumora_ui_tests)
+
+  add_test(
+    NAME FramePresenter
+    COMMAND lumora_ui_tests --gtest_filter=FramePresenter.*
+  )
+  add_test(
+    NAME MainWindowSmoke
+    COMMAND lumora_ui_tests --gtest_filter=MainWindowSmoke.*
+  )
+  add_test(
+    NAME ImageViewport
+    COMMAND lumora_ui_tests --gtest_filter=ImageViewport.*
+  )
+  add_test(NAME ComparisonViewport COMMAND lumora_ui_tests --gtest_filter=ComparisonViewport.*)
+  add_test(NAME CompareWorkstation COMMAND lumora_ui_tests --gtest_filter=CompareWorkstation.*)
+  add_test(
+    NAME WorkstationView
+    COMMAND lumora_ui_tests --gtest_filter=WorkstationView.*
+  )
+  add_test(
+    NAME CameraStartupPanel
+    COMMAND lumora_ui_tests --gtest_filter=CameraStartupPanel.*
+  )
+  add_test(NAME ProcessingPanel COMMAND lumora_ui_tests --gtest_filter=ProcessingPanel.*)
+  add_test(NAME WorkstationController COMMAND lumora_ui_tests --gtest_filter=WorkstationController.*)
+  # Surface stalled Qt startup promptly on unattended CI runners.
+  add_test(NAME CameraSettingsDialog COMMAND lumora_ui_tests --gtest_filter=CameraSettingsDialog.*)
+  add_test(NAME InstallationSettingsDialog COMMAND lumora_ui_tests --gtest_filter=InstallationSettingsDialog.*)
+  add_test(NAME CameraPanelLayout COMMAND lumora_ui_tests --gtest_filter=CameraPanelLayout.*)
+
+  # Resolve the matching Debug/Release plugin explicitly: Windows DLL staging
+  # does not make the installed Qt platform plugins discoverable by itself.
+  set_tests_properties(
+    MainWindowSmoke ImageViewport ComparisonViewport CompareWorkstation WorkstationView FramePresenter CameraSettingsDialog InstallationSettingsDialog CameraStartupPanel CameraPanelLayout WorkstationController ProcessingPanel
+    PROPERTIES
+      TIMEOUT 60
+      ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
+  )
+
+  add_executable(
+    lumora_integration_tests
+    support/QtTestMain.cpp
+    integration/SimulatedViewerTests.cpp
+    integration/LivePipelineTests.cpp
+    integration/InstallationControllerTests.cpp
+    integration/CameraControlsTests.cpp
+    "${PROJECT_SOURCE_DIR}/src/app/SimulatorComposition.cpp"
+  )
+  target_include_directories(
+    lumora_integration_tests
+    PRIVATE
+      "${PROJECT_SOURCE_DIR}/src/processing/src"
+      "${CMAKE_CURRENT_SOURCE_DIR}/support"
+      "${PROJECT_SOURCE_DIR}/tools/viewer-harness"
+      "${PROJECT_SOURCE_DIR}/src/app"
+  )
+  target_link_libraries(
+    lumora_integration_tests
+    PRIVATE lumora::ui lumora::configuration lumora::camera_simulator lumora_viewer_harness_support Qt6::Widgets GTest::gtest
+  )
+  lumora_enable_warnings(lumora_integration_tests)
+  add_test(NAME LivePipeline COMMAND lumora_integration_tests --gtest_filter=LivePipeline.*)
+  add_test(NAME InstallationController COMMAND lumora_integration_tests --gtest_filter=InstallationController.*)
+  add_test(NAME CameraControls COMMAND lumora_integration_tests --gtest_filter=CameraControls.*)
+  set_tests_properties(CameraControls PROPERTIES TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+  set_tests_properties(InstallationController PROPERTIES TIMEOUT 180
+    ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+  set_tests_properties(LivePipeline PROPERTIES TIMEOUT 180
+    ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+
+  add_test(
+    NAME SimulatedViewer
+    COMMAND lumora_integration_tests --gtest_filter=SimulatedViewer.ResponsiveTenSeconds
+  )
+  set_tests_properties(SimulatedViewer PROPERTIES TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+  if(LUMORA_ENABLE_STRESS_TESTS)
+    add_test(
+      NAME SimulatedViewer.Stress
+      COMMAND lumora_integration_tests --gtest_filter=SimulatedViewer.StressTenMinutes
+    )
+    set_tests_properties(SimulatedViewer.Stress PROPERTIES LABELS stress TIMEOUT 750
+      ENVIRONMENT "QT_QPA_PLATFORM=minimal;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+  endif()
+
+  set_tests_properties(
+    MainWindowSmoke ImageViewport ComparisonViewport CompareWorkstation WorkstationView
+    FramePresenter CameraSettingsDialog InstallationSettingsDialog CameraStartupPanel
+    CameraPanelLayout WorkstationController ProcessingPanel LivePipeline
+    InstallationController CameraControls SimulatedViewer PROPERTIES LABELS legacy-widgets)
 endif()
 
 add_test(NAME CMake.StressEvidence
@@ -303,20 +316,26 @@ add_test(NAME CMake.StressEvidence
 set_tests_properties(CMake.StressEvidence PROPERTIES TIMEOUT 30)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  option(LUMORA_TEST_LINUX_DESKTOP "Register the smoke test requiring an X11 display" OFF)
+  option(LUMORA_TEST_LINUX_DESKTOP "Register Qt Quick scene tests requiring X11" OFF)
   if(LUMORA_TEST_LINUX_DESKTOP)
-    add_executable(lumora_linux_desktop_tests unit/ui/LinuxDesktopSmokeTests.cpp)
-    target_link_libraries(lumora_linux_desktop_tests PRIVATE lumora::ui GTest::gtest)
-    lumora_enable_warnings(lumora_linux_desktop_tests)
-
-    add_test(NAME LinuxDesktopSmoke COMMAND lumora_linux_desktop_tests)
-    # All QPA plugins share this configuration-specific directory. Using the
-    # minimal plugin's location lets this test detect a missing xcb plugin too.
-    set_tests_properties(LinuxDesktopSmoke PROPERTIES
-      LABELS desktop
-      TIMEOUT 15
-      ENVIRONMENT "QT_QPA_PLATFORM=xcb;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
-    )
+    foreach(backend IN ITEMS software opengl)
+      set(desktop_quick_backend "")
+      if(backend STREQUAL "software")
+        set(desktop_quick_backend software)
+      endif()
+      add_test(NAME Qml.Desktop.${backend} COMMAND lumora_qml_tests)
+      set_tests_properties(Qml.Desktop.${backend} PROPERTIES
+        LABELS "qml;desktop" TIMEOUT 180
+        ENVIRONMENT "QT_QPA_PLATFORM=xcb;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>;QT_QUICK_BACKEND=${desktop_quick_backend};QSG_RHI_BACKEND=opengl;QSG_RENDER_LOOP=basic")
+    endforeach()
+    if(LUMORA_BUILD_LEGACY_WIDGETS_TESTS)
+      add_executable(lumora_linux_desktop_tests unit/ui/LinuxDesktopSmokeTests.cpp)
+      target_link_libraries(lumora_linux_desktop_tests PRIVATE lumora::ui GTest::gtest)
+      lumora_enable_warnings(lumora_linux_desktop_tests)
+      add_test(NAME LinuxDesktopSmoke COMMAND lumora_linux_desktop_tests)
+      set_tests_properties(LinuxDesktopSmoke PROPERTIES LABELS "desktop;legacy-widgets" TIMEOUT 15
+        ENVIRONMENT "QT_QPA_PLATFORM=xcb;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>")
+    endif()
   endif()
 endif()
 

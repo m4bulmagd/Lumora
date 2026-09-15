@@ -14,6 +14,8 @@ class CameraAdapter final : public QObject {
     QML_ELEMENT
     QML_UNCREATABLE("The workstation owns camera controls")
     Q_PROPERTY(lumora::qml::CameraSettingsAdapter* settings READ settings CONSTANT FINAL)
+    Q_PROPERTY(bool installationVisible READ installationVisible NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool installationEnabled READ installationEnabled NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool settingsVisible READ settingsVisible NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool settingsEnabled READ settingsEnabled NOTIFY stateChanged FINAL)
     Q_PROPERTY(QVariantList devices READ devices NOTIFY devicesChanged FINAL)
@@ -54,6 +56,8 @@ public:
     [[nodiscard]] const CameraSettingsAdapter* settings() const { return &settings_; }
     [[nodiscard]] bool settingsVisible() const { return policy_.settings.visible; }
     [[nodiscard]] bool settingsEnabled() const { return !closing_ && policy_.settings.enabled; }
+    [[nodiscard]] bool installationVisible() const { return policy_.installation.visible; }
+    [[nodiscard]] bool installationEnabled() const { return !closing_ && policy_.installation.enabled; }
     void refresh();
     void setClosing();
     Q_INVOKABLE bool selectCamera(const QString& id);

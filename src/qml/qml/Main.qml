@@ -14,7 +14,7 @@ ApplicationWindow {
     minimumWidth: 900
     minimumHeight: 600
     visible: true
-    title: qsTr("Lumora · SIM-LIVE pilot")
+    title: qsTr("Lumora · SIM-LIVE")
     color: Theme.canvas
     font.family: "Sans Serif"
     font.pixelSize: 13
@@ -47,7 +47,7 @@ ApplicationWindow {
         RowLayout {
             Layout.fillWidth: true
             Label { text: "LUMORA"; font.letterSpacing: 3; font.bold: true; font.pixelSize: 18 }
-            Label { text: qsTr("SIM-LIVE PILOT"); color: Theme.textSecondary; font.pixelSize: 11; Layout.fillWidth: true }
+            Label { text: qsTr("SIM-LIVE"); color: Theme.textSecondary; font.pixelSize: 11; Layout.fillWidth: true }
             Label { objectName: "evaluationBanner"; text: qsTr("EVALUATION — NOT FOR CLINICAL USE"); color: Theme.amber; font.bold: true; font.pixelSize: 11 }
         }
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
@@ -55,7 +55,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.spacingMd
-            CameraStartup { camera: root.camera; Layout.preferredWidth: 200; Layout.fillHeight: true }
+            CameraStartup { camera: root.camera; installation: root.workstation.installation; Layout.preferredWidth: 200; Layout.fillHeight: true }
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true

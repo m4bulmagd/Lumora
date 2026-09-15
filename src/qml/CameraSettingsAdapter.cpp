@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <type_traits>
 #include <vector>
 
@@ -41,6 +43,17 @@ bool advertised(const std::vector<Mode>& modes, int requested) {
     });
 }
 
+QVariantList formatRows(const std::vector<core::SourcePixelFormat>& formats) {
+    QVariantList rows;
+    for (const auto& format : formats) {
+        const auto name = QString::fromStdString(format.canonicalName);
+        rows.append(QVariantMap{
+            {QStringLiteral("text"), name},
+            {QStringLiteral("value"), name}});
+    }
+    return rows;
+}
+
 std::optional<double> parseNumber(const QString& text) {
     const auto bytes = text.trimmed().toUtf8();
     const char* begin = bytes.constData();
@@ -55,6 +68,20 @@ std::optional<double> parseNumber(const QString& text) {
     return value;
 }
 
+std::optional<std::uint32_t> parseUnsigned(const QString& text) {
+    const auto bytes = text.toUtf8();
+    const char* begin = bytes.constData();
+    const char* end = begin + bytes.size();
+    if (begin == end || std::any_of(begin, end, [](char value) {
+            return value < '0' || value > '9';
+        })) return {};
+    std::uint64_t value{};
+    const auto parsed = std::from_chars(begin, end, value);
+    if (parsed.ec != std::errc{} || parsed.ptr != end
+        || value > std::numeric_limits<std::uint32_t>::max()) return {};
+    return static_cast<std::uint32_t>(value);
+}
+
 bool inRange(const std::optional<double>& value, const camera::NumericCapability& capability) {
     return value && *value >= capability.minimum && *value <= capability.maximum;
 }
@@ -62,6 +89,48 @@ bool inRange(const std::optional<double>& value, const camera::NumericCapability
 QString range(const camera::NumericCapability& capability) {
     return CameraSettingsAdapter::tr("Range: %1 to %2; increment: %3")
         .arg(number(capability.minimum), number(capability.maximum), number(capability.increment));
+}
+
+QString range(const camera::RegionOfInterestCapability& capability) {
+    return CameraSettingsAdapter::tr(
+        "ROI x: %1 to %2 (increment %3); y: %4 to %5 (increment %6); "
+        "width: %7 to %8 (increment %9); height: %10 to %11 (increment %12)")
+        .arg(capability.minimum.x).arg(capability.maximum.x).arg(capability.increment.x)
+        .arg(capability.minimum.y).arg(capability.maximum.y).arg(capability.increment.y)
+        .arg(capability.minimum.width).arg(capability.maximum.width)
+        .arg(capability.increment.width).arg(capability.minimum.height)
+        .arg(capability.maximum.height).arg(capability.increment.height);
+}
+
+bool validRoi(const core::RegionOfInterest& value,
+    const camera::RegionOfInterestCapability& capability) {
+    const auto validDimension = [](std::uint32_t current, std::uint32_t minimum,
+                                    std::uint32_t maximum, std::uint32_t increment) {
+        return increment != 0U && current >= minimum && current <= maximum
+            && (current - minimum) % increment == 0U;
+    };
+    return validDimension(value.x, capability.minimum.x, capability.maximum.x,
+               capability.increment.x)
+        && validDimension(value.y, capability.minimum.y, capability.maximum.y,
+            capability.increment.y)
+        && validDimension(value.width, capability.minimum.width, capability.maximum.width,
+            capability.increment.width)
+        && validDimension(value.height, capability.minimum.height, capability.maximum.height,
+            capability.increment.height)
+        && static_cast<std::uint64_t>(value.x) + value.width <= capability.maximum.width
+        && static_cast<std::uint64_t>(value.y) + value.height <= capability.maximum.height;
+}
+
+QString accessReason(camera::ControlAccess access, const QString& control,
+    const presentation::WorkstationState& presentation) {
+    if (access == camera::ControlAccess::Unavailable)
+        return CameraSettingsAdapter::tr("%1 is unavailable.").arg(control);
+    if (access == camera::ControlAccess::ReadOnly)
+        return CameraSettingsAdapter::tr("%1 is read-only.").arg(control);
+    if (presentation.cameraStatus
+        && presentation.cameraStatus->state == application::CameraSessionState::Streaming)
+        return CameraSettingsAdapter::tr("Stop acquisition to edit %1.").arg(control);
+    return {};
 }
 
 QString modeValue(const std::optional<camera::ExposureMode>& mode,
@@ -186,22 +255,46 @@ void CameraSettingsAdapter::refresh() {
     next.editable = !closing_ && !policy.installationPending && draft_->editable();
     if (source && source->capabilities) {
         const auto& capabilities = *source->capabilities;
+        next.pixelFormats = formatRows(capabilities.pixelFormats);
         next.exposureModes = modeRows(capabilities.exposureModes);
         next.gainModes = modeRows(capabilities.gainModes);
+        if (capabilities.frameRate.access != camera::ControlAccess::Unavailable)
+            next.frameRateRange = range(capabilities.frameRate);
+        if (capabilities.roi.access != camera::ControlAccess::Unavailable)
+            next.roiRange = range(capabilities.roi);
         if (capabilities.exposure.access != camera::ControlAccess::Unavailable)
             next.exposureRange = range(capabilities.exposure);
         if (capabilities.gain.access != camera::ControlAccess::Unavailable)
             next.gainRange = range(capabilities.gain);
+        next.frameRateEnabled = next.editable
+            && presentation::isWritableCameraControl(capabilities.frameRate.access);
+        next.pixelFormatEnabled = next.editable
+            && presentation::isWritableCameraControl(capabilities.pixelFormatAccess)
+            && !capabilities.pixelFormats.empty();
+        next.roiEnabled = next.editable
+            && presentation::isWritableCameraControl(capabilities.roi.access);
         next.exposureModeEnabled = next.editable
             && presentation::isWritableCameraControl(capabilities.exposureModeAccess);
         next.gainModeEnabled = next.editable
             && presentation::isWritableCameraControl(capabilities.gainModeAccess);
+        next.frameRateReason = accessReason(
+            capabilities.frameRate.access, tr("frame rate"), presentation);
+        next.pixelFormatReason = accessReason(
+            capabilities.pixelFormatAccess, tr("pixel format"), presentation);
+        next.roiReason = accessReason(
+            capabilities.roi.access, tr("the image region"), presentation);
         next.exposureReason = controlReason(capabilities.exposureModeAccess,
             capabilities.exposure.access, tr("Exposure"), presentation);
         next.gainReason = controlReason(capabilities.gainModeAccess,
             capabilities.gain.access, tr("Gain"), presentation);
 
         if (configuration) {
+            next.frameRateText = frameRateText_;
+            next.pixelFormat = QString::fromStdString(configuration->pixelFormat.canonicalName);
+            next.roiXText = roiXText_;
+            next.roiYText = roiYText_;
+            next.roiWidthText = roiWidthText_;
+            next.roiHeightText = roiHeightText_;
             next.exposureMode = configuration->exposure.mode
                 ? static_cast<int>(*configuration->exposure.mode) : -1;
             next.gainMode = configuration->gain.mode
@@ -236,8 +329,24 @@ void CameraSettingsAdapter::refresh() {
                         : tr("Gain readback is unavailable for Manual mode.");
                 }
             }
+            if (presentation::isWritableCameraControl(capabilities.frameRate.access)
+                && !frameRateTextValid_) {
+                next.frameRateReason = tr("Enter a finite positive frame rate from %1 to %2.")
+                    .arg(number(capabilities.frameRate.minimum),
+                        number(capabilities.frameRate.maximum));
+            }
+            const bool roiSyntaxValid = roiXTextValid_ && roiYTextValid_
+                && roiWidthTextValid_ && roiHeightTextValid_;
+            if (presentation::isWritableCameraControl(capabilities.roi.access)
+                && !roiSyntaxValid) {
+                next.roiReason = tr("Enter unsigned whole numbers for x, y, width and height.");
+            } else if (presentation::isWritableCameraControl(capabilities.roi.access)
+                && !validRoi(configuration->roi, capabilities.roi)) {
+                next.roiReason = tr("The image region must satisfy the advertised ranges, increments and sensor bounds.");
+            }
             const bool visibleTextValid = (!exposureManual || exposureTextValid_)
-                && (!gainManual || gainTextValid_);
+                && (!gainManual || gainTextValid_) && frameRateTextValid_
+                && roiSyntaxValid;
             next.applyEnabled = next.editable && visibleTextValid && draft_->canApply();
         }
     }
@@ -290,6 +399,19 @@ bool CameraSettingsAdapter::openSettings() {
         capabilities.gain);
     exposureManualText_ = exposureManualValue_ ? number(*exposureManualValue_) : QString{};
     gainManualText_ = gainManualValue_ ? number(*gainManualValue_) : QString{};
+    frameRateText_ = configuration->requestedFps
+        ? number(*configuration->requestedFps) : QString{};
+    roiXText_ = QString::number(configuration->roi.x);
+    roiYText_ = QString::number(configuration->roi.y);
+    roiWidthText_ = QString::number(configuration->roi.width);
+    roiHeightText_ = QString::number(configuration->roi.height);
+    frameRateTextValid_ = !presentation::isWritableCameraControl(capabilities.frameRate.access)
+        || (configuration->requestedFps && *configuration->requestedFps > 0.0
+            && inRange(configuration->requestedFps, capabilities.frameRate));
+    roiXTextValid_ = true;
+    roiYTextValid_ = true;
+    roiWidthTextValid_ = true;
+    roiHeightTextValid_ = true;
     exposureTextValid_ = inRange(exposureManualValue_, capabilities.exposure);
     gainTextValid_ = inRange(gainManualValue_, capabilities.gain);
     commandError_.clear();
@@ -301,10 +423,20 @@ void CameraSettingsAdapter::closeSettings() {
     const bool changed = state_.open;
     draft_.reset();
     state_ = {};
+    frameRateText_.clear();
+    roiXText_.clear();
+    roiYText_.clear();
+    roiWidthText_.clear();
+    roiHeightText_.clear();
     exposureManualText_.clear();
     gainManualText_.clear();
     exposureManualValue_.reset();
     gainManualValue_.reset();
+    frameRateTextValid_ = false;
+    roiXTextValid_ = false;
+    roiYTextValid_ = false;
+    roiWidthTextValid_ = false;
+    roiHeightTextValid_ = false;
     exposureTextValid_ = false;
     gainTextValid_ = false;
     commandError_.clear();
@@ -365,6 +497,86 @@ bool CameraSettingsAdapter::editExposureText(const QString& text) {
 
 bool CameraSettingsAdapter::editGainText(const QString& text) {
     return editText(text, false);
+}
+
+bool CameraSettingsAdapter::editFrameRateText(const QString& text) {
+    if (!beginLocalEdit() || !draft_ || !draft_->configuration() || !draft_->source()
+        || !draft_->source()->capabilities) return false;
+    const auto& capability = draft_->source()->capabilities->frameRate;
+    if (!presentation::isWritableCameraControl(capability.access)) return false;
+    frameRateText_ = text;
+    const auto value = parseNumber(text);
+    frameRateTextValid_ = value && *value > 0.0 && inRange(value, capability);
+    bool accepted = true;
+    if (frameRateTextValid_) {
+        auto configuration = *draft_->configuration();
+        configuration.requestedFps = value;
+        accepted = draft_->setConfiguration(std::move(configuration));
+    }
+    refresh();
+    return accepted;
+}
+
+bool CameraSettingsAdapter::setPixelFormat(const QString& requested) {
+    if (!beginLocalEdit() || !draft_ || !draft_->configuration() || !draft_->source()
+        || !draft_->source()->capabilities) return false;
+    const auto& capabilities = *draft_->source()->capabilities;
+    if (!presentation::isWritableCameraControl(capabilities.pixelFormatAccess)) return false;
+    const auto match = std::find_if(capabilities.pixelFormats.begin(),
+        capabilities.pixelFormats.end(), [&](const auto& format) {
+            return QString::fromStdString(format.canonicalName) == requested;
+        });
+    if (match == capabilities.pixelFormats.end()) return false;
+    auto configuration = *draft_->configuration();
+    configuration.pixelFormat = *match;
+    const bool accepted = draft_->setConfiguration(std::move(configuration));
+    refresh();
+    return accepted;
+}
+
+bool CameraSettingsAdapter::editRoiText(const QString& field, const QString& text) {
+    const bool knownField = field == QStringLiteral("x") || field == QStringLiteral("y")
+        || field == QStringLiteral("width") || field == QStringLiteral("height");
+    if (!knownField) {
+        coordinator_.poll();
+        refresh();
+        return false;
+    }
+    if (!beginLocalEdit() || !draft_ || !draft_->configuration() || !draft_->source()
+        || !draft_->source()->capabilities) return false;
+    const auto& capability = draft_->source()->capabilities->roi;
+    if (!presentation::isWritableCameraControl(capability.access)) return false;
+
+    const auto value = parseUnsigned(text);
+    QString* raw = nullptr;
+    bool* syntaxValid = nullptr;
+    if (field == QStringLiteral("x")) {
+        raw = &roiXText_;
+        syntaxValid = &roiXTextValid_;
+    } else if (field == QStringLiteral("y")) {
+        raw = &roiYText_;
+        syntaxValid = &roiYTextValid_;
+    } else if (field == QStringLiteral("width")) {
+        raw = &roiWidthText_;
+        syntaxValid = &roiWidthTextValid_;
+    } else {
+        raw = &roiHeightText_;
+        syntaxValid = &roiHeightTextValid_;
+    }
+    *raw = text;
+    *syntaxValid = value.has_value();
+
+    bool accepted = true;
+    if (value) {
+        auto configuration = *draft_->configuration();
+        if (field == QStringLiteral("x")) configuration.roi.x = *value;
+        else if (field == QStringLiteral("y")) configuration.roi.y = *value;
+        else if (field == QStringLiteral("width")) configuration.roi.width = *value;
+        else configuration.roi.height = *value;
+        accepted = draft_->setConfiguration(std::move(configuration));
+    }
+    refresh();
+    return accepted;
 }
 
 bool CameraSettingsAdapter::setMode(int mode, bool exposure) {

@@ -5,6 +5,7 @@ import QtQuick.Layouts
 ScrollView {
     id: root
     required property CameraAdapter camera
+    required property InstallationAdapter installation
     clip: true
     contentWidth: availableWidth
     ColumnLayout {
@@ -38,7 +39,8 @@ ScrollView {
             Button { objectName: "disconnectButton"; text: qsTr("Disconnect"); Layout.fillWidth: true; visible: root.camera.disconnectVisible; enabled: root.camera.disconnectEnabled; onClicked: root.camera.disconnectCamera() }
             Button { objectName: "retryButton"; text: qsTr("Retry camera"); Layout.fillWidth: true; visible: root.camera.retryVisible; enabled: root.camera.retryEnabled; onClicked: root.camera.retry() }
             Button { objectName: "resumeLiveButton"; text: qsTr("Resume saved Live"); Layout.columnSpan: 2; Layout.fillWidth: true; visible: root.camera.resumeLiveVisible; enabled: root.camera.resumeLiveEnabled; onClicked: root.camera.resumeLive() }
-            Button { objectName: "cameraSettingsButton"; text: qsTr("Camera settings"); Layout.columnSpan: 2; Layout.fillWidth: true; visible: root.camera.settingsVisible; enabled: root.camera.settingsEnabled; onClicked: root.camera.settings.openSettings() }
+            Button { objectName: "cameraSettingsButton"; text: qsTr("Camera settings"); Layout.columnSpan: 2; Layout.fillWidth: true; visible: root.camera.settingsVisible; enabled: root.camera.settingsEnabled; onClicked: { root.installation.closeSettings(); root.camera.settings.openSettings() } }
+            Button { objectName: "installationSettingsButton"; text: qsTr("Installation orientation"); Layout.columnSpan: 2; Layout.fillWidth: true; visible: root.camera.installationVisible; enabled: root.camera.installationEnabled; onClicked: { root.camera.settings.closeSettings(); root.installation.openSettings() } }
         }
         Label { text: root.camera.pending ? qsTr("Camera operation pending…") : qsTr("Apply → review → Confirm → Start"); color: Theme.textSecondary; Layout.fillWidth: true; wrapMode: Text.Wrap }
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
@@ -51,4 +53,5 @@ ScrollView {
         Label { text: root.camera.error; visible: text.length > 0; Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.amber }
     }
     CameraSettings { settings: root.camera.settings }
+    InstallationSettings { settings: root.installation }
 }

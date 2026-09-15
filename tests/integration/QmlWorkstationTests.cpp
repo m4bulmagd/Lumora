@@ -7,6 +7,8 @@
 #include "SimulatorComposition.hpp"
 #include "FrameEngineTestAccess.hpp"
 #include <atomic>
+#include <array>
+#include <QLineF>
 #include <algorithm>
 #include <lumora/application/LivePipeline.hpp>
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
@@ -49,6 +51,10 @@ private slots:
     void initTestCase();
     void requiresGuardedStartupThroughRealControls();
     void stoppedCameraSettingsRequireExplicitApplyReviewAndConfirmation();
+    void frameRateAndRegionRequireExplicitRebindReview();
+    void installationCanBeInspectedWithoutAdministratorAuthority();
+    void administratorOrientationPreviewAndSaveRequireSeparateActivation();
+    void installationRepairRequiresSeparateKeyboardConsentAtMinimumSize();
     void completedViewingAndExactNumericEditing();
     void keyboardCanReturnToViewportWithoutStealingNumericInput();
     void presetsAndResetPreserveCameraPausedFrameAndViewport();
@@ -105,7 +111,7 @@ private:
     bool toneSaved(double brightness,double contrast,double gamma) const;
     bool localContrastSaved(double clip,int grid,bool enabled=true) const;
     bool persistedPresetIs(const std::string& id) const;
-    void createRuntime(std::shared_ptr<EnhancementFailure> fault = {});
+    void createRuntime(std::shared_ptr<EnhancementFailure> fault = {}, bool administrator = false);
     void destroyRuntime();
     QTemporaryDir directory_;
     core::SystemClock clock_;
@@ -119,12 +125,12 @@ private:
     QStringList warnings_;
 };
 void QmlWorkstationTests::initTestCase() { createRuntime(); }
-void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> fault) {
+void QmlWorkstationTests::createRuntime(std::shared_ptr<EnhancementFailure> fault, bool administrator) {
     warnings_.clear();
     QVERIFY(directory_.isValid());
     installations_=std::make_unique<configuration::InstallationProfilesService>(
-        std::make_unique<configuration::InstallationProfileStore>(directory_.filePath("machine.json").toStdString(),false),
-        false,application::InstallationProfilePolicy::SimulatorIdentityFallback);
+        std::make_unique<configuration::InstallationProfileStore>(directory_.filePath("machine.json").toStdString(),administrator),
+        administrator,application::InstallationProfilePolicy::SimulatorIdentityFallback);
     processing::ProcessingPreparationOptions options;
     QVERIFY(qml::reserveSimulatorRendererStorage(options).hasValue());
     // Fault coverage uses a real engine with its existing private test seam;
@@ -433,6 +439,339 @@ void QmlWorkstationTests::stoppedCameraSettingsRequireExplicitApplyReviewAndConf
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame()
         && runtime_->viewer()->sourceFrameId()!=stoppedFrame,15000);
     QVERIFY2(warnings_.isEmpty(),qPrintable(diagnostics()));
+}
+void QmlWorkstationTests::frameRateAndRegionRequireExplicitRebindReview() {
+    auto* camera = runtime_->camera();
+    auto* settings = camera->settings();
+    click("stopButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(), 5000);
+    click("cameraSettingsButton");
+    QTRY_VERIFY(settings->isOpen() && settings->editable());
+    QVERIFY2(item("cameraAcquisitionTab"), "FPS and ROI controls must be available in QML");
+    click("cameraAcquisitionTab");
+    capture("camera-acquisition-open");
+    const auto input = [&](const char* name, const QString& value) {
+        auto* field = item(name);
+        QVERIFY2(field, name);
+        QVERIFY(field->isVisible() && field->isEnabled());
+        field->forceActiveFocus();
+        QVERIFY(QQuickTest::qWaitForPolish(window_));
+        const auto rect = field->mapRectToScene(field->boundingRect());
+        QVERIFY(window_->contentItem()->boundingRect().contains(rect));
+        QTest::keyClick(window_, Qt::Key_A, Qt::ControlModifier);
+        for (const auto character : value)
+            QTest::keyClick(window_, character.toLatin1());
+        QCOMPARE(field->property("text").toString(), value);
+    };
+    const auto original = *pipeline_->snapshot().camera->currentConfiguration;
+    input("cameraFrameRateValue", QStringLiteral("12e"));
+    QVERIFY(!item("applyCameraSettingsButton")->isEnabled());
+    input("cameraFrameRateValue", QStringLiteral("12.3456789123456"));
+    input("cameraRoiWidth", QStringLiteral("320"));
+    input("cameraRoiHeight", QStringLiteral("240"));
+    QVERIFY(item("cameraPixelFormat"));
+    QVERIFY(application::cameraConfigurationsEqual(*pipeline_->snapshot().camera->currentConfiguration, original));
+    capture("camera-acquisition-draft");
+    click("applyCameraSettingsButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->confirmEnabled(), 10000);
+    QVERIFY(!camera->startEnabled());
+    QVERIFY(!settings->editable());
+    QCOMPARE(pipeline_->snapshot().camera->state, application::CameraSessionState::ConnectedIdle);
+    const auto actual = *pipeline_->snapshot().camera->currentConfiguration;
+    QCOMPARE(actual.roi.width, 320U);
+    QCOMPARE(actual.roi.height, 240U);
+    QCOMPARE(*pipeline_->snapshot().camera->requestedConfiguration->requestedFps, 12.3456789123456);
+    QCOMPARE(*actual.requestedFps, 12.0);
+    capture("camera-acquisition-readback");
+    click("closeCameraSettingsButton");
+    click("confirmButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(), 5000);
+    click("startButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame() &&
+        pipeline_->snapshot().camera->state == application::CameraSessionState::Streaming, 10000);
+    click("cameraSettingsButton");
+    click("cameraAcquisitionTab");
+    QVERIFY(!item("cameraFrameRateValue")->isEnabled());
+    QVERIFY(!item("cameraRoiWidth")->isEnabled());
+    QVERIFY(!item("applyCameraSettingsButton")->isEnabled());
+    click("closeCameraSettingsButton");
+    click("stopButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(), 5000);
+    destroyRuntime();
+    createRuntime();
+    camera = runtime_->camera();
+    settings = camera->settings();
+    QTRY_VERIFY_WITH_TIMEOUT(camera->resumeLiveEnabled(), 10000);
+    click("cameraSettingsButton");
+    click("cameraAcquisitionTab");
+    QCOMPARE(settings->frameRateText(), QStringLiteral("12.3456789123456"));
+    QCOMPARE(settings->roiWidthText(), QStringLiteral("320"));
+    QCOMPARE(settings->roiHeightText(), QStringLiteral("240"));
+    capture("camera-acquisition-reopened");
+    input("cameraFrameRateValue", QStringLiteral("30"));
+    input("cameraRoiWidth", QStringLiteral("640"));
+    input("cameraRoiHeight", QStringLiteral("480"));
+    click("applyCameraSettingsButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->confirmEnabled(), 10000);
+    click("closeCameraSettingsButton");
+    click("confirmButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(), 5000);
+    const auto stoppedFrame = runtime_->viewer()->sourceFrameId();
+    click("startButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame() && runtime_->viewer()->sourceFrameId() != stoppedFrame &&
+        pipeline_->snapshot().camera->state == application::CameraSessionState::Streaming, 15000);
+    QVERIFY2(warnings_.isEmpty(), qPrintable(diagnostics()));
+}
+void QmlWorkstationTests::installationCanBeInspectedWithoutAdministratorAuthority() {
+    QVERIFY2(item("installationSettingsButton"), "Installation inspection must be available in QML");
+    click("installationSettingsButton");
+    auto* dialog = window_->findChild<QObject*>(QStringLiteral("installationSettingsDialog"));
+    QVERIFY(dialog);
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    QVERIFY(!dialog->property("modal").toBool());
+    for (const auto* name : {"installationFlipHorizontal", "installationFlipVertical", "installationRotation",
+                             "installationConfirmation", "saveInstallationButton"}) {
+        auto* control = item(name);
+        QVERIFY2(control, name);
+        QVERIFY(!control->isEnabled());
+    }
+    QVERIFY(item("installationActive"));
+    QVERIFY(item("installationSaved"));
+    QVERIFY(item("installationOriginalPreview"));
+    QVERIFY(item("installationEnhancedPreview"));
+    QVERIFY(item("stopButton")->isEnabled());
+    capture("installation-operator-inspection");
+    click("closeInstallationButton");
+    QTRY_VERIFY(!dialog->property("visible").toBool());
+    QVERIFY2(warnings_.isEmpty(), qPrintable(diagnostics()));
+}
+void QmlWorkstationTests::administratorOrientationPreviewAndSaveRequireSeparateActivation() {
+    destroyRuntime();
+    createRuntime({}, true);
+    auto* camera = runtime_->camera();
+    auto* installation = runtime_->installation();
+    QTRY_VERIFY_WITH_TIMEOUT(camera->resumeLiveEnabled(), 10000);
+    window_->resize(900, 600);
+    QTRY_COMPARE(window_->size(), QSize(900, 600));
+    const auto focusedInside = [&](const char* name, const char* scroller) {
+        auto* control = item(name);
+        auto* viewport = item(scroller);
+        QVERIFY2(control && viewport, name);
+        QTRY_VERIFY_WITH_TIMEOUT(control->hasActiveFocus(), 3000);
+        QTRY_VERIFY2_WITH_TIMEOUT(viewport->mapRectToScene(viewport->boundingRect()).adjusted(-1,-1,1,1)
+            .contains(control->mapRectToScene(QRectF(0,0,control->width(),control->height()))), name, 3000);
+    };
+    click("cameraSettingsButton");
+    click("cameraAcquisitionTab");
+    item("cameraFrameRateValue")->forceActiveFocus();
+    focusedInside("cameraFrameRateValue", "cameraSettingsFlickable");
+    for (const auto* name : {"cameraPixelFormat", "cameraRoiX", "cameraRoiY", "cameraRoiWidth", "cameraRoiHeight"}) {
+        QTest::keyClick(window_, Qt::Key_Tab);
+        focusedInside(name, "cameraSettingsFlickable");
+    }
+    capture("camera-acquisition-minimum-keyboard");
+    for (const auto* name : {"cameraRoiWidth", "cameraRoiY", "cameraRoiX", "cameraPixelFormat", "cameraFrameRateValue"}) {
+        QTest::keyClick(window_, Qt::Key_Tab, Qt::ShiftModifier);
+        focusedInside(name, "cameraSettingsFlickable");
+    }
+    click("cameraExposureTab");
+    item("cameraExposureMode")->forceActiveFocus();
+    focusedInside("cameraExposureMode", "cameraSettingsFlickable");
+    for (const auto* name : {"cameraExposureValue", "cameraGainMode", "cameraGainValue"}) {
+        QTest::keyClick(window_, Qt::Key_Tab);
+        focusedInside(name, "cameraSettingsFlickable");
+    }
+    for (const auto* name : {"cameraGainMode", "cameraExposureValue", "cameraExposureMode"}) {
+        QTest::keyClick(window_, Qt::Key_Tab, Qt::ShiftModifier);
+        focusedInside(name, "cameraSettingsFlickable");
+    }
+    click("closeCameraSettingsButton");
+    click("installationSettingsButton");
+    QTRY_VERIFY(installation->isOpen() && installation->editable());
+    item("installationFlipHorizontal")->forceActiveFocus();
+    focusedInside("installationFlipHorizontal", "installationSettingsFlickable");
+    for (const auto* name : {"installationFlipVertical", "installationRotation", "installationConfirmation"}) {
+        QTest::keyClick(window_, Qt::Key_Tab);
+        focusedInside(name, "installationSettingsFlickable");
+    }
+    QTest::keyClick(window_, Qt::Key_Space);
+    QVERIFY(installation->confirmationChecked());
+    QTest::keyClick(window_, Qt::Key_Tab);
+    QTRY_VERIFY(item("saveInstallationButton")->hasActiveFocus());
+    // Focus never obscures the fixed save action or the priority camera column.
+    QVERIFY(window_->contentItem()->boundingRect().contains(item("saveInstallationButton")->mapRectToScene(item("saveInstallationButton")->boundingRect())));
+    auto* popup = window_->findChild<QObject*>(QStringLiteral("installationSettingsDialog"));
+    QVERIFY(popup);
+    const QRectF popupRect(popup->property("x").toDouble(), popup->property("y").toDouble(),
+                           popup->property("width").toDouble(), popup->property("height").toDouble());
+    QVERIFY(!popupRect.intersects(item("disconnectButton")->mapRectToScene(item("disconnectButton")->boundingRect())));
+    capture("installation-minimum-keyboard");
+    QTest::keyClick(window_, Qt::Key_Tab, Qt::ShiftModifier);
+    focusedInside("installationConfirmation", "installationSettingsFlickable");
+    QTest::keyClick(window_, Qt::Key_Space);
+    QVERIFY(!installation->confirmationChecked());
+    for (const auto* name : {"installationRotation", "installationFlipVertical", "installationFlipHorizontal"}) {
+        QTest::keyClick(window_, Qt::Key_Tab, Qt::ShiftModifier);
+        focusedInside(name, "installationSettingsFlickable");
+    }
+    window_->resize(1280, 800);
+    QTRY_COMPARE(window_->size(), QSize(1280, 800));
+    QVERIFY(QQuickTest::qWaitForPolish(window_));
+    const auto activeBefore = runtime_->coordinator().state().activeOrientation;
+    QVERIFY(!item("saveInstallationButton")->isEnabled());
+    const auto choose = [&](bool horizontal, bool vertical, int rotation) {
+        if (item("installationFlipHorizontal")->property("checked").toBool() != horizontal)
+            click("installationFlipHorizontal");
+        if (item("installationFlipVertical")->property("checked").toBool() != vertical)
+            click("installationFlipVertical");
+        auto* selector = item("installationRotation");
+        selector->forceActiveFocus();
+        QVERIFY(QQuickTest::qWaitForPolish(window_));
+        QTest::keyClick(window_, Qt::Key_Space);
+        QTest::keyClick(window_, Qt::Key_Home);
+        for (int row = 0; row < rotation; ++row) QTest::keyClick(window_, Qt::Key_Down);
+        QTest::keyClick(window_, Qt::Key_Return);
+        QTRY_COMPARE(installation->flipHorizontal(), horizontal);
+        QTRY_COMPARE(installation->flipVertical(), vertical);
+        QTRY_COMPARE(installation->rotationIndex(), rotation);
+        QVERIFY(QQuickTest::qWaitForPolish(window_));
+    };
+    // Independent geometry/color oracle: flip native offsets first, then rotate
+    // clockwise. Check both real QML previews for all sixteen orientations.
+    const std::array<const char*, 4> corners{"referenceTopLeft", "referenceTopRight", "referenceBottomLeft", "referenceBottomRight"};
+    const std::array<QPointF, 4> offsets{QPointF(-80,-48), QPointF(80,-48), QPointF(-80,48), QPointF(80,48)};
+    const std::array<QColor, 4> colors{QColor("#ef6262"), QColor("#64d18a"), QColor("#68a7ee"), QColor("#f0cd60")};
+    for (const bool horizontal : {false, true}) for (const bool vertical : {false, true}) {
+        for (int rotation = 0; rotation < 4; ++rotation) {
+            choose(horizontal, vertical, rotation);
+            const auto screenshot = window_->grabWindow();
+            QVERIFY(!screenshot.isNull());
+            for (const auto* name : {"installationOriginalPreview", "installationEnhancedPreview"}) {
+                auto* preview = item(name);
+                QVERIFY(preview);
+                const auto center = preview->mapToScene(preview->boundingRect().center());
+                const double scale = std::min(preview->width() / (rotation % 2 ? 128.0 : 192.0),
+                                              preview->height() / (rotation % 2 ? 192.0 : 128.0));
+                for (std::size_t index = 0; index < corners.size(); ++index) {
+                    auto offset = offsets[index];
+                    if (horizontal) offset.setX(-offset.x());
+                    if (vertical) offset.setY(-offset.y());
+                    for (int turn = 0; turn < rotation; ++turn) offset = QPointF(-offset.y(), offset.x());
+                    const auto expected = center + offset * scale;
+                    auto* corner = preview->findChild<QQuickItem*>(QString::fromLatin1(corners[index]));
+                    QVERIFY(corner);
+                    const auto actual = corner->mapToScene(corner->boundingRect().center());
+                    // Qt Quick centered anchors round to logical pixels; two
+                    // axes can each differ by half a pixel from ideal center.
+                    QVERIFY2(QLineF(expected, actual).length() <= 1.0,
+                        qPrintable(QString("%1 H=%2 V=%3 R=%4 corner=%5 expected=%6,%7 actual=%8,%9 size=%10x%11")
+                            .arg(name).arg(horizontal).arg(vertical).arg(rotation).arg(index)
+                            .arg(expected.x()).arg(expected.y()).arg(actual.x()).arg(actual.y())
+                            .arg(preview->width()).arg(preview->height())));
+                    const auto pixel = (expected * window_->devicePixelRatio()).toPoint();
+                    QCOMPARE(screenshot.pixelColor(pixel).rgb(), colors[index].rgb());
+                }
+            }
+        }
+    }
+    choose(true, false, 1);
+    click("installationConfirmation");
+    QVERIFY(item("saveInstallationButton")->isEnabled());
+    choose(true, true, 1);
+    QVERIFY(!item("installationConfirmation")->property("checked").toBool());
+    QVERIFY(!item("saveInstallationButton")->isEnabled());
+    choose(true, false, 1);
+    click("installationConfirmation");
+    click("saveInstallationButton");
+    QTRY_VERIFY_WITH_TIMEOUT(!installation->pending() && installation->savedSummary().contains("90"), 5000);
+    QVERIFY(!installation->confirmationChecked());
+    QCOMPARE(runtime_->coordinator().state().activeOrientation, activeBefore);
+    QVERIFY(!camera->startEnabled());
+    capture("installation-saved-awaiting-apply");
+    click("closeInstallationButton");
+    click("applyButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->confirmEnabled(), 10000);
+    QCOMPARE(runtime_->coordinator().state().activeOrientation,
+             std::optional(core::Orientation{true, false, core::Rotation::Degrees90}));
+    QVERIFY(!camera->startEnabled());
+    click("confirmButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(), 5000);
+    click("startButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame() &&
+        pipeline_->snapshot().camera->state == application::CameraSessionState::Streaming, 10000);
+    click("stopButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(), 5000);
+    // Restore identity through the same explicit production workflow.
+    click("installationSettingsButton");
+    choose(false, false, 0);
+    click("installationConfirmation");
+    click("saveInstallationButton");
+    QTRY_VERIFY_WITH_TIMEOUT(!installation->pending() && installation->editable(), 5000);
+    click("closeInstallationButton");
+    click("applyButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->confirmEnabled(), 10000);
+    click("confirmButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(), 5000);
+    QVERIFY2(warnings_.isEmpty(), qPrintable(diagnostics()));
+    destroyRuntime();
+    createRuntime();
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->resumeLiveEnabled(), 10000);
+    click("resumeLiveButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame() &&
+        pipeline_->snapshot().camera->state == application::CameraSessionState::Streaming, 15000);
+    QVERIFY2(warnings_.isEmpty(), qPrintable(diagnostics()));
+}
+void QmlWorkstationTests::installationRepairRequiresSeparateKeyboardConsentAtMinimumSize() {
+    destroyRuntime();
+    QFile invalid(directory_.filePath("machine.json"));
+    QVERIFY(invalid.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QVERIFY(invalid.write("invalid installation fixture") > 0);
+    invalid.close();
+    createRuntime({}, true);
+    auto* camera = runtime_->camera();
+    auto* installation = runtime_->installation();
+    QTRY_VERIFY_WITH_TIMEOUT(camera->installationEnabled(), 10000);
+    window_->resize(900, 600);
+    QTRY_COMPARE(window_->size(), QSize(900, 600));
+    click("installationSettingsButton");
+    QTRY_VERIFY(installation->editable() && installation->repairVisible());
+    auto* confirmation = item("installationConfirmation");
+    auto* repair = item("installationRepair");
+    auto* scroll = item("installationSettingsFlickable");
+    QVERIFY(confirmation && repair && scroll);
+    confirmation->forceActiveFocus();
+    QTest::keyClick(window_, Qt::Key_Space);
+    QVERIFY(installation->confirmationChecked());
+    QVERIFY(!installation->saveEnabled());
+    QTest::keyClick(window_, Qt::Key_Tab);
+    QTRY_VERIFY(repair->hasActiveFocus());
+    capture("installation-repair-minimum-focus");
+    QTRY_VERIFY(scroll->mapRectToScene(scroll->boundingRect()).adjusted(-1,-1,1,1)
+        .contains(repair->mapRectToScene(repair->boundingRect())));
+    QTest::keyClick(window_, Qt::Key_Space);
+    QVERIFY(installation->repairChecked());
+    QVERIFY(!installation->confirmationChecked());
+    QVERIFY(!installation->saveEnabled());
+    capture("installation-repair-minimum-keyboard");
+    QTest::keyClick(window_, Qt::Key_Tab, Qt::ShiftModifier);
+    QTRY_VERIFY(confirmation->hasActiveFocus());
+    QTest::keyClick(window_, Qt::Key_Space);
+    QVERIFY(installation->saveEnabled());
+    click("saveInstallationButton");
+    QTRY_VERIFY_WITH_TIMEOUT(!installation->pending() && !installation->repairVisible(), 5000);
+    QVERIFY(!installation->confirmationChecked());
+    click("closeInstallationButton");
+    click("applyButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->confirmEnabled(), 10000);
+    click("confirmButton");
+    QTRY_VERIFY_WITH_TIMEOUT(camera->startEnabled(), 5000);
+    QVERIFY2(warnings_.isEmpty(), qPrintable(diagnostics()));
+    destroyRuntime();
+    createRuntime();
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->camera()->resumeLiveEnabled(), 10000);
+    click("resumeLiveButton");
+    QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->hasFrame() &&
+        pipeline_->snapshot().camera->state == application::CameraSessionState::Streaming, 15000);
 }
 void QmlWorkstationTests::completedViewingAndExactNumericEditing() {
     QTRY_VERIFY_WITH_TIMEOUT(runtime_->viewer()->compareAvailable(),10000);
@@ -1558,7 +1897,8 @@ void QmlWorkstationTests::capture(const QString& state) {
     collect(collect,window_->contentItem());
     for(const auto* control:controls) {
         if(control->objectName().isEmpty()) continue;
-        const bool cameraInput=control->objectName()=="cameraExposureValue" || control->objectName()=="cameraGainValue";
+        const bool cameraInput=control->objectName()=="cameraExposureValue" || control->objectName()=="cameraGainValue"
+            || control->objectName()=="cameraFrameRateValue" || control->objectName().startsWith("cameraRoi");
         const auto rect=control->mapRectToScene(cameraInput
             ? QRectF(0,0,control->width(),control->height()) : control->boundingRect());
         QJsonObject details{{"x",rect.x()},{"y",rect.y()},
@@ -1572,11 +1912,13 @@ void QmlWorkstationTests::capture(const QString& state) {
         }
         items.insert(control->objectName(),details);
     }
-    if(auto* dialog=window_->findChild<QObject*>(QStringLiteral("cameraSettingsDialog"))) {
-        items.insert("cameraSettingsDialog",QJsonObject{{"x",dialog->property("x").toDouble()},
+    for (const auto* dialogName : {"cameraSettingsDialog", "installationSettingsDialog"}) {
+      if(auto* dialog=window_->findChild<QObject*>(QString::fromLatin1(dialogName))) {
+        items.insert(QString::fromLatin1(dialogName),QJsonObject{{"x",dialog->property("x").toDouble()},
             {"y",dialog->property("y").toDouble()},{"width",dialog->property("width").toDouble()},
             {"height",dialog->property("height").toDouble()},{"visible",dialog->property("visible").toBool()},
             {"enabled",dialog->property("enabled").toBool()},{"modal",dialog->property("modal").toBool()}});
+    }
     }
     const auto* camera=runtime_->camera();
     const auto* settings=camera->settings();
@@ -1586,7 +1928,9 @@ void QmlWorkstationTests::capture(const QString& state) {
             {"applied",QJsonObject::fromVariantMap(camera->appliedConfiguration())}}},
         {"cameraSettings",QJsonObject{{"open",settings->isOpen()},{"editable",settings->editable()},
             {"applyEnabled",settings->applyEnabled()},{"exposureText",settings->exposureText()},
-            {"gainText",settings->gainText()},{"status",settings->status()},{"actual",settings->currentSummary()}}}};
+            {"gainText",settings->gainText()},{"frameRateText",settings->frameRateText()},
+            {"roiWidthText",settings->roiWidthText()},{"roiHeightText",settings->roiHeightText()},
+            {"pixelFormat",settings->pixelFormat()},{"status",settings->status()},{"actual",settings->currentSummary()}}}};
     QFile output(QDir(path).filePath(basename + ".json"));
     QVERIFY(output.open(QIODevice::WriteOnly));
     QVERIFY(output.write(QJsonDocument(geometry).toJson())>0);

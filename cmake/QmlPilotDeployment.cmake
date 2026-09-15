@@ -1,25 +1,25 @@
 include_guard(GLOBAL)
 
-# Included after lumora_qml_app is finalized. This is a local Linux pilot,
-# separate from future installer components and platform acceptance.
+# Local Linux staging of the sole workstation. QmlPilot is retained as the
+# install component name for existing automation; it is not release acceptance.
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
   return()
 endif()
 
 include(GNUInstallDirs)
-set_target_properties(lumora_qml_app PROPERTIES
+set_target_properties(lumora_app PROPERTIES
   INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
   INSTALL_RPATH_USE_LINK_PATH FALSE
 )
 
-install(TARGETS lumora_qml_app
+install(TARGETS lumora_app
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
   COMPONENT QmlPilot
 )
 
 # Includes the scanned QML plugins, their runtime dependencies, and qt.conf.
 qt_generate_deploy_qml_app_script(
-  TARGET lumora_qml_app
+  TARGET lumora_app
   OUTPUT_SCRIPT lumora_qml_deploy_script
 )
 install(SCRIPT "${lumora_qml_deploy_script}" COMPONENT QmlPilot)

@@ -21,6 +21,21 @@ class CameraSettingsAdapter final : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString sourceSummary READ sourceSummary NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString currentSummary READ currentSummary NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString frameRateText READ frameRateText NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString frameRateRange READ frameRateRange NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString frameRateReason READ frameRateReason NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool frameRateEnabled READ frameRateEnabled NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QVariantList pixelFormats READ pixelFormats NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString pixelFormat READ pixelFormat NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool pixelFormatEnabled READ pixelFormatEnabled NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString pixelFormatReason READ pixelFormatReason NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString roiXText READ roiXText NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString roiYText READ roiYText NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString roiWidthText READ roiWidthText NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString roiHeightText READ roiHeightText NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool roiEnabled READ roiEnabled NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString roiRange READ roiRange NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString roiReason READ roiReason NOTIFY stateChanged FINAL)
     Q_PROPERTY(QVariantList exposureModes READ exposureModes NOTIFY stateChanged FINAL)
     Q_PROPERTY(QVariantList gainModes READ gainModes NOTIFY stateChanged FINAL)
     Q_PROPERTY(int exposureMode READ exposureMode NOTIFY stateChanged FINAL)
@@ -49,6 +64,21 @@ public:
     [[nodiscard]] QString status() const { return state_.status; }
     [[nodiscard]] QString sourceSummary() const { return state_.sourceSummary; }
     [[nodiscard]] QString currentSummary() const { return state_.currentSummary; }
+    [[nodiscard]] QString frameRateText() const { return state_.frameRateText; }
+    [[nodiscard]] QString frameRateRange() const { return state_.frameRateRange; }
+    [[nodiscard]] QString frameRateReason() const { return state_.frameRateReason; }
+    [[nodiscard]] bool frameRateEnabled() const { return state_.frameRateEnabled; }
+    [[nodiscard]] QVariantList pixelFormats() const { return state_.pixelFormats; }
+    [[nodiscard]] QString pixelFormat() const { return state_.pixelFormat; }
+    [[nodiscard]] bool pixelFormatEnabled() const { return state_.pixelFormatEnabled; }
+    [[nodiscard]] QString pixelFormatReason() const { return state_.pixelFormatReason; }
+    [[nodiscard]] QString roiXText() const { return state_.roiXText; }
+    [[nodiscard]] QString roiYText() const { return state_.roiYText; }
+    [[nodiscard]] QString roiWidthText() const { return state_.roiWidthText; }
+    [[nodiscard]] QString roiHeightText() const { return state_.roiHeightText; }
+    [[nodiscard]] bool roiEnabled() const { return state_.roiEnabled; }
+    [[nodiscard]] QString roiRange() const { return state_.roiRange; }
+    [[nodiscard]] QString roiReason() const { return state_.roiReason; }
     [[nodiscard]] QVariantList exposureModes() const { return state_.exposureModes; }
     [[nodiscard]] QVariantList gainModes() const { return state_.gainModes; }
     [[nodiscard]] int exposureMode() const { return state_.exposureMode; }
@@ -68,6 +98,9 @@ public:
     Q_INVOKABLE void closeSettings();
     Q_INVOKABLE bool editExposureText(const QString& text);
     Q_INVOKABLE bool editGainText(const QString& text);
+    Q_INVOKABLE bool editFrameRateText(const QString& text);
+    Q_INVOKABLE bool setPixelFormat(const QString& format);
+    Q_INVOKABLE bool editRoiText(const QString& field, const QString& text);
     Q_INVOKABLE bool setExposureMode(int mode);
     Q_INVOKABLE bool setGainMode(int mode);
     Q_INVOKABLE bool apply();
@@ -85,6 +118,14 @@ private:
         bool editable{false};
         bool applyEnabled{false};
         QString status, sourceSummary, currentSummary;
+        QString frameRateText, frameRateRange, frameRateReason;
+        bool frameRateEnabled{false};
+        QVariantList pixelFormats;
+        QString pixelFormat, pixelFormatReason;
+        bool pixelFormatEnabled{false};
+        QString roiXText, roiYText, roiWidthText, roiHeightText;
+        bool roiEnabled{false};
+        QString roiRange, roiReason;
         QVariantList exposureModes, gainModes;
         int exposureMode{-1}, gainMode{-1};
         bool exposureModeEnabled{false}, gainModeEnabled{false};
@@ -97,8 +138,12 @@ private:
     presentation::WorkstationCoordinator& coordinator_;
     std::optional<presentation::CameraSettingsDraft> draft_;
     State state_;
+    QString frameRateText_, roiXText_, roiYText_, roiWidthText_, roiHeightText_;
     QString exposureManualText_, gainManualText_, commandError_;
     std::optional<double> exposureManualValue_, gainManualValue_;
+    bool frameRateTextValid_{false};
+    bool roiXTextValid_{false}, roiYTextValid_{false};
+    bool roiWidthTextValid_{false}, roiHeightTextValid_{false};
     bool exposureTextValid_{false}, gainTextValid_{false};
     bool closing_{false};
 };

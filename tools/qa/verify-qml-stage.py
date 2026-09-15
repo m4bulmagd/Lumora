@@ -19,7 +19,7 @@ CLEAN_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"}
 SYSTEM_LIBRARY_ROOTS = tuple(
     Path(path).resolve() for path in ("/lib", "/lib64", "/usr/lib", "/usr/lib64")
 )
-DEVELOPMENT_PARTS = {".tools", ".worktrees", "vcpkg_installed", "vcpkg_qml_installed"}
+DEVELOPMENT_PARTS = {".tools", ".worktrees", "vcpkg_installed", "vcpkg_qml_installed", "vcpkg_legacy_tests_installed"}
 
 
 def run_tool(command):

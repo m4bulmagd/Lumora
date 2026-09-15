@@ -14,6 +14,8 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace {
 using namespace lumora;
@@ -129,6 +131,19 @@ QVariantMap modeRow(const QVariantList& rows, int value) {
     for (const auto& row : rows) {
         const auto map = row.toMap();
         if (map.value(QStringLiteral("value")).toInt() == value) return map;
+    }
+    return {};
+}
+
+core::SourcePixelFormat alternatePixelFormat() {
+    return {"Mono8", 0x01080001U, 8U, 255U, core::SourcePacking::Unpacked,
+        core::BitAlignment::LeastSignificant, core::StorageType::UInt8};
+}
+
+QVariantMap formatRow(const QVariantList& rows, const QString& value) {
+    for (const auto& row : rows) {
+        const auto map = row.toMap();
+        if (map.value(QStringLiteral("value")).toString() == value) return map;
     }
     return {};
 }
@@ -483,6 +498,221 @@ TEST(QmlCameraSettingsAdapter, InstallationPendingDisablesEditingAndApply) {
     EXPECT_FALSE(fixture.adapter.editExposureText(QStringLiteral("2000")));
     EXPECT_FALSE(fixture.adapter.apply());
     EXPECT_TRUE(fixture.adapter.status().contains(QStringLiteral("installation"),
+        Qt::CaseInsensitive));
+}
+
+// Frame-rate input retains unfinished and rejected text without overwriting the
+// shared full draft. Only a finite, positive value inside current capabilities
+// makes the complete request eligible for Apply.
+TEST(QmlCameraSettingsAdapter, FrameRateRawInvalidInputBlocksWholeRequestWithoutClamping) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.startStopped());
+    const auto before = fixture.coordinator.state().requestedConfiguration;
+    ASSERT_TRUE(before);
+    ASSERT_TRUE(fixture.adapter.openSettings());
+    EXPECT_TRUE(fixture.adapter.frameRateEnabled());
+    EXPECT_EQ(fixture.adapter.frameRateText(), QStringLiteral("30"));
+    EXPECT_TRUE(fixture.adapter.frameRateRange().contains(QStringLiteral("1")));
+    EXPECT_TRUE(fixture.adapter.frameRateRange().contains(QStringLiteral("60")));
+    for (const auto* rejected : {"2e", "nan", "inf", "0", "-1", "60.001"}) {
+        ASSERT_TRUE(fixture.adapter.editFrameRateText(QString::fromLatin1(rejected)));
+        EXPECT_EQ(fixture.adapter.frameRateText(), QString::fromLatin1(rejected));
+        EXPECT_FALSE(fixture.adapter.applyEnabled());
+        EXPECT_FALSE(fixture.adapter.apply());
+    }
+    EXPECT_TRUE(application::cameraConfigurationsEqual(
+        *fixture.coordinator.state().requestedConfiguration, *before));
+    ASSERT_TRUE(fixture.adapter.editFrameRateText(QStringLiteral("27.23456789012345")));
+    EXPECT_EQ(fixture.adapter.frameRateText(), QStringLiteral("27.23456789012345"));
+    EXPECT_TRUE(fixture.adapter.applyEnabled());
+}
+
+// Unsupported format IDs and malformed/overflowing/misaligned ROI text never
+// select another capability or clamp values. Known-field raw text remains
+// repairable while invalid geometry blocks the complete request.
+TEST(QmlCameraSettingsAdapter, UnsupportedFormatAndInvalidRoiRemainLocalAndRepairable) {
+    auto options = app::simulatorOptions();
+    options.capabilities.pixelFormats.push_back(alternatePixelFormat());
+    options.capabilities.roi = {
+        {0U, 0U, 16U, 16U}, {100U, 100U, 640U, 480U}, {4U, 2U, 8U, 4U},
+        camera::ControlAccess::WritableStopped};
+    Fixture fixture(std::move(options));
+    ASSERT_TRUE(fixture.startStopped());
+    ASSERT_TRUE(fixture.wait([&] {
+        const auto status = fixture.preferences.latestStatus();
+        return status->latestSavedRevision.has_value()
+            && status->latestSavedRevision == status->latestAttemptedSaveRevision;
+    }));
+    const auto before = fixture.coordinator.state().requestedConfiguration;
+    ASSERT_TRUE(before);
+    const auto saved = fixture.preferences.latestStatus()->latestSavedRevision;
+    ASSERT_TRUE(fixture.adapter.openSettings());
+    EXPECT_EQ(fixture.adapter.pixelFormat(), QStringLiteral("Mono12"));
+    EXPECT_FALSE(formatRow(fixture.adapter.pixelFormats(), QStringLiteral("Mono8")).isEmpty());
+    EXPECT_TRUE(fixture.adapter.roiEnabled());
+    EXPECT_TRUE(fixture.adapter.roiRange().contains(QStringLiteral("increment"),
+        Qt::CaseInsensitive));
+    EXPECT_FALSE(fixture.adapter.setPixelFormat(QStringLiteral("unsupported-format")));
+    EXPECT_EQ(fixture.adapter.pixelFormat(), QStringLiteral("Mono12"));
+    EXPECT_FALSE(fixture.adapter.editRoiText(QStringLiteral("depth"), QStringLiteral("1")));
+
+    for (const auto& edit : std::vector<std::pair<QString, QString>>{
+             {QStringLiteral("x"), QStringLiteral("-1")},
+             {QStringLiteral("x"), QStringLiteral("1.0")},
+             {QStringLiteral("x"), QStringLiteral("4294967296")},
+             {QStringLiteral("x"), QStringLiteral("3")},
+             {QStringLiteral("width"), QStringLiteral("321")},
+             {QStringLiteral("height"), QStringLiteral("481")}}) {
+        ASSERT_TRUE(fixture.adapter.editRoiText(edit.first, edit.second));
+        EXPECT_FALSE(fixture.adapter.applyEnabled());
+    }
+    EXPECT_EQ(fixture.adapter.roiHeightText(), QStringLiteral("481"));
+    ASSERT_TRUE(fixture.adapter.editRoiText(QStringLiteral("x"), QStringLiteral("400")));
+    ASSERT_TRUE(fixture.adapter.editRoiText(QStringLiteral("y"), QStringLiteral("4")));
+    ASSERT_TRUE(fixture.adapter.editRoiText(QStringLiteral("width"), QStringLiteral("320")));
+    ASSERT_TRUE(fixture.adapter.editRoiText(QStringLiteral("height"), QStringLiteral("240")));
+    EXPECT_FALSE(fixture.adapter.applyEnabled());
+    EXPECT_TRUE(application::cameraConfigurationsEqual(
+        *fixture.coordinator.state().requestedConfiguration, *before));
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestSavedRevision, saved);
+
+    ASSERT_TRUE(fixture.adapter.editRoiText(QStringLiteral("x"), QStringLiteral("8")));
+    EXPECT_TRUE(fixture.adapter.applyEnabled());
+    EXPECT_EQ(fixture.adapter.roiXText(), QStringLiteral("8"));
+    EXPECT_EQ(fixture.adapter.roiYText(), QStringLiteral("4"));
+    EXPECT_EQ(fixture.adapter.roiWidthText(), QStringLiteral("320"));
+    EXPECT_EQ(fixture.adapter.roiHeightText(), QStringLiteral("240"));
+}
+
+// FPS, format and ROI are applied as one exact source-changing request. The
+// simulator rounds only actual FPS; the shared draft recognizes its own rebind
+// and becomes review-only without saving, confirming or starting acquisition.
+TEST(QmlCameraSettingsAdapter, CompleteSourceChangeRebindsToReviewWithoutPrematureSaveOrStart) {
+    auto options = app::simulatorOptions();
+    options.capabilities.pixelFormats.push_back(alternatePixelFormat());
+    options.capabilities.roi = {
+        {0U, 0U, 16U, 16U}, {100U, 100U, 640U, 480U}, {4U, 2U, 8U, 4U},
+        camera::ControlAccess::WritableStopped};
+    Fixture fixture(std::move(options));
+    ASSERT_TRUE(fixture.startStopped());
+    ASSERT_TRUE(fixture.wait([&] {
+        const auto status = fixture.preferences.latestStatus();
+        return status->latestSavedRevision.has_value()
+            && status->latestSavedRevision == status->latestAttemptedSaveRevision;
+    }));
+    const auto before = fixture.coordinator.state().requestedConfiguration;
+    ASSERT_TRUE(before);
+    const auto generation = fixture.coordinator.state().cameraStatus->sessionGeneration;
+    const auto saved = fixture.preferences.latestStatus()->latestSavedRevision;
+    ASSERT_TRUE(fixture.adapter.openSettings());
+    ASSERT_TRUE(fixture.adapter.editFrameRateText(QStringLiteral("27.23456789012345")));
+    ASSERT_TRUE(fixture.adapter.setPixelFormat(QStringLiteral("Mono8")));
+    ASSERT_TRUE(fixture.adapter.editRoiText(QStringLiteral("x"), QStringLiteral("8")));
+    ASSERT_TRUE(fixture.adapter.editRoiText(QStringLiteral("y"), QStringLiteral("4")));
+    ASSERT_TRUE(fixture.adapter.editRoiText(QStringLiteral("width"), QStringLiteral("320")));
+    ASSERT_TRUE(fixture.adapter.editRoiText(QStringLiteral("height"), QStringLiteral("240")));
+    ASSERT_TRUE(fixture.adapter.apply());
+    ASSERT_TRUE(fixture.wait([&] {
+        const auto camera = fixture.coordinator.state().cameraStatus;
+        return camera && !fixture.coordinator.state().ordinaryOperationPending
+            && camera->sessionGeneration == generation + 1U
+            && camera->appliedRevision == camera->requestedRevision;
+    }));
+    const auto camera = fixture.coordinator.state().cameraStatus;
+    ASSERT_TRUE(camera->requestedConfiguration);
+    ASSERT_TRUE(camera->currentConfiguration);
+    auto expected = *before;
+    expected.requestedFps = 27.23456789012345;
+    expected.pixelFormat = alternatePixelFormat();
+    expected.roi = {8U, 4U, 320U, 240U};
+    EXPECT_TRUE(application::cameraConfigurationsEqual(*camera->requestedConfiguration, expected));
+    EXPECT_TRUE(application::cameraConfigurationsEqual(
+        camera->appliedConfiguration->requested, expected));
+    EXPECT_DOUBLE_EQ(*camera->requestedConfiguration->requestedFps, 27.23456789012345);
+    EXPECT_DOUBLE_EQ(*camera->currentConfiguration->requestedFps, 27.0);
+    EXPECT_EQ(camera->currentConfiguration->pixelFormat.canonicalName, "Mono8");
+    EXPECT_EQ(camera->currentConfiguration->roi.width, 320U);
+    EXPECT_FALSE(fixture.adapter.editable());
+    EXPECT_FALSE(fixture.adapter.applyEnabled());
+    EXPECT_TRUE(fixture.adapter.status().contains(QStringLiteral("Review"),
+        Qt::CaseInsensitive));
+    EXPECT_EQ(fixture.preferences.latestStatus()->latestSavedRevision, saved);
+    EXPECT_FALSE(camera->confirmedRevision);
+    EXPECT_FALSE(fixture.coordinator.dispatch(presentation::CameraStartupIntent::Start).hasValue());
+    EXPECT_EQ(fixture.coordinator.state().cameraStatus->state,
+        application::CameraSessionState::ConnectedIdle);
+}
+
+// Fixed controls project authoritative current values but reject direct edits.
+// Truly unavailable controls remain explicit and do not expose a numeric FPS
+// range or editable format/ROI surface.
+TEST(QmlCameraSettingsAdapter, FixedAndUnavailableControlsProjectTruthfulReasons) {
+    auto fixedOptions = app::simulatorOptions();
+    fixedOptions.capabilities.frameRate.access = camera::ControlAccess::ReadOnly;
+    fixedOptions.capabilities.pixelFormatAccess = camera::ControlAccess::ReadOnly;
+    fixedOptions.capabilities.roi.access = camera::ControlAccess::ReadOnly;
+    Fixture fixed(std::move(fixedOptions));
+    ASSERT_TRUE(fixed.startStopped());
+    ASSERT_TRUE(fixed.adapter.openSettings());
+    EXPECT_EQ(fixed.adapter.frameRateText(), QStringLiteral("30"));
+    EXPECT_EQ(fixed.adapter.pixelFormat(), QStringLiteral("Mono12"));
+    EXPECT_EQ(fixed.adapter.roiWidthText(), QStringLiteral("640"));
+    EXPECT_FALSE(fixed.adapter.frameRateEnabled());
+    EXPECT_FALSE(fixed.adapter.pixelFormatEnabled());
+    EXPECT_FALSE(fixed.adapter.roiEnabled());
+    EXPECT_TRUE(fixed.adapter.frameRateReason().contains(QStringLiteral("read-only"),
+        Qt::CaseInsensitive));
+    EXPECT_TRUE(fixed.adapter.pixelFormatReason().contains(QStringLiteral("read-only"),
+        Qt::CaseInsensitive));
+    EXPECT_TRUE(fixed.adapter.roiReason().contains(QStringLiteral("read-only"),
+        Qt::CaseInsensitive));
+    EXPECT_FALSE(fixed.adapter.editFrameRateText(QStringLiteral("25")));
+    EXPECT_FALSE(fixed.adapter.setPixelFormat(QStringLiteral("Mono12")));
+    EXPECT_FALSE(fixed.adapter.editRoiText(QStringLiteral("width"), QStringLiteral("320")));
+
+    auto absentOptions = app::simulatorOptions();
+    absentOptions.capabilities.frameRate.access = camera::ControlAccess::Unavailable;
+    absentOptions.capabilities.pixelFormatAccess = camera::ControlAccess::Unavailable;
+    absentOptions.capabilities.roi.access = camera::ControlAccess::Unavailable;
+    Fixture absent(std::move(absentOptions));
+    ASSERT_TRUE(absent.startStopped());
+    ASSERT_TRUE(absent.adapter.openSettings());
+    EXPECT_FALSE(absent.adapter.frameRateEnabled());
+    EXPECT_TRUE(absent.adapter.frameRateReason().contains(QStringLiteral("unavailable"),
+        Qt::CaseInsensitive));
+    EXPECT_FALSE(absent.adapter.pixelFormatEnabled());
+    EXPECT_FALSE(absent.adapter.roiEnabled());
+    EXPECT_TRUE(absent.adapter.pixelFormatReason().contains(QStringLiteral("unavailable"),
+        Qt::CaseInsensitive));
+    EXPECT_TRUE(absent.adapter.roiReason().contains(QStringLiteral("unavailable"),
+        Qt::CaseInsensitive));
+}
+
+// An external complete request cannot be mistaken for this editor's local FPS
+// draft. The shared source-bound session invalidates and retains its raw text,
+// with no further Apply admission.
+TEST(QmlCameraSettingsAdapter, ExternalRequestInvalidatesLocalFrameRateDraft) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.startStopped());
+    ASSERT_TRUE(fixture.adapter.openSettings());
+    ASSERT_TRUE(fixture.adapter.editFrameRateText(QStringLiteral("27.75")));
+    const auto source = fixture.coordinator.state().cameraStatus;
+    ASSERT_TRUE(source && source->actualIdentity);
+    auto external = *fixture.coordinator.state().requestedConfiguration;
+    external.exposure.requestedMicroseconds = 2000.0;
+    ASSERT_TRUE(fixture.coordinator.applyCameraSettings(
+        source->sessionGeneration, *source->actualIdentity, external).hasValue());
+    ASSERT_TRUE(fixture.wait([&] {
+        return !fixture.coordinator.state().ordinaryOperationPending
+            && fixture.coordinator.state().cameraStatus->requestedRevision
+                > source->requestedRevision;
+    }));
+    EXPECT_TRUE(fixture.adapter.isOpen());
+    EXPECT_FALSE(fixture.adapter.editable());
+    EXPECT_FALSE(fixture.adapter.applyEnabled());
+    EXPECT_EQ(fixture.adapter.frameRateText(), QStringLiteral("27.75"));
+    EXPECT_FALSE(fixture.adapter.apply());
+    EXPECT_TRUE(fixture.adapter.status().contains(QStringLiteral("changed"),
         Qt::CaseInsensitive));
 }
 

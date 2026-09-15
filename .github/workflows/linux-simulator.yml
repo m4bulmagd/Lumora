@@ -63,25 +63,31 @@ jobs:
         run: cmake --preset linux-gcc-debug-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_TEST_LINUX_DESKTOP=ON -DLUMORA_BUILD_BENCHMARKS=ON
 
       - name: Build Debug targets
-        run: cmake --build --preset linux-gcc-debug-sim --parallel
+        run: cmake --build --preset linux-gcc-debug-sim --parallel 3
+
+      - name: Lint Debug QML
+        run: cmake --build --preset linux-gcc-debug-sim --target all_qmllint --parallel 3
 
       - name: Test Debug without hardware
         run: ctest --preset linux-gcc-debug-sim --output-on-failure -LE 'hardware|desktop'
 
-      - name: Test Debug desktop window on X11
-        run: xvfb-run -a ctest --preset linux-gcc-debug-sim --output-on-failure -L desktop --no-tests=error
+      - name: Test Debug Qt Quick software and OpenGL scenes on X11
+        run: xvfb-run -a -s '-screen 0 2560x2160x24' ctest --preset linux-gcc-debug-sim --output-on-failure -L desktop --no-tests=error
 
       - name: Configure Release simulator without pylon
         run: cmake --preset linux-gcc-release-sim --fresh -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_TEST_LINUX_DESKTOP=ON -DLUMORA_BUILD_BENCHMARKS=ON
 
       - name: Build Release targets
-        run: cmake --build --preset linux-gcc-release-sim --parallel
+        run: cmake --build --preset linux-gcc-release-sim --parallel 3
+
+      - name: Lint Release QML
+        run: cmake --build --preset linux-gcc-release-sim --target all_qmllint --parallel 3
 
       - name: Test Release without hardware
         run: ctest --preset linux-gcc-release-sim --output-on-failure -LE 'hardware|desktop'
 
-      - name: Test Release desktop window on X11
-        run: xvfb-run -a ctest --preset linux-gcc-release-sim --output-on-failure -L desktop --no-tests=error
+      - name: Test Release Qt Quick software and OpenGL scenes on X11
+        run: xvfb-run -a -s '-screen 0 2560x2160x24' ctest --preset linux-gcc-release-sim --output-on-failure -L desktop --no-tests=error
 
       - name: Upload processing evidence (smoke, candidate only)
         if: ${{ always() }}

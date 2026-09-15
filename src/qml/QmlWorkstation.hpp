@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CameraAdapter.hpp"
+#include "InstallationAdapter.hpp"
 #include "ProcessingAdapter.hpp"
 #include "ViewerAdapter.hpp"
 #include <lumora/presentation/WorkstationCoordinator.hpp>
@@ -25,6 +26,7 @@ class QmlWorkstation final : public QObject {
     Q_PROPERTY(lumora::qml::CameraAdapter* camera READ camera CONSTANT FINAL)
     Q_PROPERTY(lumora::qml::ViewerAdapter* viewer READ viewer CONSTANT FINAL)
     Q_PROPERTY(lumora::qml::ProcessingAdapter* processing READ processing CONSTANT FINAL)
+    Q_PROPERTY(lumora::qml::InstallationAdapter* installation READ installation CONSTANT FINAL)
     Q_PROPERTY(bool closing READ closing NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool closed READ closed NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString error READ error NOTIFY stateChanged FINAL)
@@ -38,6 +40,7 @@ public:
     [[nodiscard]] CameraAdapter* camera() const noexcept;
     [[nodiscard]] ViewerAdapter* viewer() const noexcept;
     [[nodiscard]] ProcessingAdapter* processing() const noexcept;
+    [[nodiscard]] InstallationAdapter* installation() const noexcept;
     [[nodiscard]] presentation::WorkstationCoordinator& coordinator() noexcept;
     [[nodiscard]] bool closing() const noexcept;
     [[nodiscard]] bool closed() const noexcept;

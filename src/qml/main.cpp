@@ -44,12 +44,13 @@ std::filesystem::path logPath() {
 int main(int argc, char* argv[]) {
     QGuiApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("Lumora"));
-    QCoreApplication::setApplicationName(QStringLiteral("LumoraQmlPilot"));
+    QCoreApplication::setApplicationName(QStringLiteral("Lumora"));
     QGuiApplication::setQuitOnLastWindowClosed(false);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("Lumora evaluation SIM-LIVE QML pilot"));
+    parser.setApplicationDescription(QStringLiteral("Lumora evaluation SIM-LIVE workstation"));
     parser.addHelpOption();
+    parser.addOption({QStringLiteral("installation"), QStringLiteral("Request administrator installation editing (requires OS authority).")});
     parser.process(application);
 
     const auto logging=lumora::diagnostics::Logging::start(logPath());
@@ -61,7 +62,7 @@ int main(int argc, char* argv[]) {
     {
         lumora::core::SystemClock clock;
         lumora::camera::sim::SimulatedCameraProvider provider(lumora::app::simulatorOptions(),clock);
-        lumora::configuration::InstallationProfilesService installations({false,
+        lumora::configuration::InstallationProfilesService installations({parser.isSet(QStringLiteral("installation")),
             lumora::application::InstallationProfilePolicy::SimulatorIdentityFallback});
         lumora::processing::ProcessingPreparationOptions options;
         const auto reserved=lumora::qml::reserveSimulatorRendererStorage(options);

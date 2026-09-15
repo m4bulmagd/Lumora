@@ -8,32 +8,45 @@
       "name": "qtbase",
       "default-features": false,
       "features": [
-        "widgets",
-        { "name": "xcb", "platform": "linux" },
-        { "name": "fontconfig", "platform": "linux" }
+        {
+          "name": "xcb",
+          "platform": "linux"
+        },
+        {
+          "name": "fontconfig",
+          "platform": "linux"
+        }
       ]
     },
     {
       "name": "opencv4",
       "default-features": false,
-      "features": ["jpeg", "png"]
+      "features": [
+        "jpeg",
+        "png"
+      ]
     },
     "gtest",
     {
       "name": "spdlog",
       "default-features": false,
-      "features": ["fmt"]
+      "features": [
+        "fmt"
+      ]
     }
   ],
   "features": {
     "qml-ui": {
-      "description": "Build the optional Qt Quick/QML interface preview",
+      "description": "Qt Quick/QML workstation",
       "dependencies": [
         {
           "name": "qtbase",
           "default-features": false,
           "features": [
-            { "name": "opengl", "platform": "linux" }
+            {
+              "name": "opengl",
+              "platform": "linux"
+            }
           ]
         },
         {
@@ -42,16 +55,58 @@
           "version>=": "6.11.1"
         }
       ]
+    },
+    "legacy-widgets-tests": {
+      "description": "Opt-in legacy Widgets regression tests only",
+      "dependencies": [
+        {
+          "name": "qtbase",
+          "default-features": false,
+          "features": [
+            "widgets"
+          ]
+        }
+      ]
     }
   },
   "overrides": [
-    { "name": "qtbase", "version": "6.11.1", "port-version": 1 },
-    { "name": "qtdeclarative", "version": "6.11.1" },
-    { "name": "qtlanguageserver", "version": "6.11.1" },
-    { "name": "qtshadertools", "version": "6.11.1" },
-    { "name": "qtsvg", "version": "6.11.1" },
-    { "name": "opencv4", "version": "4.12.0", "port-version": 9 },
-    { "name": "gtest", "version-semver": "1.18.0" },
-    { "name": "spdlog", "version-semver": "1.17.0", "port-version": 1 }
+    {
+      "name": "qtbase",
+      "version": "6.11.1",
+      "port-version": 1
+    },
+    {
+      "name": "qtdeclarative",
+      "version": "6.11.1"
+    },
+    {
+      "name": "qtlanguageserver",
+      "version": "6.11.1"
+    },
+    {
+      "name": "qtshadertools",
+      "version": "6.11.1"
+    },
+    {
+      "name": "qtsvg",
+      "version": "6.11.1"
+    },
+    {
+      "name": "opencv4",
+      "version": "4.12.0",
+      "port-version": 9
+    },
+    {
+      "name": "gtest",
+      "version-semver": "1.18.0"
+    },
+    {
+      "name": "spdlog",
+      "version-semver": "1.17.0",
+      "port-version": 1
+    }
+  ],
+  "default-features": [
+    "qml-ui"
   ]
 }

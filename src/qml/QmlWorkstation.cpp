@@ -32,6 +32,7 @@ struct QmlWorkstation::Impl {
     core::IClock& clock;
     QuickImageItem item;
     CameraAdapter camera;
+    InstallationAdapter installation;
     ViewerAdapter viewer;
     ProcessingAdapter processing;
     QTimer timer;
@@ -46,7 +47,7 @@ struct QmlWorkstation::Impl {
     Impl(application::LivePipeline& pipeline, configuration::StartupPreferencesService& preferences,
         core::IClock& sourceClock, camera::CameraConfiguration request, QmlWorkstation& owner)
         : coordinator(pipeline, preferences, sourceClock, std::move(request)), clock(sourceClock),
-          item(sourceClock), camera(coordinator, &owner), viewer(item, &owner), processing(coordinator, &owner) {
+          item(sourceClock), camera(coordinator, &owner), installation(coordinator, &owner), viewer(item, &owner), processing(coordinator, &owner) {
         timer.setInterval(17);
         timer.setTimerType(Qt::PreciseTimer);
         QObject::connect(&timer, &QTimer::timeout, &owner, &QmlWorkstation::poll);
@@ -65,6 +66,7 @@ struct QmlWorkstation::Impl {
     }
     void refreshAdapters() {
         camera.refresh();
+        installation.refresh();
         processing.refresh();
         viewer.refresh();
     }
@@ -146,6 +148,7 @@ void QmlWorkstation::requestShutdown() {
     d.coordinator.beginShutdown();
     d.viewer.setClosing();
     d.camera.setClosing();
+    d.installation.setClosing();
     d.processing.refresh();
     if (d.presenter) d.presenter->retire();
     // Keep draining with the event loop, including hidden/deleted/never-shown
@@ -157,6 +160,7 @@ void QmlWorkstation::requestShutdown() {
 CameraAdapter* QmlWorkstation::camera() const noexcept { return &impl_->camera; }
 ViewerAdapter* QmlWorkstation::viewer() const noexcept { return &impl_->viewer; }
 ProcessingAdapter* QmlWorkstation::processing() const noexcept { return &impl_->processing; }
+InstallationAdapter* QmlWorkstation::installation() const noexcept { return &impl_->installation; }
 presentation::WorkstationCoordinator& QmlWorkstation::coordinator() noexcept { return impl_->coordinator; }
 bool QmlWorkstation::closing() const noexcept { return impl_->closing; }
 bool QmlWorkstation::closed() const noexcept { return impl_->closed; }

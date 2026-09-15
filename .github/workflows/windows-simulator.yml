@@ -53,7 +53,10 @@ jobs:
         run: cmake --preset windows-msvc-debug-sim --fresh "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_BUILD_BENCHMARKS=ON
 
       - name: Build Debug targets
-        run: cmake --build --preset windows-msvc-debug-sim --parallel
+        run: cmake --build --preset windows-msvc-debug-sim --parallel 3
+
+      - name: Lint Debug QML
+        run: cmake --build --preset windows-msvc-debug-sim --target all_qmllint --parallel 3
 
       - name: Test Debug without hardware
         env:
@@ -67,7 +70,10 @@ jobs:
         run: cmake --preset windows-msvc-release-sim --fresh "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_BUILD_BENCHMARKS=ON
 
       - name: Build Release targets
-        run: cmake --build --preset windows-msvc-release-sim --parallel
+        run: cmake --build --preset windows-msvc-release-sim --parallel 3
+
+      - name: Lint Release QML
+        run: cmake --build --preset windows-msvc-release-sim --target all_qmllint --parallel 3
 
       - name: Test Release without hardware
         env:
@@ -77,22 +83,23 @@ jobs:
 
       - name: Enable opt-in Release stress test
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: cmake --preset windows-msvc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=ON
+        shell: pwsh
+        run: cmake --preset windows-msvc-release-sim-legacy-tests --fresh "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DLUMORA_ENABLE_STRESS_TESTS=ON
 
       - name: Build Release stress target
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: cmake --build --preset windows-msvc-release-sim --target lumora_integration_tests --parallel
+        run: cmake --build --preset windows-msvc-release-sim-legacy-tests --target lumora_integration_tests --parallel 3
 
       - name: Run ten-minute Release stress test and collect evidence
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: >-
-          cmake -DLUMORA_STRESS_PRESET=windows-msvc-release-sim
+          cmake -DLUMORA_STRESS_PRESET=windows-msvc-release-sim-legacy-tests
           -DLUMORA_STRESS_OUTPUT_DIR=out/windows-stress-evidence
           -P cmake/RunStress.cmake
 
       - name: Restore short-test registration
         if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.configure-release.outcome == 'success' }}
-        run: cmake --preset windows-msvc-release-sim -DLUMORA_ENABLE_STRESS_TESTS=OFF
+        run: cmake --preset windows-msvc-release-sim-legacy-tests -DLUMORA_ENABLE_STRESS_TESTS=OFF
 
       - name: Upload Windows stress evidence
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}

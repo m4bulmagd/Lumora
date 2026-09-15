@@ -19,13 +19,15 @@
         "LUMORA_ENABLE_BASLER": "OFF",
         "VCPKG_HOST_TRIPLET": "x64-linux-dynamic",
         "VCPKG_TARGET_TRIPLET": "x64-linux-dynamic",
-        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed",
-        "VCPKG_MANIFEST_FEATURES": ""
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_qml_installed",
+        "VCPKG_MANIFEST_FEATURES": "qml-ui",
+        "LUMORA_BUILD_QML_UI": "ON",
+        "LUMORA_BUILD_LEGACY_WIDGETS_TESTS": "OFF"
       }
     },
     {
       "name": "linux-gcc-debug-sim",
-      "displayName": "Linux GCC Debug (simulator)",
+      "displayName": "Linux GCC Debug (QML simulator)",
       "inherits": "linux-gcc-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
@@ -33,7 +35,7 @@
     },
     {
       "name": "linux-gcc-release-sim",
-      "displayName": "Linux GCC Release (simulator)",
+      "displayName": "Linux GCC Release (QML simulator)",
       "inherits": "linux-gcc-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
@@ -51,7 +53,7 @@
     },
     {
       "name": "linux-gcc-debug-sim-qml",
-      "displayName": "Linux GCC Debug (simulator + QML preview)",
+      "displayName": "Linux GCC Debug (QML simulator compatibility preset)",
       "inherits": "linux-gcc-qml-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
@@ -59,7 +61,7 @@
     },
     {
       "name": "linux-gcc-release-sim-qml",
-      "displayName": "Linux GCC Release (simulator + QML preview)",
+      "displayName": "Linux GCC Release (QML simulator compatibility preset)",
       "inherits": "linux-gcc-qml-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
@@ -77,7 +79,10 @@
         "LUMORA_ENABLE_BASLER": "OFF",
         "VCPKG_HOST_TRIPLET": "x64-windows",
         "VCPKG_TARGET_TRIPLET": "x64-windows",
-        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_installed"
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_qml_installed",
+        "LUMORA_BUILD_QML_UI": "ON",
+        "LUMORA_BUILD_LEGACY_WIDGETS_TESTS": "OFF",
+        "VCPKG_MANIFEST_FEATURES": "qml-ui"
       }
     },
     {
@@ -92,22 +97,22 @@
     },
     {
       "name": "windows-msvc-debug-sim",
-      "displayName": "Windows MSVC Debug (simulator)",
+      "displayName": "Windows MSVC Debug (QML simulator)",
       "inherits": "windows-msvc-base"
     },
     {
       "name": "windows-msvc-release-sim",
-      "displayName": "Windows MSVC Release (simulator)",
+      "displayName": "Windows MSVC Release (QML simulator)",
       "inherits": "windows-msvc-base"
     },
     {
       "name": "windows-msvc-debug-sim-qml",
-      "displayName": "Windows MSVC Debug (simulator + QML preview)",
+      "displayName": "Windows MSVC Debug (QML simulator compatibility preset)",
       "inherits": "windows-msvc-qml-base"
     },
     {
       "name": "windows-msvc-release-sim-qml",
-      "displayName": "Windows MSVC Release (simulator + QML preview)",
+      "displayName": "Windows MSVC Release (QML simulator compatibility preset)",
       "inherits": "windows-msvc-qml-base"
     },
     {
@@ -124,6 +129,46 @@
       "inherits": "windows-msvc-base",
       "cacheVariables": {
         "LUMORA_ENABLE_BASLER": "ON"
+      }
+    },
+    {
+      "name": "linux-gcc-debug-sim-legacy-tests",
+      "displayName": "linux-gcc debug QML + legacy regression tests",
+      "inherits": "linux-gcc-debug-sim",
+      "cacheVariables": {
+        "LUMORA_BUILD_LEGACY_WIDGETS_TESTS": "ON",
+        "VCPKG_MANIFEST_FEATURES": "qml-ui;legacy-widgets-tests",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_legacy_tests_installed"
+      }
+    },
+    {
+      "name": "linux-gcc-release-sim-legacy-tests",
+      "displayName": "linux-gcc release QML + legacy regression tests",
+      "inherits": "linux-gcc-release-sim",
+      "cacheVariables": {
+        "LUMORA_BUILD_LEGACY_WIDGETS_TESTS": "ON",
+        "VCPKG_MANIFEST_FEATURES": "qml-ui;legacy-widgets-tests",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_legacy_tests_installed"
+      }
+    },
+    {
+      "name": "windows-msvc-debug-sim-legacy-tests",
+      "displayName": "windows-msvc debug QML + legacy regression tests",
+      "inherits": "windows-msvc-debug-sim",
+      "cacheVariables": {
+        "LUMORA_BUILD_LEGACY_WIDGETS_TESTS": "ON",
+        "VCPKG_MANIFEST_FEATURES": "qml-ui;legacy-widgets-tests",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_legacy_tests_installed"
+      }
+    },
+    {
+      "name": "windows-msvc-release-sim-legacy-tests",
+      "displayName": "windows-msvc release QML + legacy regression tests",
+      "inherits": "windows-msvc-release-sim",
+      "cacheVariables": {
+        "LUMORA_BUILD_LEGACY_WIDGETS_TESTS": "ON",
+        "VCPKG_MANIFEST_FEATURES": "qml-ui;legacy-widgets-tests",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg_legacy_tests_installed"
       }
     }
   ],
@@ -173,68 +218,132 @@
       "name": "windows-msvc-release-basler",
       "configurePreset": "windows-msvc-release-basler",
       "configuration": "Release"
+    },
+    {
+      "name": "linux-gcc-debug-sim-legacy-tests",
+      "configurePreset": "linux-gcc-debug-sim-legacy-tests"
+    },
+    {
+      "name": "linux-gcc-release-sim-legacy-tests",
+      "configurePreset": "linux-gcc-release-sim-legacy-tests"
+    },
+    {
+      "name": "windows-msvc-debug-sim-legacy-tests",
+      "configurePreset": "windows-msvc-debug-sim-legacy-tests",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-release-sim-legacy-tests",
+      "configurePreset": "windows-msvc-release-sim-legacy-tests",
+      "configuration": "Release"
     }
   ],
   "testPresets": [
     {
       "name": "linux-gcc-debug-sim",
       "configurePreset": "linux-gcc-debug-sim",
-      "output": { "outputOnFailure": true },
-      "environment": { "QT_QPA_PLATFORM": "minimal" }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "linux-gcc-release-sim",
       "configurePreset": "linux-gcc-release-sim",
-      "output": { "outputOnFailure": true },
-      "environment": { "QT_QPA_PLATFORM": "minimal" }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "linux-gcc-debug-sim-qml",
       "configurePreset": "linux-gcc-debug-sim-qml",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "linux-gcc-release-sim-qml",
       "configurePreset": "linux-gcc-release-sim-qml",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "windows-msvc-debug-sim",
       "configurePreset": "windows-msvc-debug-sim",
       "configuration": "Debug",
-      "output": { "outputOnFailure": true },
-      "environment": { "QT_QPA_PLATFORM": "minimal" }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "windows-msvc-release-sim",
       "configurePreset": "windows-msvc-release-sim",
       "configuration": "Release",
-      "output": { "outputOnFailure": true },
-      "environment": { "QT_QPA_PLATFORM": "minimal" }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "windows-msvc-debug-sim-qml",
       "configurePreset": "windows-msvc-debug-sim-qml",
       "configuration": "Debug",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "windows-msvc-release-sim-qml",
       "configurePreset": "windows-msvc-release-sim-qml",
       "configuration": "Release",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "windows-msvc-debug-basler",
       "configurePreset": "windows-msvc-debug-basler",
       "configuration": "Debug",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "windows-msvc-release-basler",
       "configurePreset": "windows-msvc-release-basler",
       "configuration": "Release",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-gcc-debug-sim-legacy-tests",
+      "configurePreset": "linux-gcc-debug-sim-legacy-tests",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-gcc-release-sim-legacy-tests",
+      "configurePreset": "linux-gcc-release-sim-legacy-tests",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-debug-sim-legacy-tests",
+      "configurePreset": "windows-msvc-debug-sim-legacy-tests",
+      "output": {
+        "outputOnFailure": true
+      },
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-release-sim-legacy-tests",
+      "configurePreset": "windows-msvc-release-sim-legacy-tests",
+      "output": {
+        "outputOnFailure": true
+      },
+      "configuration": "Release"
     }
   ]
 }

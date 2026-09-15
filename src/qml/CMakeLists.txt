@@ -6,6 +6,7 @@ lumora_enable_warnings(lumora_quick_renderer)
 
 set(lumora_qml_files
   qml/Main.qml qml/Theme.qml qml/CameraStartup.qml qml/CameraSettings.qml qml/ViewingToolbar.qml
+  qml/InstallationSettings.qml qml/OrientationPreview.qml
   qml/PresetControls.qml qml/WindowLevelControls.qml qml/StatusStrip.qml
   qml/ExactProcessingField.qml qml/ToneControls.qml qml/ProcessingControls.qml
   qml/LocalContrastControls.qml qml/DenoiseControls.qml qml/SharpenControls.qml)
@@ -24,6 +25,7 @@ qt_add_qml_module(lumora_qml_ui
   SOURCES
     QmlWorkstation.hpp QmlWorkstation.cpp CameraAdapter.hpp CameraAdapter.cpp
     CameraSettingsAdapter.hpp CameraSettingsAdapter.cpp
+    InstallationAdapter.hpp InstallationAdapter.cpp
     ViewerAdapter.hpp ViewerAdapter.cpp ViewerSurface.hpp ViewerSurface.cpp
     ProcessingAdapter.hpp ProcessingAdapter.cpp)
 target_include_directories(lumora_qml_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -32,14 +34,16 @@ target_link_libraries(lumora_qml_ui PUBLIC
   Qt6::Qml Qt6::Quick Qt6::QuickControls2)
 lumora_enable_warnings(lumora_qml_ui)
 
-qt_add_executable(lumora_qml_app MANUAL_FINALIZATION
+qt_add_executable(lumora_app MANUAL_FINALIZATION
   main.cpp ../app/SimulatorComposition.cpp ../app/SimulatorComposition.hpp)
-target_include_directories(lumora_qml_app PRIVATE "${PROJECT_SOURCE_DIR}/src/app")
-target_link_libraries(lumora_qml_app PRIVATE
+target_include_directories(lumora_app PRIVATE "${PROJECT_SOURCE_DIR}/src/app")
+target_link_libraries(lumora_app PRIVATE
   lumora_qml_ui lumora_qml_uiplugin lumora::camera_simulator lumora::diagnostics)
-lumora_enable_warnings(lumora_qml_app)
-qt_import_qml_plugins(lumora_qml_app)
-qt_finalize_executable(lumora_qml_app)
+lumora_enable_warnings(lumora_app)
+qt_import_qml_plugins(lumora_app)
+qt_finalize_executable(lumora_app)
+# Keep the old build target as an alias for automation; no second executable.
+add_custom_target(lumora_qml_app DEPENDS lumora_app)
 include("${PROJECT_SOURCE_DIR}/cmake/QmlPilotDeployment.cmake")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -47,6 +51,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     COMMAND "${CMAKE_COMMAND}" -E env
       "QT_QPA_PLATFORM=xcb"
       "QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>"
-      $<TARGET_FILE:lumora_qml_app>
-    DEPENDS lumora_qml_app USES_TERMINAL VERBATIM)
+      $<TARGET_FILE:lumora_app>
+    DEPENDS lumora_app USES_TERMINAL VERBATIM)
 endif()

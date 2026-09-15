@@ -257,64 +257,55 @@ endif()
 
 add_subdirectory(presentation)
 
-add_library(
-  lumora_ui
-  STATIC
-  ui/include/lumora/ui/FramePresenter.hpp
-  ui/include/lumora/ui/DisplayMode.hpp
-  ui/include/lumora/ui/CameraSettingsDialog.hpp
-  ui/include/lumora/ui/InstallationSettingsDialog.hpp
-  ui/include/lumora/ui/CameraStartupPanel.hpp
-  ui/include/lumora/ui/ImageViewport.hpp
-  ui/include/lumora/ui/MainWindow.hpp
-  ui/include/lumora/ui/ViewportTransform.hpp
-  ui/include/lumora/ui/WorkstationStatus.hpp
-  ui/include/lumora/ui/WorkstationView.hpp
-  ui/src/ImageViewport.cpp
-  ui/src/CameraSettingsDialog.cpp
-  ui/src/InstallationSettingsDialog.cpp
-  ui/src/CameraStartupPanel.cpp
-  ui/include/lumora/ui/WorkstationController.hpp
-  ui/include/lumora/ui/ProcessingControlsModel.hpp
-  ui/include/lumora/ui/ProcessingPanel.hpp
-  ui/src/ProcessingPanel.cpp
-  ui/src/WorkstationController.cpp
-  ui/src/FramePresenter.cpp
-  ui/src/MainWindow.cpp
-  ui/src/WorkstationView.cpp
-  ui/include/lumora/ui/OrientationPresentation.hpp
-  ui/src/OrientationPresentation.cpp
-  ui/resources/lumora.qrc
-)
+if(LUMORA_BUILD_LEGACY_WIDGETS_TESTS)
+  add_library(
+    lumora_ui
+    STATIC
+    ui/include/lumora/ui/FramePresenter.hpp
+    ui/include/lumora/ui/DisplayMode.hpp
+    ui/include/lumora/ui/CameraSettingsDialog.hpp
+    ui/include/lumora/ui/InstallationSettingsDialog.hpp
+    ui/include/lumora/ui/CameraStartupPanel.hpp
+    ui/include/lumora/ui/ImageViewport.hpp
+    ui/include/lumora/ui/MainWindow.hpp
+    ui/include/lumora/ui/ViewportTransform.hpp
+    ui/include/lumora/ui/WorkstationStatus.hpp
+    ui/include/lumora/ui/WorkstationView.hpp
+    ui/src/ImageViewport.cpp
+    ui/src/CameraSettingsDialog.cpp
+    ui/src/InstallationSettingsDialog.cpp
+    ui/src/CameraStartupPanel.cpp
+    ui/include/lumora/ui/WorkstationController.hpp
+    ui/include/lumora/ui/ProcessingControlsModel.hpp
+    ui/include/lumora/ui/ProcessingPanel.hpp
+    ui/src/ProcessingPanel.cpp
+    ui/src/WorkstationController.cpp
+    ui/src/FramePresenter.cpp
+    ui/src/MainWindow.cpp
+    ui/src/WorkstationView.cpp
+    ui/include/lumora/ui/OrientationPresentation.hpp
+    ui/src/OrientationPresentation.cpp
+    ui/resources/lumora.qrc
+  )
 
-add_library(lumora::ui ALIAS lumora_ui)
+  add_library(lumora::ui ALIAS lumora_ui)
 
-target_include_directories(
-  lumora_ui
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/ui/include>
-)
+  target_include_directories(
+    lumora_ui
+    PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/ui/include>
+  )
 
-target_link_libraries(
-  lumora_ui
-  PUBLIC lumora::application lumora::core lumora::presentation Qt6::Widgets
-)
-target_link_libraries(lumora_ui PRIVATE lumora::configuration)
-target_compile_definitions(lumora_ui PUBLIC LUMORA_RELEASE_CLASS_EVALUATION=1)
-set_target_properties(lumora_ui PROPERTIES AUTOMOC ON AUTORCC ON AUTOUIC ON)
-lumora_enable_warnings(lumora_ui)
+  target_link_libraries(
+    lumora_ui
+    PUBLIC lumora::application lumora::core lumora::presentation Qt6::Widgets
+  )
+  target_link_libraries(lumora_ui PRIVATE lumora::configuration)
+  target_compile_definitions(lumora_ui PUBLIC LUMORA_RELEASE_CLASS_EVALUATION=1)
+  set_target_properties(lumora_ui PROPERTIES AUTOMOC ON AUTORCC ON AUTOUIC ON)
+  lumora_enable_warnings(lumora_ui)
 
-add_executable(lumora_app app/main.cpp app/SimulatorComposition.hpp app/SimulatorComposition.cpp)
-target_link_libraries(
-  lumora_app
-  PRIVATE
-    lumora::diagnostics
-    lumora::ui
-    lumora::application
-    lumora::camera_simulator
-    lumora::configuration
-)
-lumora_enable_warnings(lumora_app)
+endif()
 
 if(LUMORA_BUILD_QML_UI)
   add_subdirectory(qml)
@@ -334,7 +325,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   )
 endif()
 
-if(LUMORA_BUILD_TESTS)
+if(LUMORA_BUILD_LEGACY_WIDGETS_TESTS)
   add_library(
     lumora_viewer_harness_support
     STATIC
