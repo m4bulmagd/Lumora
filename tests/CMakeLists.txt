@@ -1,4 +1,5 @@
 if(LUMORA_BUILD_QML_UI)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/qml/TestEnvironment.cmake")
   include("${CMAKE_CURRENT_SOURCE_DIR}/qml/RendererTests.cmake")
   qt_add_executable(
     lumora_qml_tests
@@ -30,8 +31,7 @@ if(LUMORA_BUILD_QML_UI)
     PROPERTIES
       LABELS qml
       TIMEOUT 120
-      ENVIRONMENT
-        "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>;QT_QUICK_BACKEND=software"
+      ENVIRONMENT "${lumora_qml_test_environment}"
   )
   foreach(adapter IN ITEMS Runtime ProcessingAdapter CameraSettingsAdapter InstallationAdapter LayoutAdapter)
     string(TOLOWER "${adapter}" adapter_lower)
@@ -47,7 +47,7 @@ if(LUMORA_BUILD_QML_UI)
     qt_finalize_executable(${adapter_target})
     add_test(NAME Qml.${adapter} COMMAND ${adapter_target})
     set_tests_properties(Qml.${adapter} PROPERTIES TIMEOUT 120 LABELS qml
-      ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QMinimalIntegrationPlugin>;QT_QUICK_BACKEND=software")
+      ENVIRONMENT "${lumora_qml_test_environment}")
   endforeach()
 
 endif()

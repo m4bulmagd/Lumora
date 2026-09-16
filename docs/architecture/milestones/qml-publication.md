@@ -46,6 +46,16 @@ Local correction checks use source aggregate **`e2aa77e6c743216070c81deb181a8003
 
 Local desktop verification is **incomplete**: Release software passed, but OpenGL timed out after 180 seconds during the stop/disconnect/resume scenario, after earlier scene cases passed. A subsequent retry could not load `libQt6QuickTest.so.6`; the retained worktrees and Qt SDK had disappeared from the workspace during this verification period. The timeout's cause is not established, and the failed attempt is retained in `platform-local-verification.json`. These local checks do not substitute for corrected vcpkg/MSVC builds or passing successor hosted CI.
 
+## Windows offscreen dependency failure
+
+The Windows run [35075944147](https://github.com/m4bulmagd/Lumora/actions/runs/35075944147), at **`c388590f658d6538ccbc0e1543b43f4c559b239a`**, passed the Debug build and QML lint. **60 of 67** Debug test groups passed, including `EvidenceSmoke` in **10.51 s**. The seven QML test groups could not initialize because the `offscreen` platform plugin was missing; each reached its **120-second** timeout. Release stages were skipped. The run saved its completed dependency cache (**1,797,786,661 bytes**).
+
+Qt 6.11.1's platform build includes `offscreen` only when FreeType is enabled; the Windows Qt dependency configuration lacked that feature. The correction requests `qtbase[freetype]` within `qml-ui`, requires the imported `Qt6::QOffscreenIntegrationPlugin` target when tests are enabled, and gives all seven QML test groups a shared environment pointing to that matching plugin. On Windows, the shared environment supplies an existing font directory from explicit `QT_QPA_FONTDIR`, or otherwise `WINDIR/Fonts`, for the offscreen font database.
+
+Both simulator workflows also stop cancelling an active main-branch run when a newer main run arrives, allowing the active run to finish and upload its dependency cache. These changes describe the prepared correction; they do not establish successful offscreen initialization, passing local tests or a passing successor hosted run. Compatible cached packages remain reusable, while enabling FreeType requires affected Windows Qt packages to be rebuilt.
+
+Fourteen local configuration checks pass for source aggregate **`a646a3ddf50c1ad55347e61988645a53d0040d110132f1ff1c49beaf5ee2d498`**: Debug/Release plugin-path resolution, default and explicit Windows font directories, rejection of missing font directories, required/missing offscreen targets, and the workflow concurrency-only semantic change. These probes use imported-target stand-ins and fixture directories; they do not validate Qt runtime behavior or font rendering. The local SDK remains unavailable, so hosted builds and scene tests are the runtime verification gate. Details are retained in `offscreen-configuration-verification.json`.
+
 ## Local publication checks
 
 Fresh checks ran from the ordinary main checkout at `d97b269`, using the same **431-file** source aggregate as the reviewed layout implementation: **`0c40c6b37f6ebdc616dfa8d8dd0bf2acfe49dcc398f764ce702f036cbe82cbcc`**. Documentation is outside that source manifest.

@@ -5,7 +5,7 @@ target_link_libraries(lumora_quick_image_tests PRIVATE
 lumora_enable_warnings(lumora_quick_image_tests)
 add_test(NAME Qml.ImageRenderer COMMAND lumora_quick_image_tests)
 set_tests_properties(Qml.ImageRenderer PROPERTIES TIMEOUT 120
-  ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+  ENVIRONMENT "${lumora_qml_test_environment}")
 
 add_executable(lumora_quick_renderer_benchmark
   "${PROJECT_SOURCE_DIR}/benchmarks/presentation/QuickRendererBenchmark.cpp")

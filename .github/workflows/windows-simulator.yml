@@ -12,7 +12,8 @@ permissions:
 concurrency:
   # A push/PR must not cancel an explicitly requested stress run on the same ref.
   group: windows-simulator-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && '-stress' || '' }}
-  cancel-in-progress: true
+  # Let main finish expensive Qt builds and save their binary caches.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   simulator-release:

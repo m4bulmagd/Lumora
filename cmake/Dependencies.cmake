@@ -48,6 +48,11 @@ macro(lumora_find_dependencies)
         "The Linux Qt Quick workstation requires Qt's XCB GLX integration. "
         "Enable qtbase[opengl,xcb,xcb-xlib] with vcpkg, or use a Qt SDK with GLX support.")
     endif()
+    if(LUMORA_BUILD_TESTS AND NOT TARGET Qt6::QOffscreenIntegrationPlugin)
+      message(FATAL_ERROR
+        "The QML scene tests require Qt's offscreen platform plugin. "
+        "Enable qtbase[freetype] with vcpkg, or use a Qt SDK with offscreen support.")
+    endif()
 
     message(STATUS
       "Lumora QML UI: resolved matching Qt ${Qt6Core_VERSION} modules: "
