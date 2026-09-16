@@ -8,7 +8,8 @@ set(lumora_qml_files
   qml/Main.qml qml/Theme.qml qml/CameraStartup.qml qml/CameraSettings.qml qml/ViewingToolbar.qml qml/VideoSources.qml
   qml/InstallationSettings.qml qml/OrientationPreview.qml
   qml/PresetControls.qml qml/WindowLevelControls.qml qml/StatusStrip.qml
-  qml/ExactProcessingField.qml qml/ToneControls.qml qml/ProcessingControls.qml
+  qml/ExactProcessingField.qml qml/EffectSection.qml qml/EffectMenu.qml
+  qml/ToneControls.qml qml/ProcessingControls.qml
   qml/LocalContrastControls.qml qml/DenoiseControls.qml qml/SharpenControls.qml)
 foreach(file IN LISTS lumora_qml_files)
   get_filename_component(name "${file}" NAME)

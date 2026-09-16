@@ -6,13 +6,24 @@ ColumnLayout {
     id: root
     required property ProcessingAdapter processing
     spacing: Theme.spacingSm
-    CheckBox {
-        objectName: "windowLevelEnabled"
-        text: qsTr("Window / level")
-        Accessible.name: text
-        checked: root.processing.stageEnabled
-        enabled: root.processing.available
-        onClicked: root.processing.setStageEnabled(checked)
+
+    RowLayout {
+        Layout.fillWidth: true
+        Label { text: qsTr("Window / level"); font.bold: true; Layout.fillWidth: true }
+        Label {
+            text: qsTr("Off")
+            visible: !root.processing.stageEnabled
+            color: Theme.amber; font.pixelSize: 11; font.bold: true
+        }
+        EffectMenu {
+            objectName: "windowLevelOptions"
+            effectTitle: qsTr("Window / level")
+            effectEnabled: root.processing.stageEnabled
+            enabledItemName: "windowLevelEnabled"
+            enabled: root.processing.available
+            onOpening: root.processing.cancelUncommittedInput()
+            onEnabledRequested: enabled => root.processing.setStageEnabled(enabled)
+        }
     }
     ExactProcessingField {
         processing: root.processing

@@ -15,37 +15,83 @@ ColumnLayout {
     property real sliderStep: 0
     property bool sliderVisible: true
     property bool wholeNumbers: false
-    spacing: Theme.spacingSm
+    property string helpText: ""
+    spacing: Theme.spacingXs
     signal textCommitted(string text)
     signal valueCommitted(real value)
     signal valueDragged(real value)
     signal valueReleased()
 
-    Label { text: root.label; color: Theme.textSecondary }
-    TextField {
-        id: field
-        objectName: root.fieldName
-        property bool modified: false
+    RowLayout {
         Layout.fillWidth: true
-        Accessible.name: qsTr("%1 value").arg(root.label)
-        Accessible.description: (root.wholeNumbers ? qsTr("Whole numbers from %1 to %2.")
-            : qsTr("Range: %1 to %2")).arg(root.minimum).arg(root.maximum)
-        selectByMouse: true
-        inputMethodHints: root.wholeNumbers ? Qt.ImhDigitsOnly : Qt.ImhFormattedNumbersOnly
-        onTextEdited: modified = true
-        onEditingFinished: {
-            if (modified) {
-                const entered = text
-                modified = false
-                root.textCommitted(entered)
-            }
+        spacing: Theme.spacingSm
+
+        Label {
+            text: root.label
+            color: Theme.textSecondary
+            Layout.fillWidth: true
+            elide: Text.ElideRight
         }
-        Binding {
-            target: field
-            property: "text"
-            value: root.formattedValue
-            when: !field.activeFocus || !field.modified
-            restoreMode: Binding.RestoreNone
+        TextField {
+            id: field
+            objectName: root.fieldName
+            property bool modified: false
+            Layout.preferredWidth: activeFocus ? 122 : 82
+            Layout.minimumWidth: 68
+            implicitHeight: 28
+            horizontalAlignment: TextInput.AlignRight
+            leftPadding: Theme.spacingSm
+            rightPadding: Theme.spacingSm
+            topPadding: 3
+            bottomPadding: 3
+            hoverEnabled: true
+            selectByMouse: true
+            Accessible.name: qsTr("%1 value").arg(root.label)
+            Accessible.description: (root.wholeNumbers ? qsTr("Whole numbers from %1 to %2.")
+                : qsTr("Range: %1 to %2")).arg(root.minimum).arg(root.maximum)
+                + (root.helpText.length > 0 ? " " + root.helpText : "")
+            inputMethodHints: root.wholeNumbers ? Qt.ImhDigitsOnly : Qt.ImhFormattedNumbersOnly
+            onTextEdited: modified = true
+            onEditingFinished: {
+                if (modified) {
+                    const entered = text
+                    modified = false
+                    root.textCommitted(entered)
+                }
+            }
+            background: Rectangle {
+                radius: Theme.radiusSm
+                color: field.activeFocus || field.hovered ? Theme.surfaceRaised : "transparent"
+                border.width: field.activeFocus ? 1 : (field.hovered ? 1 : 0)
+                border.color: field.activeFocus ? Theme.amber : Theme.border
+            }
+            color: activeFocus ? Theme.textPrimary : "transparent"
+            Label {
+                anchors.fill: parent
+                leftPadding: field.leftPadding
+                rightPadding: field.rightPadding
+                horizontalAlignment: Text.AlignRight
+                verticalAlignment: Text.AlignVCenter
+                visible: !field.activeFocus
+                color: field.enabled ? Theme.textPrimary : Theme.textMuted
+                text: {
+                    const exact = Number(root.value)
+                    const shortened = root.wholeNumbers
+                        ? Math.round(exact) : Number(exact.toPrecision(6))
+                    return (shortened !== exact ? qsTr("≈") : "") + shortened.toString()
+                }
+                elide: Text.ElideRight
+            }
+            ToolTip.visible: hovered && !activeFocus
+            ToolTip.text: root.formattedValue
+                + (root.helpText.length > 0 ? "\n" + root.helpText : "")
+            Binding {
+                target: field
+                property: "text"
+                value: root.formattedValue
+                when: !field.activeFocus || !field.modified
+                restoreMode: Binding.RestoreNone
+            }
         }
     }
     Slider {
@@ -54,6 +100,7 @@ ColumnLayout {
         objectName: root.sliderName
         visible: root.sliderVisible
         Layout.fillWidth: true
+        implicitHeight: 28
         Accessible.name: root.label
         Accessible.description: qsTr("Use numeric entry for exact values.")
         from: root.minimum
@@ -67,8 +114,6 @@ ColumnLayout {
             event.accepted = false
         }
         onMoved: {
-            // A held pointer can emit moved again after preset/reset replaced
-            // the draft. Keep the replacement visible until a fresh gesture.
             if (gestureCancelled) {
                 value = Qt.binding(() => root.value)
                 return
@@ -86,10 +131,9 @@ ColumnLayout {
     }
     Connections {
         target: root.processing
-        // Cancel dirty input before replacement can disable a field and move
-        // focus. The binding then receives the new authoritative model text.
         function onDraftReplaced() {
             field.modified = false
+            field.text = root.formattedValue
             if (slider.pressed) slider.gestureCancelled = true
         }
     }

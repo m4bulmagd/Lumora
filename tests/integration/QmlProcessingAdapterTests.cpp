@@ -584,10 +584,12 @@ TEST(QmlProcessingAdapter, DenoiseModeReplacementIsAtomicAndPreservesCompleteDra
     EXPECT_EQ(fixture.adapter.denoiseKernelOptions().size(), 3);
 }
 
-// Combo-box initialization can select the already active rows; those calls must
-// be true no-ops rather than converting a named recipe into Custom.
+// Selecting an already active option on an enabled effect must not convert a
+// named recipe into Custom. Selecting it while bypassed explicitly enables it.
 TEST(QmlProcessingAdapter, DenoiseSameModeAndKernelKeepNamedPresetUnchanged) {
-    const auto seed = savedPresetSeed();
+    auto seed = savedPresetSeed();
+    seed.selectedId = seed.customPresets.front().id;
+    seed.activePipeline = seed.customPresets.front().pipeline;
     Fixture fixture(false, false, seed);
     ASSERT_TRUE(fixture.start());
     ASSERT_TRUE(fixture.settled());
@@ -597,7 +599,7 @@ TEST(QmlProcessingAdapter, DenoiseSameModeAndKernelKeepNamedPresetUnchanged) {
     QSignalSpy replacements(&fixture.adapter, &qml::ProcessingAdapter::draftReplaced);
     ASSERT_TRUE(fixture.adapter.setDenoiseMode(QStringLiteral("gaussian")));
     ASSERT_TRUE(fixture.adapter.commitDenoiseKernelSize(3.0));
-    EXPECT_EQ(fixture.adapter.selectedPresetId(), QStringLiteral("original"));
+    EXPECT_EQ(fixture.adapter.selectedPresetId(), QString::fromStdString(seed.selectedId.value));
     EXPECT_FALSE(fixture.adapter.pending());
     EXPECT_EQ(changes.count(), 0);
     EXPECT_EQ(replacements.count(), 0);
@@ -1607,6 +1609,90 @@ TEST(QmlProcessingAdapter, ReportsLoadFailureSeparatelyAndRejectsEditing) {
 
 // Integer conversion, locale-dependent parsing, or full-pipeline reconstruction
 // would lose the exact native value or unrelated loaded stage configuration.
+// Editing a bypassed effect must submit the value and enable bit together.
+// Validation must finish before either part of that draft is changed.
+TEST(QmlProcessingAdapter, DirectEditsEnableOnlyTheirEffectInOneDraft) {
+    struct Edit {
+        const char* name;
+        std::size_t stage;
+        std::function<bool(qml::ProcessingAdapter&)> valid;
+        std::function<bool(qml::ProcessingAdapter&)> invalid;
+    };
+    const Edit edits[]{
+        {"window", 1, [](auto& a) { return a.commitWindowText("12345.125"); },
+            [](auto& a) { return a.commitWindowText("0"); }},
+        {"level", 1, [](auto& a) { return a.dragLevel(23000.875); },
+            [](auto& a) { return a.dragLevel(-1); }},
+        {"brightness", 2, [](auto& a) { return a.dragBrightness(0.25); },
+            [](auto& a) { return a.commitBrightnessText("invalid"); }},
+        {"contrast", 2, [](auto& a) { return a.commitContrast(1.25); },
+            [](auto& a) { return a.commitContrast(5); }},
+        {"gamma", 3, [](auto& a) { return a.commitGammaText("1.125"); },
+            [](auto& a) { return a.commitGammaText("NaN"); }},
+        {"local contrast", 4, [](auto& a) { return a.dragClipLimit(2.5); },
+            [](auto& a) { return a.commitClipLimit(0); }},
+        {"tile grid", 4, [](auto& a) { return a.commitTileGridSizeText("4"); },
+            [](auto& a) { return a.commitTileGridSizeText("4.5"); }},
+        {"denoise mode", 5, [](auto& a) { return a.setDenoiseMode("median"); },
+            [](auto& a) { return a.setDenoiseMode("invalid"); }},
+        {"retained denoise mode", 5, [](auto& a) { return a.setDenoiseMode("gaussian"); },
+            [](auto& a) { return a.setDenoiseMode("invalid"); }},
+        {"denoise kernel", 5, [](auto& a) { return a.commitDenoiseKernelSize(5); },
+            [](auto& a) { return a.commitDenoiseKernelSize(4); }},
+        {"retained denoise kernel", 5, [](auto& a) { return a.commitDenoiseKernelSize(3); },
+            [](auto& a) { return a.commitDenoiseKernelSize(4); }},
+        {"denoise sigma", 5, [](auto& a) { return a.commitDenoiseSigmaText("1.125"); },
+            [](auto& a) { return a.commitDenoiseSigma(-1); }},
+        {"sharpen amount", 6, [](auto& a) { return a.dragSharpenAmount(1.25); },
+            [](auto& a) { return a.commitSharpenAmount(6); }},
+        {"sharpen radius", 6, [](auto& a) { return a.commitSharpenRadius(2.25); },
+            [](auto& a) { return a.commitSharpenRadius(0); }},
+        {"sharpen threshold", 6, [](auto& a) { return a.commitSharpenThresholdText("13.125"); },
+            [](auto& a) { return a.commitSharpenThreshold(-1); }}
+    };
+    for (const auto& edit : edits) {
+        SCOPED_TRACE(edit.name);
+        application::PresetState seed;
+        seed.selectedId = {"custom"};
+        seed.activePipeline = processing::standardPipeline();
+        for (std::size_t index = 1; index <= 6; ++index)
+            seed.activePipeline.stages[index].enabled = false;
+        Fixture fixture(false, false, seed);
+        ASSERT_TRUE(fixture.start());
+        ASSERT_TRUE(fixture.loaded());
+        const auto before = fixture.coordinator.processingControls()->draft().activePipeline;
+        ASSERT_FALSE(edit.invalid(fixture.adapter));
+        EXPECT_TRUE(processing::semanticallyEqualPipelineDefinitions(
+            fixture.coordinator.processingControls()->draft().activePipeline, before));
+        QSignalSpy changes(&fixture.adapter, &qml::ProcessingAdapter::stateChanged);
+        ASSERT_TRUE(edit.valid(fixture.adapter));
+        EXPECT_EQ(changes.count(), 1);
+        const auto after = fixture.coordinator.processingControls()->draft().activePipeline;
+        EXPECT_TRUE(after.stages[edit.stage].enabled);
+        for (std::size_t index = 1; index <= 6; ++index) {
+            if (index != edit.stage) { EXPECT_FALSE(after.stages[index].enabled); }
+        }
+    }
+}
+
+TEST(QmlProcessingAdapter, BypassAndLateReleasePreserveDirectlyEditedValues) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.start());
+    ASSERT_TRUE(fixture.loaded());
+    ASSERT_TRUE(fixture.adapter.commitGammaText("1.2345678901234567"));
+    ASSERT_TRUE(fixture.adapter.setGammaEnabled(false));
+    ASSERT_TRUE(fixture.adapter.releaseGamma());
+    EXPECT_FALSE(fixture.adapter.gammaEnabled());
+    EXPECT_DOUBLE_EQ(fixture.adapter.gamma(), 1.2345678901234567);
+    ASSERT_TRUE(fixture.adapter.setGammaEnabled(true));
+    EXPECT_DOUBLE_EQ(fixture.adapter.gamma(), 1.2345678901234567);
+    ASSERT_TRUE(fixture.adapter.commitWindow(12000.125));
+    ASSERT_TRUE(fixture.adapter.setStageEnabled(false));
+    ASSERT_TRUE(fixture.adapter.releaseWindow(fixture.adapter.window()));
+    EXPECT_FALSE(fixture.adapter.stageEnabled());
+    EXPECT_DOUBLE_EQ(fixture.adapter.window(), 12000.125);
+}
+
 TEST(QmlProcessingAdapter, ExactTextAndEnabledEditsPreserveAllOtherStages) {
     application::PresetState seed;
     seed.selectedId = {"custom"};

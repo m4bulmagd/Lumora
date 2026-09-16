@@ -6,6 +6,7 @@ ColumnLayout {
     id: root
     required property ProcessingAdapter processing
     required property Item focusedItem
+    property bool detailsExpanded: false
     spacing: Theme.spacingSm
 
     function revealFocusedControl() {
@@ -23,20 +24,40 @@ ColumnLayout {
     }
     onFocusedItemChanged: Qt.callLater(root.revealFocusedControl)
 
-    Label { text: qsTr("PROCESSING"); color: Theme.textSecondary; font.bold: true; font.pixelSize: 11 }
-    PresetControls { processing: root.processing; Layout.fillWidth: true }
-    Label {
-        objectName: "processingStatus"
-        text: !root.processing.available
-            ? (root.processing.loadingState === ProcessingAdapter.Loading ? qsTr("Loading processing settings…") : qsTr("Processing settings unavailable."))
-            : (root.processing.pending ? qsTr("Applying processing draft…") : qsTr("Edits save after successful activation."))
-        color: Theme.textSecondary; Layout.fillWidth: true; wrapMode: Text.Wrap; font.pixelSize: 12
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: Theme.spacingSm
+        Label {
+            text: qsTr("PROCESSING")
+            color: Theme.textSecondary
+            font.bold: true
+            font.pixelSize: 11
+            Layout.fillWidth: true
+        }
+        Label {
+            objectName: "processingStatus"
+            text: !root.processing.available
+                ? (root.processing.loadingState === ProcessingAdapter.Loading
+                    ? qsTr("Loading…") : qsTr("Unavailable"))
+                : (root.processing.pending ? qsTr("Applying…") : "")
+            visible: text.length > 0
+            color: Theme.textSecondary
+            font.pixelSize: 11
+            horizontalAlignment: Text.AlignRight
+            elide: Text.ElideRight
+        }
     }
-    Label {
-        objectName: "activePresetSummary"
-        text: root.processing.hasAcknowledged
-            ? qsTr("Active: %1").arg(root.processing.activeSummary.split("\n")[0]) : qsTr("Active: awaiting processing")
-        Layout.fillWidth: true; wrapMode: Text.Wrap; font.pixelSize: 12
+    PresetControls { processing: root.processing; Layout.fillWidth: true }
+    ToolButton {
+        objectName: "processingDetailsDisclosure"
+        implicitHeight: 26
+        text: checked ? qsTr("▾ Details") : qsTr("▸ Details")
+        checkable: true
+        checked: root.detailsExpanded
+        visible: root.processing.hasAcknowledged
+        focusPolicy: Qt.TabFocus
+        Accessible.name: qsTr("Active processing details")
+        onClicked: root.detailsExpanded = checked
     }
     Label {
         objectName: "processingMessages"
@@ -66,18 +87,20 @@ ColumnLayout {
                 LocalContrastControls { processing: root.processing; Layout.fillWidth: true }
                 DenoiseControls { processing: root.processing; Layout.fillWidth: true }
                 SharpenControls { processing: root.processing; Layout.fillWidth: true }
-                CheckBox {
+                Button {
                     objectName: "invertEnabled"
                     text: qsTr("Invert")
+                    checkable: true
                     checked: root.processing.invertEnabled
                     enabled: root.processing.available
+                    Layout.alignment: Qt.AlignLeft
+                    Accessible.description: checked ? qsTr("Invert is on") : qsTr("Invert is off")
                     onClicked: root.processing.setInvertEnabled(checked)
                 }
-                Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
-                Label { text: qsTr("ACKNOWLEDGED ACTIVE"); color: Theme.textSecondary; font.bold: true; font.pixelSize: 11 }
                 Label {
                     objectName: "activeProcessing"
                     text: root.processing.activeSummary
+                    visible: root.detailsExpanded && root.processing.hasAcknowledged
                     Layout.fillWidth: true; wrapMode: Text.Wrap; font.pixelSize: 12
                 }
             }

@@ -2,18 +2,19 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-ColumnLayout {
+EffectSection {
     id: root
     required property ProcessingAdapter processing
-    spacing: Theme.spacingSm
+    objectName: "sharpenSection"
+    title: qsTr("Sharpen")
+    disclosureName: "sharpenDisclosure"
+    optionsName: "sharpenOptions"
+    enabledItemName: "sharpenEnabled"
+    effectEnabled: root.processing.sharpenEnabled
+    controlsAvailable: root.processing.available
+    onCollapsing: root.processing.cancelUncommittedInput()
+    onEnabledRequested: enabled => root.processing.setSharpenEnabled(enabled)
 
-    CheckBox {
-        objectName: "sharpenEnabled"
-        text: qsTr("Sharpen")
-        checked: root.processing.sharpenEnabled
-        enabled: root.processing.available
-        onClicked: root.processing.setSharpenEnabled(checked)
-    }
     ExactProcessingField {
         processing: root.processing
         label: qsTr("Amount")
@@ -22,24 +23,27 @@ ColumnLayout {
         value: root.processing.sharpenAmount
         minimum: root.processing.sharpenAmountMinimum; maximum: root.processing.sharpenAmountMaximum
         sliderStep: (maximum - minimum) / 1000
-        enabled: root.processing.available && root.processing.sharpenEnabled
+        enabled: root.processing.available
         Layout.fillWidth: true
         onTextCommitted: text => root.processing.commitSharpenAmountText(text)
         onValueCommitted: value => root.processing.commitSharpenAmount(value)
         onValueDragged: value => root.processing.dragSharpenAmount(value)
         onValueReleased: root.processing.releaseSharpenAmount()
     }
-    CheckBox {
+    ToolButton {
         id: advanced
-        objectName: "sharpenAdvanced"
-        text: qsTr("Advanced")
-        Accessible.name: qsTr("Advanced sharpen controls")
+        objectName: "sharpenAdvancedDisclosure"
+        text: checked ? qsTr("▾ Technical controls") : qsTr("▸ Technical controls")
+        checkable: true
         checked: false
-        enabled: root.processing.available && root.processing.sharpenEnabled
+        enabled: root.processing.available
+        focusPolicy: Qt.TabFocus
+        Accessible.name: qsTr("Sharpen technical controls")
+        onPressedChanged: if (pressed && checked) root.processing.cancelUncommittedInput()
     }
     ColumnLayout {
         visible: advanced.checked
-        enabled: root.processing.available && root.processing.sharpenEnabled && advanced.checked
+        enabled: root.processing.available
         Layout.fillWidth: true
         spacing: Theme.spacingSm
         ExactProcessingField {
@@ -50,6 +54,7 @@ ColumnLayout {
             value: root.processing.sharpenRadius
             minimum: root.processing.sharpenRadiusMinimum; maximum: root.processing.sharpenRadiusMaximum
             sliderVisible: false
+            enabled: root.processing.available
             Layout.fillWidth: true
             onTextCommitted: text => root.processing.commitSharpenRadiusText(text)
         }
@@ -61,6 +66,7 @@ ColumnLayout {
             value: root.processing.sharpenThreshold
             minimum: root.processing.sharpenThresholdMinimum; maximum: root.processing.sharpenThresholdMaximum
             sliderVisible: false
+            enabled: root.processing.available
             Layout.fillWidth: true
             onTextCommitted: text => root.processing.commitSharpenThresholdText(text)
         }

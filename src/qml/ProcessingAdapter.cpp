@@ -332,6 +332,9 @@ bool ProcessingAdapter::editStageValue(StageId id, double Parameters::* member, 
     if (stage == pipeline.stages.end())
         return rejectInput(tr("%1 settings are unavailable.").arg(stageLabel(id)));
     std::get<Parameters>(stage->parameters).*member = value;
+    // Direct adjustment enables the effect in the same validated draft. A late
+    // gesture release must not undo a subsequent bypass or preset replacement.
+    if (phase != Phase::Release) stage->enabled = true;
     inputError_.clear();
     const auto result = model->edit(std::move(pipeline), phase);
     refresh();
@@ -377,6 +380,7 @@ bool ProcessingAdapter::editValue(double Denoise::* member, double value, Phase 
     if (parameters.mode != DenoiseMode::Gaussian)
         return rejectInput(tr("Sigma is available only in Gaussian mode."));
     parameters.*member = value;
+    stage->enabled = true;
     inputError_.clear();
     const auto result = model->edit(std::move(pipeline), phase);
     refresh();
@@ -407,6 +411,7 @@ bool ProcessingAdapter::editTileGridSize(double value) {
     if (stage == pipeline.stages.end())
         return rejectInput(tr("%1 settings are unavailable.").arg(stageLabel(StageId::Clahe)));
     std::get<Clahe>(stage->parameters).tileGridSize = static_cast<std::uint32_t>(value);
+    stage->enabled = true;
     inputError_.clear();
     const auto result = model->edit(std::move(pipeline), Phase::Commit);
     refresh();
@@ -509,7 +514,7 @@ bool ProcessingAdapter::setDenoiseMode(const QString& mode) {
     if (stage == pipeline.stages.end())
         return rejectInput(tr("%1 settings are unavailable.").arg(stageLabel(StageId::Denoise)));
     auto& parameters = std::get<Denoise>(stage->parameters);
-    if (parameters.mode == requested) {
+    if (parameters.mode == requested && stage->enabled) {
         inputError_.clear();
         refresh();
         return true;
@@ -519,6 +524,7 @@ bool ProcessingAdapter::setDenoiseMode(const QString& mode) {
         parameters.kernelSize = std::min(parameters.kernelSize, 5U);
         parameters.sigma = 0.0;
     }
+    stage->enabled = true;
     inputError_.clear();
     const auto result = model->edit(std::move(pipeline), Phase::Commit);
     refreshState(result.hasValue());
@@ -540,12 +546,13 @@ bool ProcessingAdapter::commitDenoiseKernelSize(double value) {
         || (parameters.mode == DenoiseMode::Gaussian && value == 7.0);
     if (!supported)
         return rejectInput(tr("Select a kernel supported by the current denoise mode."));
-    if (parameters.kernelSize == static_cast<std::uint32_t>(value)) {
+    if (parameters.kernelSize == static_cast<std::uint32_t>(value) && stage->enabled) {
         inputError_.clear();
         refresh();
         return true;
     }
     parameters.kernelSize = static_cast<std::uint32_t>(value);
+    stage->enabled = true;
     inputError_.clear();
     const auto result = model->edit(std::move(pipeline), Phase::Commit);
     refresh();

@@ -59,7 +59,27 @@ ApplicationWindow {
         RowLayout {
             Layout.fillWidth: true
             Label { text: "LUMORA"; font.letterSpacing: 3; font.bold: true; font.pixelSize: 18 }
-            Label { text: root.camera.sourceName; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.textSecondary; font.pixelSize: 11; Layout.fillWidth: true }
+            Label {
+                objectName: "cameraSourceSummary"
+                text: qsTr("%1 · %2").arg(root.camera.sourceName).arg(root.camera.status)
+                textFormat: Text.PlainText
+                elide: Text.ElideRight
+                color: Theme.textSecondary
+                font.pixelSize: 11
+                Layout.fillWidth: true
+            }
+            ToolButton {
+                objectName: "cameraSetupDisclosure"
+                text: cameraPanel.setupRequired ? qsTr("Source setup required")
+                    : cameraPanel.compact ? qsTr("Source setup") : qsTr("Hide source setup")
+                visible: root.panelsVisible
+                enabled: !cameraPanel.setupRequired
+                Accessible.name: qsTr("Source setup")
+                Accessible.description: cameraPanel.setupRequired
+                    ? qsTr("Source setup is required before acquisition can continue.")
+                    : qsTr("Show or hide source setup.")
+                onClicked: cameraPanel.toggleSetup()
+            }
             Button {
                 objectName: "panelsButton"
                 text: root.windowLayout.panelsCollapsed ? qsTr("Show panels") : qsTr("Hide panels")
@@ -92,12 +112,60 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.spacingMd
-            CameraStartup { objectName: "cameraPanel"; visible: root.panelsVisible; camera: root.camera; installation: root.workstation.installation; Layout.minimumWidth: 200; Layout.preferredWidth: 200; Layout.maximumWidth: 200; Layout.fillHeight: true }
+            CameraStartup {
+                id: cameraPanel
+                objectName: "cameraPanel"
+                visible: root.panelsVisible && !cameraPanel.compact
+                camera: root.camera
+                installation: root.workstation.installation
+                Layout.minimumWidth: 200
+                Layout.preferredWidth: 200
+                Layout.maximumWidth: 200
+                Layout.fillHeight: true
+            }
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: Theme.spacingSm
-                ViewingToolbar { objectName: "viewingToolbar"; viewer: root.viewer; camera: root.camera; showPriorityActions: !root.panelsVisible; Layout.fillWidth: true }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingXs
+                    visible: root.camera.startVisible || root.camera.resumeLiveVisible
+                        || root.camera.retryVisible
+
+                    Button {
+                        id: startButton
+                        objectName: "startButton"
+                        text: qsTr("Start Live")
+                        highlighted: true
+                        visible: root.camera.startVisible
+                        enabled: root.camera.startEnabled
+                        onClicked: root.camera.startLive()
+                    }
+                    Button {
+                        id: resumeLiveButton
+                        objectName: "resumeLiveButton"
+                        text: qsTr("Resume saved Live")
+                        visible: root.camera.resumeLiveVisible
+                        enabled: root.camera.resumeLiveEnabled
+                        onClicked: root.camera.resumeLive()
+                    }
+                    Button {
+                        id: retryButton
+                        objectName: "retryButton"
+                        text: qsTr("Retry camera")
+                        visible: root.camera.retryVisible
+                        enabled: root.camera.retryEnabled
+                        onClicked: root.camera.retry()
+                    }
+                }
+                ViewingToolbar {
+                    objectName: "viewingToolbar"
+                    viewer: root.viewer
+                    camera: root.camera
+                    showPriorityActions: !cameraPanel.visible
+                    Layout.fillWidth: true
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     Label { text: root.viewer.displayMode === "compare" ? qsTr("ORIGINAL") : (root.viewer.displayMode === "enhanced" ? qsTr("ENHANCED") : qsTr("ORIGINAL")); color: Theme.textSecondary; font.pixelSize: 11; Layout.fillWidth: true }

@@ -6,13 +6,24 @@ ColumnLayout {
     id: root
     required property ProcessingAdapter processing
     spacing: Theme.spacingSm
-    CheckBox {
-        objectName: "brightnessContrastEnabled"
-        text: qsTr("Brightness / contrast")
-        Accessible.name: text
-        checked: root.processing.brightnessContrastEnabled
-        enabled: root.processing.available
-        onClicked: root.processing.setBrightnessContrastEnabled(checked)
+
+    RowLayout {
+        Layout.fillWidth: true
+        Label { text: qsTr("Brightness / contrast"); font.bold: true; Layout.fillWidth: true }
+        Label {
+            text: qsTr("Off")
+            visible: !root.processing.brightnessContrastEnabled
+            color: Theme.amber; font.pixelSize: 11; font.bold: true
+        }
+        EffectMenu {
+            objectName: "brightnessContrastOptions"
+            effectTitle: qsTr("Brightness / contrast")
+            effectEnabled: root.processing.brightnessContrastEnabled
+            enabledItemName: "brightnessContrastEnabled"
+            enabled: root.processing.available
+            onOpening: root.processing.cancelUncommittedInput()
+            onEnabledRequested: enabled => root.processing.setBrightnessContrastEnabled(enabled)
+        }
     }
     ExactProcessingField {
         processing: root.processing
@@ -22,7 +33,7 @@ ColumnLayout {
         value: root.processing.brightness
         minimum: root.processing.brightnessMinimum; maximum: root.processing.brightnessMaximum
         sliderStep: (maximum - minimum) / 1000
-        enabled: root.processing.available && root.processing.brightnessContrastEnabled
+        enabled: root.processing.available
         Layout.fillWidth: true
         onTextCommitted: text => root.processing.commitBrightnessText(text)
         onValueCommitted: value => root.processing.commitBrightness(value)
@@ -37,34 +48,38 @@ ColumnLayout {
         value: root.processing.contrast
         minimum: root.processing.contrastMinimum; maximum: root.processing.contrastMaximum
         sliderStep: (maximum - minimum) / 1000
-        enabled: root.processing.available && root.processing.brightnessContrastEnabled
+        enabled: root.processing.available
         Layout.fillWidth: true
         onTextCommitted: text => root.processing.commitContrastText(text)
         onValueCommitted: value => root.processing.commitContrast(value)
         onValueDragged: value => root.processing.dragContrast(value)
         onValueReleased: root.processing.releaseContrast()
     }
-    CheckBox {
-        objectName: "gammaEnabled"
-        text: qsTr("Gamma")
-        Accessible.name: text
-        checked: root.processing.gammaEnabled
-        enabled: root.processing.available
-        onClicked: root.processing.setGammaEnabled(checked)
-    }
-    ExactProcessingField {
-        processing: root.processing
-        label: qsTr("Gamma")
-        fieldName: "gammaField"; sliderName: "gammaSlider"
-        formattedValue: root.processing.gammaText
-        value: root.processing.gamma
-        minimum: root.processing.gammaMinimum; maximum: root.processing.gammaMaximum
-        sliderStep: (maximum - minimum) / 1000
-        enabled: root.processing.available && root.processing.gammaEnabled
-        Layout.fillWidth: true
-        onTextCommitted: text => root.processing.commitGammaText(text)
-        onValueCommitted: value => root.processing.commitGamma(value)
-        onValueDragged: value => root.processing.dragGamma(value)
-        onValueReleased: root.processing.releaseGamma()
+    EffectSection {
+        objectName: "gammaSection"
+        title: qsTr("Gamma")
+        disclosureName: "gammaDisclosure"
+        optionsName: "gammaOptions"
+        enabledItemName: "gammaEnabled"
+        effectEnabled: root.processing.gammaEnabled
+        controlsAvailable: root.processing.available
+        onCollapsing: root.processing.cancelUncommittedInput()
+        onEnabledRequested: enabled => root.processing.setGammaEnabled(enabled)
+
+        ExactProcessingField {
+            processing: root.processing
+            label: qsTr("Value")
+            fieldName: "gammaField"; sliderName: "gammaSlider"
+            formattedValue: root.processing.gammaText
+            value: root.processing.gamma
+            minimum: root.processing.gammaMinimum; maximum: root.processing.gammaMaximum
+            sliderStep: (maximum - minimum) / 1000
+            enabled: root.processing.available
+            Layout.fillWidth: true
+            onTextCommitted: text => root.processing.commitGammaText(text)
+            onValueCommitted: value => root.processing.commitGamma(value)
+            onValueDragged: value => root.processing.dragGamma(value)
+            onValueReleased: root.processing.releaseGamma()
+        }
     }
 }

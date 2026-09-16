@@ -2,19 +2,19 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-ColumnLayout {
+EffectSection {
     id: root
     required property ProcessingAdapter processing
-    spacing: Theme.spacingSm
-    CheckBox {
-        objectName: "localContrastEnabled"
-        text: qsTr("Local contrast")
-        Accessible.name: qsTr("Local contrast (CLAHE)")
-        Accessible.description: qsTr("Contrast Limited Adaptive Histogram Equalization (CLAHE)")
-        checked: root.processing.localContrastEnabled
-        enabled: root.processing.available
-        onClicked: root.processing.setLocalContrastEnabled(checked)
-    }
+    objectName: "localContrastSection"
+    title: qsTr("Local contrast")
+    disclosureName: "localContrastDisclosure"
+    optionsName: "localContrastOptions"
+    enabledItemName: "localContrastEnabled"
+    effectEnabled: root.processing.localContrastEnabled
+    controlsAvailable: root.processing.available
+    onCollapsing: root.processing.cancelUncommittedInput()
+    onEnabledRequested: enabled => root.processing.setLocalContrastEnabled(enabled)
+
     ExactProcessingField {
         processing: root.processing
         label: qsTr("Clip limit")
@@ -23,24 +23,40 @@ ColumnLayout {
         value: root.processing.clipLimit
         minimum: root.processing.clipLimitMinimum; maximum: root.processing.clipLimitMaximum
         sliderStep: (maximum - minimum) / 1000
-        enabled: root.processing.available && root.processing.localContrastEnabled
+        enabled: root.processing.available
         Layout.fillWidth: true
         onTextCommitted: text => root.processing.commitClipLimitText(text)
         onValueCommitted: value => root.processing.commitClipLimit(value)
         onValueDragged: value => root.processing.dragClipLimit(value)
         onValueReleased: root.processing.releaseClipLimit()
     }
-    ExactProcessingField {
-        processing: root.processing
-        label: qsTr("Tile grid")
-        fieldName: "tileGridField"; sliderName: ""
-        formattedValue: root.processing.tileGridSizeText
-        value: root.processing.tileGridSize
-        minimum: root.processing.tileGridSizeMinimum; maximum: root.processing.tileGridSizeMaximum
-        wholeNumbers: true
-        sliderVisible: false
-        enabled: root.processing.available && root.processing.localContrastEnabled
+    ToolButton {
+        id: advanced
+        objectName: "localContrastAdvancedDisclosure"
+        text: checked ? qsTr("▾ Technical controls") : qsTr("▸ Technical controls")
+        checkable: true
+        checked: false
+        enabled: root.processing.available
+        focusPolicy: Qt.TabFocus
+        Accessible.name: qsTr("Local contrast technical controls")
+        onPressedChanged: if (pressed && checked) root.processing.cancelUncommittedInput()
+    }
+    ColumnLayout {
+        visible: advanced.checked
+        enabled: root.processing.available
         Layout.fillWidth: true
-        onTextCommitted: text => root.processing.commitTileGridSizeText(text)
+        ExactProcessingField {
+            processing: root.processing
+            label: qsTr("Tile grid")
+            fieldName: "tileGridField"; sliderName: ""
+            formattedValue: root.processing.tileGridSizeText
+            value: root.processing.tileGridSize
+            minimum: root.processing.tileGridSizeMinimum; maximum: root.processing.tileGridSizeMaximum
+            wholeNumbers: true
+            sliderVisible: false
+            enabled: root.processing.available
+            Layout.fillWidth: true
+            onTextCommitted: text => root.processing.commitTileGridSizeText(text)
+        }
     }
 }
