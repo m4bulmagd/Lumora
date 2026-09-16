@@ -102,7 +102,7 @@ LUMORA_QML_CAPTURE_DIR="$PWD/out/qa/qml-workstation-captures-new" \
   out/build/linux-gcc-debug-sim/tests/lumora_qml_tests
 ```
 
-Use the matching Qt platform-plugin path when required. The retained migration worktree uses the matching official Qt 6.11.1 SDK at `.tools/qt-official` and non-Qt dependencies from the original vcpkg prefix; its Debug application links Release Qt libraries. Preserve that cache's recorded `CMAKE_PREFIX_PATH` when reconfiguring. These SDK checks do not establish a fresh vcpkg build or native Windows behavior.
+Use the matching Qt platform-plugin path when required. Historical migration checks used an official Qt 6.11.1 SDK at the migration worktree's `.tools/qt-official` and non-Qt dependencies from the original vcpkg prefix; the Debug application linked Release Qt libraries. The owner removed that merged worktree and SDK on 2026-09-16. Existing build caches that reference it are stale: set up dependencies and configure afresh using valid paths before building. Those historical SDK checks do not establish a fresh vcpkg build or native Windows behavior.
 
 The Linux install component retains the name `QmlPilot` for existing staging automation. It now stages the sole workstation executable, scanned QML imports, runtime libraries/plugins and notices:
 

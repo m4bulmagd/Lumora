@@ -44,7 +44,7 @@ Both failed runs saved their completed dependency caches: **2,652,381,914 bytes*
 
 Local correction checks use source aggregate **`e2aa77e6c743216070c81deb181a8003418915838ad079de0ee68ef32c2a22fe`**. Debug/Release builds, QML lint and **67/67** regular test groups pass; both Debug desktop groups pass. A syntax probe with OpenGL declarations disabled reproduces the original benchmark compile error and passes with the guard. A configure-only probe confirms the MSVC exception reaches exactly 17 generated cache sources and no other translation units. The GLX capability probe accepts the retained SDK and rejects missing capability metadata; the Linux manifest dry run requests `xcb-xlib`.
 
-Local desktop verification is **incomplete**: Release software passed, but OpenGL timed out after 180 seconds during the stop/disconnect/resume scenario, after earlier scene cases passed. A subsequent retry could not load `libQt6QuickTest.so.6`; the retained worktrees and Qt SDK had disappeared from the workspace during this verification period. The timeout's cause is not established, and the failed attempt is retained in `platform-local-verification.json`. These local checks do not substitute for corrected vcpkg/MSVC builds or passing successor hosted CI.
+Local desktop verification is **incomplete**: Release software passed, but OpenGL timed out after 180 seconds during the stop/disconnect/resume scenario, after earlier scene cases passed. A subsequent retry could not load `libQt6QuickTest.so.6`; the retained worktrees and Qt SDK had disappeared from the workspace during this verification period. The owner subsequently confirmed deleting the merged branches and worktrees on 2026-09-16. The timeout's cause is not established, and the failed attempt is retained in `platform-local-verification.json`. These local checks do not substitute for corrected vcpkg/MSVC builds or passing successor hosted CI.
 
 ## Windows offscreen dependency failure
 
@@ -67,13 +67,13 @@ Fresh checks ran from the ordinary main checkout at `d97b269`, using the same **
 | `publication-release-build` | 3.753 s | Full build and QML lint pass |
 | `publication-release-ctest` | 41.171 s | 66/66 pass |
 
-Records, logs, the source manifest, integration audit and captured hosted-run status are retained under `/home/mo/code/Lumora/out/qa/qml-publication`. The matching-source six native runs (28/28 each), installed-app workflow and independent source/visual/trace reviews remain bound in the [layout record](qml-layout.md); they are not new publication runs. Local builds use the retained Release Qt 6.11.1 SDK, including for the Debug application.
+Records, logs, the source manifest, integration audit and captured hosted-run status are retained under `/home/mo/code/Lumora/out/qa/qml-publication`. The matching-source six native runs (28/28 each), installed-app workflow and independent source/visual/trace reviews remain bound in the [layout record](qml-layout.md); they are not new publication runs. These historical local builds used the then-retained Release Qt 6.11.1 SDK, including for the Debug application; that SDK was later removed with the merged worktree.
 
 ## Integration completeness
 
 Before publication, all five local branches had zero commits absent from main: `main`, `codex/qml-foundation`, `codex/m09-camera-controls`, `codex/m09-camera-profiles` and `codex/m09-format-roi`. All four registered worktrees had no tracked changes or nonignored untracked files. The audit is `local-integration-audit.json`; its remote comparison predates the push. The subsequent publication check confirmed `origin/main` equalled `d97b269`. The fetched remote-tracking audit also found zero commits absent from main in every listed tracking ref and no open pull requests; `remote-tracking-completeness.json` records that snapshot. Retained tracking refs for deleted server branches are harmless and were not deleted.
 
-Worktrees, ignored QA and the local SDK were preserved. The documentation and workflow-timeout recovery follow that clean audit; neither changes application source.
+At the original publication checkpoint, worktrees, ignored QA and the local SDK were preserved. The documentation and workflow-timeout recovery follow that clean audit; neither changes application source.
 
 ## Remaining acceptance gates
 
