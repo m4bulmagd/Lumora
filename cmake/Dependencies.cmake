@@ -42,6 +42,12 @@ macro(lumora_find_dependencies)
         "The Qt Quick workstation requires Qt Gui PNG decoding for Qt Quick Controls. "
         "Enable qtbase[png] with vcpkg, or use a Qt SDK with PNG support.")
     endif()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+        AND NOT "xcb_glx_plugin" IN_LIST lumora_qt_gui_features)
+      message(FATAL_ERROR
+        "The Linux Qt Quick workstation requires Qt's XCB GLX integration. "
+        "Enable qtbase[opengl,xcb,xcb-xlib] with vcpkg, or use a Qt SDK with GLX support.")
+    endif()
 
     message(STATUS
       "Lumora QML UI: resolved matching Qt ${Qt6Core_VERSION} modules: "

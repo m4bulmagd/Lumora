@@ -29,6 +29,17 @@ qt_add_qml_module(lumora_qml_ui
     LayoutAdapter.hpp LayoutAdapter.cpp
     ViewerAdapter.hpp ViewerAdapter.cpp ViewerSurface.hpp ViewerSurface.cpp
     ProcessingAdapter.hpp ProcessingAdapter.cpp)
+if(MSVC)
+  # Qt 6.11.1 cachegen instantiates Qt templates that trigger C4702 under /W4.
+  # Keep /WX and all warnings on handwritten sources; exempt only this warning
+  # in the generated QML cache translation units.
+  get_target_property(lumora_qml_sources lumora_qml_ui SOURCES)
+  foreach(source IN LISTS lumora_qml_sources)
+    if(source MATCHES "/[.]rcc/qmlcache/.*[.]cpp$")
+      set_property(SOURCE "${source}" APPEND PROPERTY COMPILE_OPTIONS /wd4702)
+    endif()
+  endforeach()
+endif()
 target_include_directories(lumora_qml_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(lumora_qml_ui PUBLIC
   lumora_quick_renderer lumora::presentation lumora::configuration

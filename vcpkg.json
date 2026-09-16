@@ -47,6 +47,10 @@
             {
               "name": "opengl",
               "platform": "linux"
+            },
+            {
+              "name": "xcb-xlib",
+              "platform": "linux"
             }
           ]
         },

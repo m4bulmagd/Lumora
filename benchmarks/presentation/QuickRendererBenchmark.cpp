@@ -6,10 +6,12 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QOpenGLContext>
-#include <QOpenGLFunctions>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
+#if QT_CONFIG(opengl)
+#include <QOpenGLContext>
+#include <QOpenGLFunctions>
+#endif
 #include <QThread>
 #include <QtTest/QTest>
 #include <algorithm>
@@ -50,17 +52,21 @@ int main(int argc,char** argv) {
     // every referenced diagnostic value first so it outlives the window on all
     // return paths, including an error while the threaded window is exposed.
     std::mutex diagnosticsMutex;
-    QString renderer="software",version;
+    QString renderer="unavailable",version;
     bool renderThread=false;
     QQuickWindow window;window.resize(1280,800);window.setColor(Qt::black);
     window.setTitle("Lumora renderer experiment — synthetic fixtures");
     QObject::connect(&window,&QQuickWindow::beforeRendering,&window,[&] {
         std::lock_guard lock(diagnosticsMutex);
         renderThread=QThread::currentThread()!=app.thread();
+        if(window.rendererInterface()->graphicsApi()==QSGRendererInterface::Software)
+            renderer="software";
+#if QT_CONFIG(opengl)
         if(auto* context=QOpenGLContext::currentContext()) {
             renderer=QString::fromLatin1(reinterpret_cast<const char*>(context->functions()->glGetString(GL_RENDERER)));
             version=QString::fromLatin1(reinterpret_cast<const char*>(context->functions()->glGetString(GL_VERSION)));
         }
+#endif
     },Qt::DirectConnection);
     QJsonArray cases;
     for(const auto dimensions:{QSize(640,480),QSize(2048,2048)}) for(const auto mode:{DisplayMode::Original,DisplayMode::Compare}) {

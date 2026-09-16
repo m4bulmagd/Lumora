@@ -27,6 +27,25 @@ The correction explicitly requests `qtbase[png]` within the `qml-ui` vcpkg featu
 
 Local correction checks bind to the 431-file aggregate **`5ac63c515d10037332a7711b959cad76dcb45dabe59a6035d3982324a9056f2d`**: Debug/Release builds and QML lint pass, and the full suites pass **66/66** each (73.007 s / 41.982 s). A vcpkg dry run with the CI Linux host/target triplet requests Qt PNG support. Configuration accepts the retained PNG-capable SDK and rejects a probe with `imageformat_png` removed from its imported capability metadata, even with tests disabled. This negative probe checks the configuration error; it does not emulate PNG decoding. Fresh hosted runs remain responsible for verifying the corrected vcpkg-built Qt on both platforms.
 
+## Platform failures after PNG correction
+
+Both hosted runs at **`4fea5fec12370b57668e92568a9ece6c02e31595`** concluded **failure**, with different causes:
+
+| Workflow | Exact-head run | Recorded outcome |
+|---|---|---|
+| Linux Simulator | [35003814375](https://github.com/m4bulmagd/Lumora/actions/runs/35003814375) | Debug build and QML lint passed, followed by **67/67** regular Debug test groups and the software desktop test. The OpenGL desktop test then aborted during initialization at `qxcbintegration.cpp:213`; Lumora Release stages were not reached. |
+| Windows Simulator | [35003814438](https://github.com/m4bulmagd/Lumora/actions/runs/35003814438) | Dependency configuration succeeded, but the Debug build failed in two places: the renderer benchmark referenced OpenGL APIs unavailable in this Qt configuration, and generated QML cache code instantiated Qt templates that triggered MSVC C4702 under warnings-as-errors. QML lint, tests and Lumora Release stages were not reached. |
+
+The Linux Qt feature list included `xcb` and `opengl`, but neither `xcb-xlib` nor `egl`. In the pinned Qt 6.11.1 source, the XCB GLX integration requires `xcb_xlib`; the EGL alternative requires `egl`. The resulting Qt build therefore lacked either XCB OpenGL integration. Changing plugin search paths alone cannot supply an integration that was not built.
+
+The correction is limited to four implementation/build files: `vcpkg.json` requests Linux `qtbase[xcb-xlib]`; `cmake/Dependencies.cmake` requires the exported public `xcb_glx_plugin` capability on Linux; `benchmarks/presentation/QuickRendererBenchmark.cpp` guards OpenGL diagnostics with `QT_CONFIG(opengl)`; and `src/qml/CMakeLists.txt` suppresses C4702 only for generated QML cache translation units on MSVC. Handwritten source retains the existing warning policy, and dependency versions and test assertions remain unchanged. This records the correction scope, not a passing successor run or local verification result.
+
+Both failed runs saved their completed dependency caches: **2,652,381,914 bytes** on Linux and **1,797,786,647 bytes** on Windows. Only compatible packages can be reused; the Linux Qt feature change requires affected Qt packages to be rebuilt. Later hosted outcomes remain available through the workflow links above.
+
+Local correction checks use source aggregate **`e2aa77e6c743216070c81deb181a8003418915838ad079de0ee68ef32c2a22fe`**. Debug/Release builds, QML lint and **67/67** regular test groups pass; both Debug desktop groups pass. A syntax probe with OpenGL declarations disabled reproduces the original benchmark compile error and passes with the guard. A configure-only probe confirms the MSVC exception reaches exactly 17 generated cache sources and no other translation units. The GLX capability probe accepts the retained SDK and rejects missing capability metadata; the Linux manifest dry run requests `xcb-xlib`.
+
+Local desktop verification is **incomplete**: Release software passed, but OpenGL timed out after 180 seconds during the stop/disconnect/resume scenario, after earlier scene cases passed. A subsequent retry could not load `libQt6QuickTest.so.6`; the retained worktrees and Qt SDK had disappeared from the workspace during this verification period. The timeout's cause is not established, and the failed attempt is retained in `platform-local-verification.json`. These local checks do not substitute for corrected vcpkg/MSVC builds or passing successor hosted CI.
+
 ## Local publication checks
 
 Fresh checks ran from the ordinary main checkout at `d97b269`, using the same **431-file** source aggregate as the reviewed layout implementation: **`0c40c6b37f6ebdc616dfa8d8dd0bf2acfe49dcc398f764ce702f036cbe82cbcc`**. Documentation is outside that source manifest.
