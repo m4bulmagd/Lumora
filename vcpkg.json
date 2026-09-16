@@ -59,6 +59,22 @@
           "name": "qtdeclarative",
           "default-features": false,
           "version>=": "6.11.1"
+        },
+        {
+          "name": "qtmultimedia",
+          "default-features": false,
+          "features": [
+            "ffmpeg"
+          ],
+          "version>=": "6.11.1"
+        },
+        {
+          "name": "ffmpeg",
+          "default-features": false,
+          "features": [
+            "openssl"
+          ],
+          "platform": "linux"
         }
       ]
     },
@@ -83,6 +99,10 @@
     },
     {
       "name": "qtdeclarative",
+      "version": "6.11.1"
+    },
+    {
+      "name": "qtmultimedia",
       "version": "6.11.1"
     },
     {

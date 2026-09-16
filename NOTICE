@@ -3,11 +3,17 @@ Copyright 2026 Lumora contributors
 
 This product includes third-party software. Each dependency retains its own
 copyright and license terms. Distribution bundles must include the notices
-required by Qt, OpenCV, GoogleTest, spdlog, and their transitive dependencies.
+required by Qt, FFmpeg, OpenCV, GoogleTest, spdlog, and their transitive dependencies.
 
-The optional QML frontend adds Qt Qml, Quick and Quick Controls to the Qt
+The normal QML frontend adds Qt Qml, Quick and Quick Controls to the Qt
 module inventory. Its development/test dependency graph also includes Qt Test,
 Quick Test, SVG, Shader Tools and Language Server, pinned with Qt Base at 6.11.1.
+
+Live video sources add Qt Multimedia 6.11.1 and its FFmpeg media backend.
+The official Linux Qt SDK used for local verification bundles FFmpeg 7.1.3;
+the pinned vcpkg source graph selects FFmpeg 9.0.1 with different build features.
+Source provenance, observed license variants, and upstream license texts are
+recorded in THIRD-PARTY-LICENSES/FFmpeg.txt and THIRD-PARTY-LICENSES/FFmpeg/.
 
 Lumora's prepared U16 CLAHE contains source adapted from OpenCV 4.12.0.
 The complete copied-source BSD notice, provenance, source hashes, and adaptation

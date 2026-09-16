@@ -12,7 +12,7 @@ ScrollView {
     ColumnLayout {
         width: root.availableWidth
         spacing: Theme.spacingSm
-        Label { text: qsTr("CAMERA"); color: Theme.textSecondary; font.bold: true; font.pixelSize: 11 }
+        Label { text: qsTr("VIDEO SOURCE"); color: Theme.textSecondary; font.bold: true; font.pixelSize: 11 }
         Label { text: root.camera.status; font.pixelSize: 18; Layout.fillWidth: true; wrapMode: Text.Wrap }
         ComboBox {
             id: selector
@@ -23,8 +23,15 @@ ScrollView {
             valueRole: "id"
             currentIndex: indexOfValue(root.camera.selectedCameraId)
             enabled: root.camera.selectionEnabled
-            Accessible.name: qsTr("Camera source")
+            Accessible.name: qsTr("Video source")
             onActivated: root.camera.selectCamera(currentValue)
+        }
+        Button {
+            objectName: "networkSourcesButton"
+            text: qsTr("Network sources…")
+            Layout.fillWidth: true
+            visible: root.camera.videoSources !== null
+            onClicked: networkSources.open()
         }
         GridLayout {
             columns: 2
@@ -55,4 +62,5 @@ ScrollView {
     }
     CameraSettings { settings: root.camera.settings }
     InstallationSettings { settings: root.installation }
+    VideoSources { id: networkSources; sources: root.camera.videoSources }
 }

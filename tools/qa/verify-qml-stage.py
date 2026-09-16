@@ -141,6 +141,18 @@ def verify(stage):
     inventory, elf_paths = inventory_stage(stage, errors)
     if not elf_paths:
         errors.append("Stage contains no regular ELF files to verify")
+    required_media_objects = {
+        "Qt Multimedia library": r"libQt6Multimedia\.so(?:\.|$)",
+        "FFmpeg media plugin": r"libffmpegmediaplugin\.so$",
+        "FFmpeg codec library": r"libavcodec\.so(?:\.|$)",
+        "FFmpeg format library": r"libavformat\.so(?:\.|$)",
+        "FFmpeg utility library": r"libavutil\.so(?:\.|$)",
+        "FFmpeg audio conversion library": r"libswresample\.so(?:\.|$)",
+        "FFmpeg image conversion library": r"libswscale\.so(?:\.|$)",
+    }
+    for label, pattern in required_media_objects.items():
+        if not any(re.match(pattern, path.name) for path in elf_paths):
+            errors.append(f"Stage is missing the {label} required by live video sources")
     elf_objects = []
     for path in elf_paths:
         try:

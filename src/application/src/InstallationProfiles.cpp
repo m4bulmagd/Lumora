@@ -14,6 +14,12 @@ bool blank(const std::string& text) {
         return std::isspace(c) != 0;
     });
 }
+bool isLumoraSimulator(const core::CameraIdentity& identity) {
+    // These are the identities emitted by SimulatedCameraProvider. Serial/ID
+    // prefixes alone cannot authorize fallback for a real video source.
+    return identity.manufacturer == "Lumora" && identity.transport == "Simulator"
+        && (identity.model == "Generated Camera" || identity.model == "PGM Replay Camera");
+}
 }
 
 core::Result<void> validateInstallationProfile(const InstallationCameraProfile& profile) {
@@ -92,7 +98,8 @@ core::Result<std::optional<InstallationCameraProfile>> resolveInstallationProfil
     }
     const auto* profile = findInstallationProfile(snapshot.profiles, identity);
     if (!profile) {
-        if (snapshot.policy == InstallationProfilePolicy::SimulatorIdentityFallback) {
+        if (snapshot.policy == InstallationProfilePolicy::SimulatorIdentityFallback
+            && isLumoraSimulator(identity)) {
             return Resolution::success(std::nullopt);
         }
         return Resolution::failure(invalid("installation_profile_required",

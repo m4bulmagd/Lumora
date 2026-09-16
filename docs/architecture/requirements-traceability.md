@@ -29,6 +29,21 @@ M4 Tasks 1–4 are merged at `aaf57a678f344864ca6e1f8333f5b774fed5da18` with pas
 | DES-19 | §19 Deferred decisions | [Open hard gates](../superpowers/README.md#open-hard-gates) record required camera, workstation and distribution inputs | Not an executable test | Not an executable test | Deferred until the specified gates |
 | DES-20 | §20 References informing the design | References remain in the approved specification; they are background, not verification evidence | Not applicable | Not applicable | Reference material |
 
+## Flexible video-source extension (2026-09-16)
+
+The approved [design](../superpowers/specs/2026-09-16-video-sources-design.md) and [plan](../superpowers/plans/2026-09-16-video-sources.md) extend DES-6/7/8/9/11/13/15 without changing earlier acceptance records. See the [operator guide](../development/video-sources.md) and [current verification record](milestones/video-sources.md).
+
+| Requirement | Implementation | Evidence and remaining scope |
+|---|---|---|
+| One active source, optional-provider isolation and negotiated format | `CompositeCameraProvider`, `AcquisitionWorker`, `WorkstationCoordinator`, existing Apply resource rebinding | Deterministic source-switch coverage added; full current-suite results belong to the extension record. |
+| OS cameras and explicit RTSP/RTSPS inputs | `MediaCameraProvider`, Qt 6.11.1 Multimedia/FFmpeg, fixed modes up to 1920×1080, Mono8 conversion | Linux synthetic H.264 RTSP probe delivered five changing 320×240 frames after Start, cancellation and close; physical cameras, RTSPS handshake and Windows remain unverified. |
+| Bounded application ownership and truthful source state | `MediaFrameHandoff`, application-owned raw buffers, latest-frame transfer, manual Retry | Backend decoder/driver storage is outside the processing-budget claim. Connect metadata probing can send RTSP PLAY; viewer frame delivery waits for Start. |
+| Credential-free saved catalog and session authentication | Atomic `VideoSourceCatalog`, QML `VideoSourcesAdapter`, common credential-query rejection and sanitized errors | Synthetic success/error logs exclude supplied credential markers. Arbitrary vendor-specific secret URL semantics are not inferred; operators must enter a non-secret address. |
+| Per-source installation authority and settings | Existing machine installation profiles, stopped Apply/review/Confirm/Start; media dimensions/FPS read-only and exposure/gain unavailable | Simulator fallback is restricted to Lumora simulator identities. Real sources require a matching profile; Windows/hardware acceptance remains separate. |
+| Pinned module and runtime deployment | `qtmultimedia[ffmpeg]` 6.11.1, explicit plugin deployment and stage inventory checks | SDK probe and isolated staged probe pass: 84 ELF objects, zero audit errors. Official SDK FFmpeg 7.1.3 differs from vcpkg-baseline 9.0.1; no fresh vcpkg build or full-workstation distribution acceptance is implied. |
+
+Basler/pylon stays M6; automatic recovery stays M12; physical Windows camera/NIC acceptance stays M14. ONVIF, simultaneous feeds, full-color processing and proprietary capture-card support need separate work.
+
 ## Milestone 1 verification map
 
 | Test/check | Requirement covered | Automated evidence |

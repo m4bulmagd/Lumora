@@ -57,8 +57,8 @@ struct Harness {
     Repository repository;
     application::LivePipeline pipeline;
     std::uint64_t sequence{},revision{};
-    Harness(application::LivePipeline::ProcessorFactory factory={},processing::ProcessingPreparationOptions preparation={})
-        :pipeline(provider,clock,request(),std::move(factory),preparation,&repository) {}
+    Harness(application::LivePipeline::ProcessorFactory factory={},processing::ProcessingPreparationOptions preparation={},camera::ICameraProvider* alternate=nullptr)
+        :pipeline(alternate?*alternate:provider,clock,request(),std::move(factory),preparation,&repository) {}
     ~Harness() { pipeline.shutdown(); }
     bool wait(const std::function<bool()>& predicate) {
         const auto deadline=std::chrono::steady_clock::now()+3s;
@@ -87,6 +87,47 @@ struct Harness {
         auto value=pipeline.snapshot().context->bundleSlot.consumeAfter(0);return value?value->value:nullptr;
     }
 };
+class MediaIdentityProvider final : public camera::ICameraProvider {
+    camera::sim::SimulatedCameraProvider simulator;
+    std::string transport;
+public:
+    MediaIdentityProvider(core::IClock& clock,std::string transportValue)
+        :simulator(options(),clock),transport(std::move(transportValue)) {}
+    core::Result<std::vector<camera::CameraDescriptor>> discover(std::stop_token stop) override {
+        auto found=simulator.discover(stop);
+        if(found.hasValue()) found.value().front().identity={"Qt Multimedia","Video camera","source-id",transport,std::nullopt};
+        return found;
+    }
+    core::Result<std::unique_ptr<camera::ICameraDevice>> create(const camera::CameraId& id) override {
+        return simulator.create(id);
+    }
+};
+TEST(InstallationPipeline, MediaSourcesRequireInstallationEvenWhenSimulatorFallbackIsEnabled) {
+    for(const auto& transport:{"Local video / Qt Multimedia","RTSP / Qt Multimedia"}) {
+        SCOPED_TRACE(transport);
+        core::ManualClock clock;
+        MediaIdentityProvider provider(clock,transport);
+        Harness f({}, {}, &provider);
+        ASSERT_TRUE(f.connect());
+        EXPECT_FALSE(f.apply());
+        ASSERT_TRUE(f.pipeline.snapshot().ordinaryOutcome->error);
+        EXPECT_EQ(f.pipeline.snapshot().ordinaryOutcome->error->code,"installation_profile_required");
+        EXPECT_FALSE(f.pipeline.snapshot().camera->appliedConfiguration);
+        EXPECT_FALSE(f.confirm());
+        EXPECT_FALSE(f.start());
+        ASSERT_TRUE(f.save());
+        ASSERT_TRUE(f.wait([&]{return f.repository.submitted();}));
+        f.repository.finish();
+        ASSERT_TRUE(f.wait([&]{return !f.pipeline.snapshot().installationProfilePending;}));
+        EXPECT_FALSE(f.confirm());
+        EXPECT_FALSE(f.start());
+        ASSERT_TRUE(f.apply());
+        EXPECT_EQ(f.pipeline.snapshot().activeOrientation,rotated);
+        ASSERT_TRUE(f.pipeline.acknowledgeContext(f.generation()).hasValue());
+        ASSERT_TRUE(f.confirm());
+        ASSERT_TRUE(f.start());
+    }
+}
 TEST(InstallationPipeline, RequiredMissingProfileBlocksApply) {
     Harness f;f.repository.edit([](auto& s){s.policy=application::InstallationProfilePolicy::Required;});
     ASSERT_TRUE(f.connect());EXPECT_FALSE(f.apply());EXPECT_FALSE(f.pipeline.snapshot().camera->appliedConfiguration);

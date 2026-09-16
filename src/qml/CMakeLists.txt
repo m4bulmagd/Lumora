@@ -5,7 +5,7 @@ target_link_libraries(lumora_quick_renderer PUBLIC lumora::presentation Qt6::Qui
 lumora_enable_warnings(lumora_quick_renderer)
 
 set(lumora_qml_files
-  qml/Main.qml qml/Theme.qml qml/CameraStartup.qml qml/CameraSettings.qml qml/ViewingToolbar.qml
+  qml/Main.qml qml/Theme.qml qml/CameraStartup.qml qml/CameraSettings.qml qml/ViewingToolbar.qml qml/VideoSources.qml
   qml/InstallationSettings.qml qml/OrientationPreview.qml
   qml/PresetControls.qml qml/WindowLevelControls.qml qml/StatusStrip.qml
   qml/ExactProcessingField.qml qml/ToneControls.qml qml/ProcessingControls.qml
@@ -27,6 +27,7 @@ qt_add_qml_module(lumora_qml_ui
     CameraSettingsAdapter.hpp CameraSettingsAdapter.cpp
     InstallationAdapter.hpp InstallationAdapter.cpp
     LayoutAdapter.hpp LayoutAdapter.cpp
+    VideoSourcesAdapter.hpp VideoSourcesAdapter.cpp
     ViewerAdapter.hpp ViewerAdapter.cpp ViewerSurface.hpp ViewerSurface.cpp
     ProcessingAdapter.hpp ProcessingAdapter.cpp)
 if(MSVC)
@@ -50,7 +51,7 @@ qt_add_executable(lumora_app MANUAL_FINALIZATION
   main.cpp ../app/SimulatorComposition.cpp ../app/SimulatorComposition.hpp)
 target_include_directories(lumora_app PRIVATE "${PROJECT_SOURCE_DIR}/src/app")
 target_link_libraries(lumora_app PRIVATE
-  lumora_qml_ui lumora_qml_uiplugin lumora::camera_simulator lumora::diagnostics)
+  lumora_qml_ui lumora_qml_uiplugin lumora::camera_simulator lumora::camera_media lumora::diagnostics Qt6::Multimedia)
 lumora_enable_warnings(lumora_app)
 qt_import_qml_plugins(lumora_app)
 qt_finalize_executable(lumora_app)

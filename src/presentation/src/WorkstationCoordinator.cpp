@@ -46,6 +46,7 @@ struct WorkstationCoordinator::Impl {
     std::optional<camera::CameraId> desiredCameraId;
     bool requestChosen{false};
     std::optional<std::pair<std::uint64_t, camera::CameraId>> settingsEditSource;
+    std::optional<std::pair<std::uint64_t, camera::CameraId>> initializedReadbackSource;
     bool initialRequestConsidered{false};
     bool savedRequestReconciliationPending{true};
     std::unique_ptr<ProcessingControlsModel> processingModel;
@@ -152,6 +153,16 @@ struct WorkstationCoordinator::Impl {
     void refreshSelectedProfile() {
         loaded=presentation.selectedCameraId?profileFor(*presentation.selectedCameraId,presentation.cameraStatus):std::nullopt;
     }
+    camera::CameraConfiguration sourceDefaults() const {
+        const auto& camera=presentation.cameraStatus;
+        // Preserve configured controls for the prepared source layout. A
+        // different native layout needs fresh device defaults; fixed controls
+        // are reconciled with readback by the normal settings normalization.
+        if(camera && camera->actualIdentity==presentation.selectedCameraId && camera->currentConfiguration &&
+            !application::isCameraSettingsCompatible(fixed,*camera->currentConfiguration))
+            return *camera->currentConfiguration;
+        return fixed;
+    }
     void reconcileSavedRequest() {
         const auto& camera=presentation.cameraStatus;
         if(!savedRequestReconciliationPending || !initialRequestConsidered ||
@@ -163,13 +174,31 @@ struct WorkstationCoordinator::Impl {
         // known. An accepted Apply consumes this opportunity before late data
         // can replace an operator's submitted request.
         savedRequestReconciliationPending=false;
-        desired=fixed;
+        desired=sourceDefaults();
         if(loaded && loaded->confirmed && application::validateStartupPreferences(*loaded).hasValue() &&
             application::isSupportedLiveCameraConfiguration(loaded->requested) &&
             (!camera->actualIdentity || camera->actualIdentity!=presentation.selectedCameraId || !camera->capabilities ||
                 application::cameraCapabilitiesEqual(loaded->confirmedCapabilities,*camera->capabilities)))
             desired=loaded->requested;
         desiredCameraId=presentation.selectedCameraId;
+        presentation.requestedConfiguration=desired;
+    }
+    void reconcileConnectedRequest() {
+        const auto& camera=presentation.cameraStatus;
+        if(!camera || !camera->actualIdentity || !camera->currentConfiguration || !camera->capabilities ||
+            camera->actualIdentity!=presentation.selectedCameraId) return;
+        const auto source=std::pair{camera->sessionGeneration,*camera->actualIdentity};
+        if(initializedReadbackSource==source) return;
+        initializedReadbackSource=source;
+        // An admitted edit or Apply owns the request. A new connection only
+        // seeds defaults before that ownership has been established.
+        if(settingsEditSource==source || camera->requestedRevision!=0) return;
+        desired=sourceDefaults();
+        if(loaded && loaded->confirmed && application::validateStartupPreferences(*loaded).hasValue() &&
+            application::isSupportedLiveCameraConfiguration(loaded->requested) &&
+            application::cameraCapabilitiesEqual(loaded->confirmedCapabilities,*camera->capabilities))
+            desired=loaded->requested;
+        desiredCameraId=camera->actualIdentity;
         presentation.requestedConfiguration=desired;
     }
     core::Result<camera::CameraConfiguration> normalizedDesiredForCurrentSource() const {
@@ -375,6 +404,7 @@ void WorkstationCoordinator::poll() {
     d.captureConfirmation(snapshot);
     d.refreshSelectedProfile();
     d.reconcileSavedRequest();
+    d.reconcileConnectedRequest();
     if(d.settingsEditSource && (!camera || !camera->actualIdentity ||
         camera->sessionGeneration!=d.settingsEditSource->first ||
         *camera->actualIdentity!=d.settingsEditSource->second)) d.settingsEditSource.reset();

@@ -100,7 +100,9 @@ add_library(
   camera/api/include/lumora/camera/CameraConfigurationValidator.hpp
   camera/api/include/lumora/camera/ICameraDevice.hpp
   camera/api/include/lumora/camera/ICameraProvider.hpp
+  camera/api/include/lumora/camera/CompositeCameraProvider.hpp
   camera/api/src/CameraConfigurationValidator.cpp
+  camera/api/src/CompositeCameraProvider.cpp
 )
 add_library(lumora::camera_api ALIAS lumora_camera_api)
 
@@ -177,6 +179,19 @@ target_include_directories(
 target_link_libraries(lumora_camera_simulator PUBLIC lumora::camera_api)
 lumora_enable_warnings(lumora_camera_simulator)
 
+# Ordinary OS cameras and network video are isolated from the Qt-free camera API.
+add_library(lumora_camera_media STATIC
+  camera/media/include/lumora/camera/media/MediaCameraProvider.hpp
+  camera/media/src/MediaCameraProvider.cpp
+  camera/media/src/MediaFrameHandoff.cpp
+  camera/media/src/MediaFrameHandoff.hpp)
+add_library(lumora::camera_media ALIAS lumora_camera_media)
+target_include_directories(lumora_camera_media PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/camera/media/include>)
+target_link_libraries(lumora_camera_media PUBLIC lumora::camera_api
+  PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia)
+lumora_enable_warnings(lumora_camera_media)
+
 target_include_directories(
   lumora_core
   PUBLIC
@@ -220,6 +235,8 @@ add_library(
   configuration/include/lumora/configuration/CameraProfileCodec.hpp
   configuration/src/CameraProfileCodec.cpp
   configuration/src/ConfigurationStore.cpp
+  configuration/include/lumora/configuration/VideoSourceCatalog.hpp
+  configuration/src/VideoSourceCatalog.cpp
   configuration/src/PresetCodec.cpp
   configuration/src/PipelineDefinitionCodec.hpp
   configuration/src/PipelineDefinitionCodec.cpp

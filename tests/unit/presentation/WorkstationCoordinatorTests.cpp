@@ -161,6 +161,133 @@ struct Fixture {
     }
 };
 
+camera::sim::SimulatedCameraOptions negotiatedOptions() {
+    auto value=options();
+    value.capabilities.pixelFormats.insert(value.capabilities.pixelFormats.begin(),
+        {"Mono12",0x01100005U,12U,4095U,core::SourcePacking::Unpacked,
+            core::BitAlignment::LeastSignificant,core::StorageType::UInt16});
+    value.capabilities.roi.maximum={0,0,16,12};
+    return value;
+}
+
+TEST(WorkstationCoordinator, MatchingSourceLayoutRetainsConfiguredDefaultsBeforeApply) {
+    Fixture f;
+    ASSERT_TRUE(f.initialize());
+    f.coordinator.selectCamera({"SIM-LIVE"});
+    ASSERT_TRUE(f.act(Intent::Connect));
+    const auto& state=f.coordinator.state();
+    ASSERT_TRUE(state.cameraStatus->currentConfiguration);
+    ASSERT_TRUE(state.requestedConfiguration);
+    EXPECT_EQ(state.cameraStatus->currentConfiguration->exposure.requestedMicroseconds,1.0);
+    EXPECT_EQ(state.requestedConfiguration->exposure.requestedMicroseconds,100.0);
+    EXPECT_FALSE(state.cameraStatus->appliedConfiguration);
+    ASSERT_TRUE(f.act(Intent::Apply));
+    ASSERT_TRUE(f.pipeline.snapshot().camera->appliedConfiguration);
+    EXPECT_EQ(f.pipeline.snapshot().camera->appliedConfiguration->actual.exposure.requestedMicroseconds,100.0);
+}
+
+TEST(WorkstationCoordinator, MatchingSourceLayoutRetainsConfiguredManualModesOverAutomaticReadback) {
+    auto simulation=options();
+    simulation.capabilities.exposureModes.push_back(camera::ExposureMode::Auto);
+    simulation.capabilities.gainModes.push_back(camera::GainMode::Auto);
+    core::ManualClock clock;
+    CameraObservation observation;
+    ObservedProvider provider(clock,observation,std::move(simulation));
+    Fixture f(std::make_unique<MemoryIo>(),&provider);
+    ASSERT_TRUE(f.initialize());
+    f.coordinator.selectCamera({"SIM-LIVE"});
+    ASSERT_TRUE(f.act(Intent::Connect));
+    const auto& state=f.coordinator.state();
+    ASSERT_TRUE(state.cameraStatus->currentConfiguration);
+    ASSERT_TRUE(state.requestedConfiguration);
+    EXPECT_EQ(state.cameraStatus->currentConfiguration->exposure.mode,camera::ExposureMode::Auto);
+    EXPECT_EQ(state.cameraStatus->currentConfiguration->gain.mode,camera::GainMode::Auto);
+    EXPECT_EQ(state.requestedConfiguration->exposure.mode,camera::ExposureMode::Manual);
+    EXPECT_EQ(state.requestedConfiguration->exposure.requestedMicroseconds,100.0);
+    EXPECT_EQ(state.requestedConfiguration->gain.mode,camera::GainMode::Manual);
+    EXPECT_EQ(state.requestedConfiguration->gain.requestedDb,0.0);
+    EXPECT_EQ(observation.starts.load(),0);
+}
+
+TEST(WorkstationCoordinator, ConfiguredManualModeRequiresAbsentReadOnlyMeasurementBeforeApply) {
+    auto simulation=options();
+    simulation.capabilities.exposureModes.push_back(camera::ExposureMode::Auto);
+    simulation.capabilities.exposure.access=camera::ControlAccess::ReadOnly;
+    core::ManualClock clock;
+    CameraObservation observation;
+    ObservedProvider provider(clock,observation,std::move(simulation));
+    Fixture f(std::make_unique<MemoryIo>(),&provider);
+    ASSERT_TRUE(f.initialize());
+    f.coordinator.selectCamera({"SIM-LIVE"});
+    ASSERT_TRUE(f.act(Intent::Connect));
+    const auto& state=f.coordinator.state();
+    ASSERT_TRUE(state.cameraStatus->currentConfiguration);
+    ASSERT_TRUE(state.requestedConfiguration);
+    EXPECT_EQ(state.cameraStatus->currentConfiguration->exposure.mode,camera::ExposureMode::Auto);
+    EXPECT_FALSE(state.cameraStatus->currentConfiguration->exposure.requestedMicroseconds);
+    EXPECT_EQ(state.requestedConfiguration->exposure.mode,camera::ExposureMode::Manual);
+    EXPECT_FALSE(state.requestedConfiguration->exposure.requestedMicroseconds);
+    EXPECT_FALSE(f.coordinator.dispatch(Intent::Apply).hasValue());
+    EXPECT_EQ(f.pipeline.snapshot().camera->requestedRevision,0U);
+    EXPECT_EQ(observation.starts.load(),0);
+}
+
+TEST(WorkstationCoordinator, NewSourceDefaultsUseActualReadbackWithoutStartingCapture) {
+    core::ManualClock clock;
+    CameraObservation observation;
+    ObservedProvider provider(clock,observation,negotiatedOptions());
+    Fixture f(std::make_unique<MemoryIo>(),&provider);
+    ASSERT_TRUE(f.initialize());
+    f.coordinator.selectCamera({"SIM-LIVE"});
+    ASSERT_TRUE(f.act(Intent::Connect));
+    const auto& state=f.coordinator.state();
+    ASSERT_TRUE(state.cameraStatus->currentConfiguration);
+    ASSERT_TRUE(state.requestedConfiguration);
+    EXPECT_EQ(state.requestedConfiguration->pixelFormat.canonicalName,"Mono12");
+    EXPECT_EQ(state.requestedConfiguration->roi.width,16U);
+    EXPECT_EQ(state.requestedConfiguration->roi.height,12U);
+    EXPECT_EQ(observation.starts.load(),0);
+    EXPECT_FALSE(state.cameraStatus->appliedConfiguration);
+    ASSERT_TRUE(f.act(Intent::Apply));
+    EXPECT_EQ(f.pipeline.snapshot().camera->appliedConfiguration->actual.pixelFormat.canonicalName,"Mono12");
+}
+
+TEST(WorkstationCoordinator, MatchingSavedProfileTakesPrecedenceOverConnectedReadback) {
+    core::ManualClock clock;
+    CameraObservation observation;
+    ObservedProvider provider(clock,observation,negotiatedOptions());
+    auto io=std::make_unique<MemoryIo>();
+    io->record=savedRecord();
+    io->record->confirmedCapabilities=negotiatedOptions().capabilities;
+    io->record->requested.exposure.requestedMicroseconds=200.0;
+    io->record->lastApplied=io->record->requested;
+    Fixture f(std::move(io),&provider);
+    ASSERT_TRUE(f.initialize());
+    ASSERT_TRUE(f.wait([&]{return f.pipeline.snapshot().camera->state==application::CameraSessionState::ConnectedIdle;}));
+    const auto& state=f.coordinator.state();
+    ASSERT_TRUE(state.cameraStatus->currentConfiguration);
+    ASSERT_TRUE(state.requestedConfiguration);
+    EXPECT_EQ(state.cameraStatus->currentConfiguration->pixelFormat.canonicalName,"Mono12");
+    EXPECT_EQ(state.requestedConfiguration->pixelFormat.canonicalName,"Mono8");
+    EXPECT_EQ(state.requestedConfiguration->roi.width,8U);
+    EXPECT_EQ(state.requestedConfiguration->exposure.requestedMicroseconds,200.0);
+    EXPECT_EQ(observation.starts.load(),0);
+}
+
+TEST(WorkstationCoordinator, ChangedCapabilitiesUseConnectedReadbackInsteadOfSavedDefaults) {
+    core::ManualClock clock;
+    CameraObservation observation;
+    ObservedProvider provider(clock,observation,negotiatedOptions());
+    auto io=std::make_unique<MemoryIo>();io->record=savedRecord();
+    Fixture f(std::move(io),&provider);
+    ASSERT_TRUE(f.initialize());
+    ASSERT_TRUE(f.wait([&]{return f.pipeline.snapshot().camera->state==application::CameraSessionState::ConnectedIdle;}));
+    ASSERT_TRUE(f.coordinator.state().requestedConfiguration);
+    EXPECT_EQ(f.coordinator.state().requestedConfiguration->pixelFormat.canonicalName,"Mono12");
+    EXPECT_EQ(f.coordinator.state().requestedConfiguration->roi.width,16U);
+    EXPECT_FALSE(f.coordinator.state().resumeLiveAvailable);
+}
+
 struct AcknowledgementRace final {
     application::LivePipeline* pipeline{nullptr};
     std::uint64_t candidateGeneration{0U};

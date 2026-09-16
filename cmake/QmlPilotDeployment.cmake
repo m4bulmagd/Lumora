@@ -17,10 +17,12 @@ install(TARGETS lumora_app
   COMPONENT QmlPilot
 )
 
-# Includes the scanned QML plugins, their runtime dependencies, and qt.conf.
+# Include the C++ camera backend even when no QML file imports QtMultimedia.
+# Qt's dependency scan also deploys the FFmpeg shared libraries used by it.
 qt_generate_deploy_qml_app_script(
   TARGET lumora_app
   OUTPUT_SCRIPT lumora_qml_deploy_script
+  INCLUDE_PLUGINS ffmpegmediaplugin
 )
 install(SCRIPT "${lumora_qml_deploy_script}" COMPONENT QmlPilot)
 

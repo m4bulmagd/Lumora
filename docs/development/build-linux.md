@@ -71,7 +71,9 @@ cmake --build --preset linux-gcc-release-sim --parallel 3
 ctest --preset linux-gcc-release-sim --output-on-failure -LE hardware
 ```
 
-The simulator presets force `LUMORA_ENABLE_BASLER=OFF`; pylon is neither searched for nor linked. All normal presets select the default `qml-ui` vcpkg feature and matching dynamic Qt 6.11.1 Core, Gui, Qml, Quick and QuickControls2 modules (plus Test and QuickTest when tests are enabled). Dependencies use `out/vcpkg_qml_installed`. Widgets is not a normal dependency. `LUMORA_BUILD_QML_UI=OFF` is rejected because there is no alternative application frontend.
+The simulator presets force `LUMORA_ENABLE_BASLER=OFF`; pylon is neither searched for nor linked. All normal presets select the default `qml-ui` vcpkg feature and matching dynamic Qt 6.11.1 Core, Gui, Qml, Quick, QuickControls2 and Multimedia modules (plus Test and QuickTest when tests are enabled). Dependencies use `out/vcpkg_qml_installed`. Widgets is not a normal dependency. `LUMORA_BUILD_QML_UI=OFF` is rejected because there is no alternative application frontend.
+
+The normal application also builds the [local/network video adapter](video-sources.md), even though the existing preset names end in `sim`. The manifest explicitly enables `qtmultimedia[ffmpeg]` and Linux `ffmpeg[openssl]` for RTSP/TLS support. Configure requires the matching `Qt6::QFFmpegMediaPlugin`; a Core/Quick-only Qt SDK is insufficient. Media controls and driver compatibility are independent of the simulator tests. The new dependency graph has not yet been verified by a fresh vcpkg build.
 
 CTest configures each Quick test with the matching platform-plugin directory, `offscreen` and the software renderer. These tests need no display server. Linux X11/XCB, Fontconfig and OpenGL support are selected by the manifest; native Wayland is not enabled.
 
@@ -87,7 +89,7 @@ The old `linux-gcc-{debug,release}-sim-qml` presets remain compatibility names w
 
 The application uses the production `Lumora` organization/application identity and existing production preferences. The former `LumoraQmlPilot` directory is left untouched. There is no automatic merge, overwrite or import of pilot settings. Keep both directories and explicitly migrate selected pilot preferences later through a separately reviewed opt-in procedure; changing this build does not migrate them. Existing production configuration remains authoritative.
 
-Select SIM-LIVE, **Connect → Apply → review current readback → Confirm → Start Live**. Saved settings can reconnect for inspection, but streaming requires explicit Start or eligible **Resume saved Live**. The default simulator requests 640×480 Mono12 in UInt16 at 30 FPS. Camera settings and installation are nonmodal QML dialogs; installation editing requires deliberate `--installation` plus actual OS authority. The command-line flag does not grant authority.
+Select SIM-LIVE or another source and follow **Connect → Apply → review current readback → Confirm → Start Live**. Real sources require a matching machine installation profile; [the source guide](video-sources.md#first-use-installation-orientation) describes first-use setup. Saved settings can reconnect for inspection; application frame delivery requires explicit Start or eligible **Resume saved Live**. RTSP metadata probing can issue PLAY during Connect. The default simulator remains 640×480 Mono12 in UInt16 at 30 FPS. Camera settings and installation are nonmodal QML dialogs; installation editing requires deliberate `--installation` plus actual OS authority. The command-line flag does not grant authority.
 
 Processing provides preset selection/reset, window/level, tone, local contrast, denoise, sharpen and invert. Original/Enhanced/Compare, Pause/Resume, Fit, logical 100%, zoom and pan remain presentation controls. Image pixels and frame ownership remain in C++. Saved-preset creation/rename/deletion remains separate work. The [layout controls](../architecture/milestones/qml-layout.md) add Hide/Show panels, fullscreen and optional frame Details, with remembered window geometry and panel preferences. Fullscreen temporarily hides both panels while keeping camera commands, errors and image state visible.
 
@@ -102,9 +104,19 @@ LUMORA_QML_CAPTURE_DIR="$PWD/out/qa/qml-workstation-captures-new" \
   out/build/linux-gcc-debug-sim/tests/lumora_qml_tests
 ```
 
-Use the matching Qt platform-plugin path when required. Historical migration checks used an official Qt 6.11.1 SDK at the migration worktree's `.tools/qt-official` and non-Qt dependencies from the original vcpkg prefix; the Debug application linked Release Qt libraries. The owner removed that merged worktree and SDK on 2026-09-16. Existing build caches that reference it are stale: set up dependencies and configure afresh using valid paths before building. Those historical SDK checks do not establish a fresh vcpkg build or native Windows behavior.
+Use the matching Qt platform-plugin path when required. Historical migration checks used a Qt SDK in a worktree that was removed on 2026-09-16; caches still referring to that deleted worktree need reconfiguration. The video-source work subsequently restored the official Qt 6.11.1 SDK in the main checkout's `.tools/qt-official`, including Multimedia and its bundled FFmpeg 7.1.3 runtime. Local verification uses this SDK with non-Qt dependencies in `out/vcpkg_installed/x64-linux-dynamic`; the Debug application links the SDK's Release Qt libraries. This differs from a fresh manifest build, whose pinned baseline selects FFmpeg 9.0.1. Archive provenance, checksums and license variants are in [FFmpeg notices](../../THIRD-PARTY-LICENSES/FFmpeg.txt).
 
-The Linux install component retains the name `QmlPilot` for existing staging automation. It now stages the sole workstation executable, scanned QML imports, runtime libraries/plugins and notices:
+When those existing SDK/non-Qt prefixes are present, an isolated SDK configuration can be made without the vcpkg toolchain:
+
+```bash
+cmake --preset linux-gcc-debug-sim --fresh \
+  -DCMAKE_TOOLCHAIN_FILE= \
+  -DCMAKE_PREFIX_PATH="$PWD/.tools/qt-official;$PWD/out/vcpkg_installed/x64-linux-dynamic"
+```
+
+Use the Release preset for its matching configuration. This is an explicit local dependency-reuse path; it does not install dependencies or validate the new vcpkg source graph. Neither SDK verification nor Linux software-decoding evidence establishes native Windows or physical-camera acceptance.
+
+The Linux install component retains the name `QmlPilot` for existing staging automation. It stages the sole workstation executable, scanned QML imports, runtime libraries/plugins and notices. The FFmpeg media plugin is explicitly included; the audit also requires Qt Multimedia and avcodec/avformat/avutil/swresample/swscale shared libraries:
 
 ```bash
 cmake --install out/build/linux-gcc-release-sim --component QmlPilot --prefix /tmp/lumora-stage-new
@@ -169,9 +181,9 @@ cmake --build --preset linux-gcc-debug-sim --target run-lumora
 
 Use `linux-gcc-release-sim` for Release. This development-only target selects `xcb` and the matching Debug/Release Qt plugin directory for this process; it does not require a global Qt environment setting. It runs until you close the window. Launching the binary directly may require an explicit platform-plugin path with a vcpkg build.
 
-The application displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls initially disabled. Mode actions become available when a display bundle is admitted; Pause and geometry controls become available when an image completes painting. Its production composition supplies a synthetic 640x480 Mono12 moving bar configured for 30 FPS. Raw samples use U16 storage; normalization and window/level remain U16 until the terminal Gray8 display mapper. See the [progress summary](../PROGRESS.md) for the integrated implementation and local branch verification status. No physical camera or patient data is involved. A successful launch does not establish milestone acceptance or clinical validation.
+The application displays the mandatory `EVALUATION — NOT FOR CLINICAL USE` banner and starts in `Waiting for image`, with Pause and image controls initially disabled. Mode actions become available when a display bundle is admitted; Pause and geometry controls become available when an image completes painting. Its SIM-LIVE source supplies a synthetic 640x480 Mono12 moving bar configured for 30 FPS. Simulator raw samples use U16 storage; normalization and window/level remain U16 until terminal Gray8 display mapping. The same composition also offers [OS cameras and registered RTSP sources](video-sources.md), converted to Mono8. See the [progress summary](../PROGRESS.md) for current evidence and platform limits. Only evaluation test material is permitted; real patient data is excluded. A successful launch does not establish milestone acceptance or clinical validation.
 
-For a first run:
+For a simulator first run:
 
 1. Wait for discovery, then explicitly select the `SIM-LIVE` simulator in Camera startup.
 2. Click **Connect**. The camera opens idle; there is no live video yet.
@@ -181,7 +193,7 @@ For a first run:
 
 The viewer's **Pause / Live** button freezes/resumes the displayed image while acquisition continues. Camera **Stop** stops acquisition while retaining the connected device; **Start** can restart its still-confirmed settings. **Disconnect** closes the device and cancels pending startup/Resume intent. The last image can remain as context with the existing paused/stale indication. Explicit **Refresh** after Disconnect binds a fresh waiting source and clears that contextual image; it discovers cameras but does not reconnect. In Error, use Retry only when a desired camera identity is retained, or Disconnect then Refresh to restart discovery.
 
-Preferences are saved in the background after successful confirmation. On a later run, matching saved identity and requested settings allow the application to connect idle for capability checks and potentially offer **Resume Live**. That startup action still needs an explicit click and rechecks Apply/readback before streaming. Capability or actual-setting changes require review, Confirm and Start; a load/save warning is not durable confirmation. **Resume Live** is distinct from the viewer's **Live** button. No startup path silently streams.
+Preferences are saved in the background after successful confirmation. On a later run, matching saved identity and requested settings allow the application to connect idle for capability checks and potentially offer **Resume Live**. That startup action still needs an explicit click and rechecks Apply/readback before streaming. Capability or actual-setting changes require review, Confirm and Start; a load/save warning is not durable confirmation. **Resume Live** is distinct from the viewer's **Live** button. No startup path delivers application frames without explicit Start/Resume authority. A saved-source inspection can still initiate RTSP metadata-probe traffic, including PLAY, as described in the source guide.
 
 The merged M9 Task 2 controls appear under **Processing** after settings finish loading. Choose a preset or enable a stage and adjust its slider/numeric value. Accepted changes apply to subsequent frames and save in the background. **Reset processing** applies the Original processing preset without changing the camera, pause or zoom. A paused image stays frozen while settings change; resume the viewer to see new frames.
 

@@ -70,6 +70,7 @@ TEST(InstallationProfilesTest, MissingSimulatorFallbackNeverHidesInvalidOrMismat
     application::InstallationProfilesSnapshot snapshot;
     snapshot.loadCompleted = true;
     auto value = profile();
+    value.identity = {"Lumora", "Generated Camera", "SIM-LIVE", "Simulator", std::nullopt};
     EXPECT_FALSE(application::resolveInstallationProfile(snapshot, value.identity, value.capabilities).hasValue());
     snapshot.policy = application::InstallationProfilePolicy::SimulatorIdentityFallback;
     auto missing = application::resolveInstallationProfile(snapshot, value.identity, value.capabilities);
@@ -84,6 +85,48 @@ TEST(InstallationProfilesTest, MissingSimulatorFallbackNeverHidesInvalidOrMismat
     auto resolved = application::resolveInstallationProfile(snapshot, value.identity, value.capabilities);
     ASSERT_TRUE(resolved.hasValue()); ASSERT_TRUE(resolved.value().has_value());
     EXPECT_EQ(application::installationProfileReference(*resolved.value()).orientation, value.orientation);
+}
+TEST(InstallationProfilesTest, SimulatorFallbackRequiresRecognizedProviderIdentity) {
+    application::InstallationProfilesSnapshot snapshot;
+    snapshot.loadCompleted = true;
+    snapshot.policy = application::InstallationProfilePolicy::SimulatorIdentityFallback;
+    const auto capabilities = currentProfile().capabilities;
+    for (const auto& model : {"Generated Camera", "PGM Replay Camera"}) {
+        const core::CameraIdentity identity{"Lumora", model, "custom-simulator-id", "Simulator", std::nullopt};
+        const auto resolved = application::resolveInstallationProfile(snapshot, identity, capabilities);
+        ASSERT_TRUE(resolved.hasValue());
+        EXPECT_FALSE(resolved.value());
+    }
+    const std::vector<core::CameraIdentity> realOrUnrecognized{
+        {"Qt Multimedia", "USB camera", "local-device-id", "Local video / Qt Multimedia", std::nullopt},
+        {"Qt Multimedia", "Network camera", "network-source-id", "RTSP / Qt Multimedia", std::nullopt},
+        {"Other", "Generated Camera", "SIM-LIVE", "Simulator", std::nullopt},
+        {"Lumora", "Unknown camera", "SIM-LIVE", "Simulator", std::nullopt},
+        {"Lumora", "Generated Camera", "SIM-LIVE", "USB", std::nullopt},
+    };
+    for (const auto& identity : realOrUnrecognized) {
+        SCOPED_TRACE(identity.manufacturer + "/" + identity.model + "/" + identity.transport);
+        const auto resolved = application::resolveInstallationProfile(snapshot, identity, capabilities);
+        ASSERT_FALSE(resolved.hasValue());
+        EXPECT_EQ(resolved.error().code, "installation_profile_required");
+    }
+}
+TEST(InstallationProfilesTest, RealSourceUsesMatchingConfirmedProfileUnderSimulatorPolicy) {
+    auto saved = currentProfile();
+    saved.identity = {"Qt Multimedia", "Network camera", "network-source-id", "RTSP / Qt Multimedia", std::nullopt};
+    application::InstallationProfilesSnapshot snapshot;
+    snapshot.loadCompleted = true;
+    snapshot.policy = application::InstallationProfilePolicy::SimulatorIdentityFallback;
+    snapshot.profiles = {saved};
+    auto resolved = application::resolveInstallationProfile(snapshot, saved.identity, saved.capabilities);
+    ASSERT_TRUE(resolved.hasValue());
+    ASSERT_TRUE(resolved.value());
+    EXPECT_EQ(resolved.value()->orientation, (core::Orientation{true, false, core::Rotation::Degrees90}));
+    auto changed = saved.capabilities;
+    changed.frameRate.maximum += 1.0;
+    resolved = application::resolveInstallationProfile(snapshot, saved.identity, changed);
+    ASSERT_FALSE(resolved.hasValue());
+    EXPECT_EQ(resolved.error().code, "installation_capabilities_changed");
 }
 TEST(InstallationProfilesTest, LegacyProfileIsValidRetainedDataButCannotBind) {
     auto legacy = profile();

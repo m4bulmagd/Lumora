@@ -1,0 +1,63 @@
+FFmpeg runtime dependency
+=========================
+
+Lumora's Qt Multimedia adapter dynamically uses the Qt FFmpeg media plugin.
+No FFmpeg source was copied into Lumora's application implementation.
+
+Official Qt SDK used for local Linux verification
+------------------------------------------------
+Qt Multimedia: 6.11.1, package version 6.11.1-0-202605090529
+Package: qt.qt6.6111.addons.qtmultimedia.linux_gcc_64
+FFmpeg version reported by the SDK SBOM and loaded backend: 7.1.3
+Runtime license string: "LGPL version 2.1 or later"
+SBOM copyright field: "Copyright (c) 2000-2023 the FFmpeg developers"
+Upstream source tag: https://github.com/FFmpeg/FFmpeg/tree/n7.1.3
+
+Official package metadata:
+https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6111/qt6_6111/Updates.xml
+
+Archive:
+https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6111/qt6_6111/qt.qt6.6111.addons.qtmultimedia.linux_gcc_64/6.11.1-0-202605090529qtmultimedia-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z
+Official sidecar SHA1: 24b9d4878bca8849255e783bc9ac63241ce5956f
+Computed SHA256: 111f0624298a918e33787ba2f7b4507121003484ef755ace0e9e1964161ac1f6
+
+The Qt archive includes its FFmpeg shared libraries, Qt FFmpeg runtime stubs,
+and sbom/qtmultimedia-6.11.1.{cdx.json,spdx,spdx.json}. That SBOM records the
+upstream FFmpeg component and its additional third-party attributions.
+
+Pinned vcpkg source build configuration
+--------------------------------------
+Builtin baseline: 04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4
+Qt Multimedia override: 6.11.1, with the ffmpeg feature explicitly enabled
+FFmpeg version at that baseline: 9.0.1
+Upstream source tag: https://github.com/FFmpeg/FFmpeg/tree/n9.0.1
+
+On Linux, Lumora explicitly enables FFmpeg's openssl feature for TLS/RTSPS.
+The pinned port makes openssl depend on its version3 feature, which enables
+FFmpeg's LGPL version 3 build variant when GPL components remain disabled.
+On Windows, the pinned port selects Schannel when openssl is not requested.
+Lumora requests neither the gpl nor nonfree feature. These source-graph facts
+are separate from the verified official SDK runtime described above; the new
+vcpkg source dependency graph has not yet been built as part of this record.
+
+Pinned port sources:
+https://github.com/microsoft/vcpkg/tree/04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4/ports/ffmpeg
+https://github.com/microsoft/vcpkg/tree/04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4/ports/qtmultimedia
+
+Included upstream license texts
+--------------------------------
+FFmpeg/COPYING.LGPLv2.1 is an unmodified copy from:
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1.3/COPYING.LGPLv2.1
+
+FFmpeg/COPYING.LGPLv3 is an unmodified copy from:
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n9.0.1/COPYING.LGPLv3
+
+FFmpeg/COPYING.GPLv3 is an unmodified copy from:
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n9.0.1/COPYING.GPLv3
+It is included because the LGPLv3 text incorporates the GPLv3 terms; its
+presence does not mean Lumora enables GPL-only FFmpeg components.
+
+This inventory records dependency provenance and build configuration, not
+release or redistribution acceptance. A distribution must retain the notices
+and corresponding-source information for its actual shipped dependency build,
+including Qt, FFmpeg and their bundled third-party components.

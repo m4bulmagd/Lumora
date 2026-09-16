@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 macro(lumora_find_dependencies)
   if(LUMORA_BUILD_QML_UI)
     set(lumora_qt_version 6.11.1)
-    set(lumora_qt_components Core Gui Qml Quick QuickControls2)
+    set(lumora_qt_components Core Gui Qml Quick QuickControls2 Multimedia)
     if(LUMORA_BUILD_LEGACY_WIDGETS_TESTS)
       list(APPEND lumora_qt_components Widgets)
     endif()
@@ -35,6 +35,12 @@ macro(lumora_find_dependencies)
           "${lumora_qt_component} is ${${lumora_qt_component_version_var}}.")
       endif()
     endforeach()
+
+    if(NOT TARGET Qt6::QFFmpegMediaPlugin)
+      message(FATAL_ERROR
+        "Live video sources require the Qt Multimedia FFmpeg backend. "
+        "Enable qtmultimedia[ffmpeg] with vcpkg, or use a Qt SDK with the FFmpeg media plugin.")
+    endif()
 
     get_target_property(lumora_qt_gui_features Qt6::Gui QT_ENABLED_PUBLIC_FEATURES)
     if(NOT "imageformat_png" IN_LIST lumora_qt_gui_features)

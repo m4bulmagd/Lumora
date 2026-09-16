@@ -6,17 +6,19 @@
 
 **Architecture:** Build a modular C++20 monolith from independently tested libraries. Frames cross camera, processing, UI, and capture boundaries only through immutable values and fixed-capacity exchanges; Qt and pylon remain isolated adapters.
 
-**Tech Stack:** Ubuntu Linux x64/GCC for daily development, Windows 11 x64/MSVC for production, C++20, CMake, pinned vcpkg manifests, dynamically linked LGPL-compatible Qt 6 (Widgets currently; Qt Quick/QML selected for migration), optional external Basler pylon SDK/runtime, OpenCV C++, GoogleTest/CTest, spdlog, and JSON configuration.
+**Tech Stack:** Ubuntu Linux x64/GCC for daily development, Windows 11 x64/MSVC for production, C++20, CMake, pinned vcpkg manifests, dynamically linked LGPL-compatible Qt 6.11.1 (Qt Quick/QML workstation and Multimedia adapters), optional external Basler pylon SDK/runtime, OpenCV C++, GoogleTest/CTest, spdlog, and JSON configuration.
 
 **Spec:** `docs/superpowers/specs/2026-04-25-xray-imaging-workstation-design.md`
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
-**UI direction update (2026-09-13):** [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) records Qt Quick/QML as the selected frontend. The [migration proposal](../specs/2026-09-13-qt-quick-qml-migration-design.md) and [handoff](../../PROGRESS.md#next-session-qt-quickqml) continue from [local main at `e2de210`](../../architecture/milestones/m09-camera-controls.md#local-main-integration), which includes completed M9 Task 4E. The integration has not been pushed and has no PR or hosted CI result. The next session should plan and verify the initial QML integration before continuing M9 Task 5 fullscreen/sidebar/preferences on that frontend. The proposal's targets and stages are unimplemented; existing build commands still describe Widgets. Milestone order and external acceptance gates remain unchanged.
+**Historical UI direction checkpoint (2026-09-13):** [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) records Qt Quick/QML as the selected frontend. The [migration proposal](../specs/2026-09-13-qt-quick-qml-migration-design.md) and [handoff](../../PROGRESS.md#next-session-qt-quickqml) continue from [local main at `e2de210`](../../architecture/milestones/m09-camera-controls.md#local-main-integration), which includes completed M9 Task 4E. The integration has not been pushed and has no PR or hosted CI result. The next session should plan and verify the initial QML integration before continuing M9 Task 5 fullscreen/sidebar/preferences on that frontend. The proposal's targets and stages are unimplemented; existing build commands still describe Widgets. Milestone order and external acceptance gates remain unchanged.
+
+**Current UI and input update (2026-09-16):** the [QML migration](../../architecture/milestones/qml-only-workstation.md) and [layout work](../../architecture/milestones/qml-layout.md) supersede the historical UI checkpoint above. The owner also approved the [flexible video-source design](../specs/2026-09-16-video-sources-design.md) and [execution plan](2026-09-16-video-sources.md). This scoped extension reuses one active acquisition/processing/viewer session for SIM-LIVE, Qt OS cameras and explicit RTSP/RTSPS addresses. Media input is decoded to Mono8 with reported fixed modes up to 1920×1080; it does not claim native high-bit-depth sensor preservation for consumer color video. Source discovery, per-session authentication and the catalog are bounded additions to existing Apply/Confirm/Start and installation policy. See the [operator guide](../../development/video-sources.md) and [verification record](../../architecture/milestones/video-sources.md). Basler/pylon M6 and physical Windows M14 gates remain unchanged; ONVIF, proprietary BNC SDKs, full color and simultaneous feeds remain separate.
 
 ## Global Constraints
 
-- Preserve original 8/10/12/16-bit monochrome sensor values; packed 10/12-bit input is stored losslessly in unsigned 16-bit form.
+- Preserve original 8/10/12/16-bit monochrome sensor values; packed 10/12-bit input is stored losslessly in unsigned 16-bit form. The separately approved media adapter explicitly converts decoded color video to Mono8 and does not label it as native high-depth sensor data.
 - Keep `DisplayFrame` format-aware; evaluation composition selects unsigned 8-bit at the terminal display-mapping boundary.
 - Keep acquisition, processing, rendering, and capture independent; no SDK, processing, encoding, or disk work may execute on the Qt UI thread.
 - Live raw and processed exchanges have capacity one and replace stale frames.
@@ -41,7 +43,7 @@
 
 ## 1. Plan set and dependency order
 
-Execute the milestone plans in numeric order. Normally a later milestone begins only after the preceding milestone acceptance gate is recorded as passing. Recorded exceptions are [M4-to-M5 development with deferred native Windows 11 validation](../../architecture/milestones/m04-deferred-windows-validation.md) and the subsequent [simulator-only M7 development continuation](../../architecture/milestones/m07-preflight.md), both dated 2026-09-07. The subsequent [M8 implementation continuation](../../architecture/milestones/m08-continuation.md) permits its bounded simulator work. The owner approved the [M9 Task 1 preset continuation](../../architecture/milestones/m09-presets.md) on 2026-09-09. These exceptions do not record milestone acceptance, waive release validation, or permit skipping other milestone gates.
+Execute the milestone plans in numeric order. Normally a later milestone begins only after the preceding milestone acceptance gate is recorded as passing. Recorded exceptions are [M4-to-M5 development with deferred native Windows 11 validation](../../architecture/milestones/m04-deferred-windows-validation.md) and the subsequent [simulator-only M7 development continuation](../../architecture/milestones/m07-preflight.md), both dated 2026-09-07. The subsequent [M8 implementation continuation](../../architecture/milestones/m08-continuation.md) permits its bounded simulator work. The owner approved the [M9 Task 1 preset continuation](../../architecture/milestones/m09-presets.md) on 2026-09-09 and the [bounded live-video extension](2026-09-16-video-sources.md) on 2026-09-16. These exceptions do not record milestone acceptance, waive release validation, or permit skipping other milestone gates.
 
 Documentation-only preflight preparation may precede that gate; implementation requires acceptance or an explicit scoped exception above. The [M5 preflight](../../architecture/milestones/m05-preflight.md) refines the existing plan against M2–M4 without recording acceptance. M5 supplies minimal startup controls/persistence and failure classification; M9 expands the UI/preferences, and M12 adds timed automatic recovery to the same application contracts. M4 Windows stress passed at `6c054a7`; the native Windows 11 checks remain pending and mandatory before Windows release acceptance.
 
@@ -198,6 +200,8 @@ Every task ends with a focused test and commit. Every milestone ends with:
 - [ ] Commit the milestone acceptance record separately from feature commits.
 
 ## 5. Scope control
+
+The approved [video-source extension](2026-09-16-video-sources.md) permits explicit RTSP/RTSPS video ingestion through Qt Multimedia and OS-exposed capture devices. It does not permit remote workstation control, network-wide discovery, recording, multiple active feeds or proprietary capture-card SDK work. A BNC connector requires an appropriate digitizer; the generic adapter accepts it only when its driver exposes a supported OS camera.
 
 If implementation discovers a requirement for DICOM, patient data, clinical diagnosis, X-ray generator interaction, remote access, AI, full recording, dark-frame/flat-field/bad-pixel calibration, temporal algorithms, compliant audit logging, automatic updating, multiple active cameras/monitors, or a GPU algorithm, stop that work and create a new approved design. Do not hide such behavior inside a camera, processing, or capture adapter.
 

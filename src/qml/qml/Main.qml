@@ -16,7 +16,7 @@ ApplicationWindow {
     minimumWidth: 900
     minimumHeight: 600
     visible: true
-    title: qsTr("Lumora · SIM-LIVE")
+    title: qsTr("Lumora · %1").arg(root.camera.sourceName)
     color: Theme.canvas
     font.family: "Sans Serif"
     font.pixelSize: 13
@@ -59,7 +59,7 @@ ApplicationWindow {
         RowLayout {
             Layout.fillWidth: true
             Label { text: "LUMORA"; font.letterSpacing: 3; font.bold: true; font.pixelSize: 18 }
-            Label { text: qsTr("SIM-LIVE"); color: Theme.textSecondary; font.pixelSize: 11; Layout.fillWidth: true }
+            Label { text: root.camera.sourceName; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.textSecondary; font.pixelSize: 11; Layout.fillWidth: true }
             Button {
                 objectName: "panelsButton"
                 text: root.windowLayout.panelsCollapsed ? qsTr("Show panels") : qsTr("Hide panels")

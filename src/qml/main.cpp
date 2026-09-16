@@ -1,6 +1,8 @@
 #include "QmlWorkstation.hpp"
 #include "SimulatorComposition.hpp"
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
+#include <lumora/camera/CompositeCameraProvider.hpp>
+#include <lumora/camera/media/MediaCameraProvider.hpp>
 #include <lumora/configuration/InstallationProfilesService.hpp>
 #include <lumora/configuration/StartupPreferencesService.hpp>
 #include <lumora/diagnostics/Logging.hpp>
@@ -9,6 +11,7 @@
 #include <QDebug>
 #include <QEvent>
 #include <QGuiApplication>
+#include <QMediaDevices>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QStandardPaths>
@@ -42,13 +45,20 @@ std::filesystem::path logPath() {
 }
 
 int main(int argc, char* argv[]) {
+    // FFmpeg's format dump embeds the input URL and writes directly to stderr.
+    // Disable it before multimedia initialization; operator errors are redacted
+    // by the adapter. Keep unrelated user logging rules intact.
+    auto loggingRules = qgetenv("QT_LOGGING_RULES");
+    loggingRules += "\nqt.multimedia.ffmpeg.mediadataholder.info=false\nqt.multimedia.ffmpeg.*.debug=false";
+    qputenv("QT_LOGGING_RULES", loggingRules);
+    qunsetenv("QT_FFMPEG_DEBUG");
     QGuiApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("Lumora"));
     QCoreApplication::setApplicationName(QStringLiteral("Lumora"));
     QGuiApplication::setQuitOnLastWindowClosed(false);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("Lumora evaluation SIM-LIVE workstation"));
+    parser.setApplicationDescription(QStringLiteral("Lumora evaluation live video workstation"));
     parser.addHelpOption();
     parser.addOption({QStringLiteral("installation"), QStringLiteral("Request administrator installation editing (requires OS authority).")});
     parser.process(application);
@@ -61,11 +71,14 @@ int main(int argc, char* argv[]) {
     int exitCode=EXIT_SUCCESS;
     {
         lumora::core::SystemClock clock;
-        lumora::camera::sim::SimulatedCameraProvider provider(lumora::app::simulatorOptions(),clock);
+        lumora::camera::sim::SimulatedCameraProvider simulator(lumora::app::simulatorOptions(),clock);
+        lumora::camera::media::MediaCameraProvider media(clock);
+        lumora::camera::CompositeCameraProvider provider({&simulator, &media});
         lumora::configuration::InstallationProfilesService installations({parser.isSet(QStringLiteral("installation")),
             lumora::application::InstallationProfilePolicy::SimulatorIdentityFallback});
         lumora::processing::ProcessingPreparationOptions options;
-        const auto reserved=lumora::qml::reserveSimulatorRendererStorage(options);
+        const auto reserved=lumora::qml::reserveSimulatorRendererStorage(options,
+            lumora::camera::media::maximumMediaWidth, lumora::camera::media::maximumMediaHeight);
         if(!reserved.hasValue()) {
             qCritical().noquote()<<QString::fromStdString(reserved.error().diagnosticDetail);
             lumora::diagnostics::Logging::shutdown();
@@ -74,6 +87,19 @@ int main(int argc, char* argv[]) {
         lumora::application::LivePipeline pipeline(provider,clock,lumora::app::simulatorConfiguration(),{},options,&installations);
         lumora::configuration::StartupPreferencesService preferences{lumora::configuration::ConfigurationStore{}};
         lumora::qml::QmlWorkstation workstation(pipeline,preferences,clock,lumora::app::simulatorConfiguration());
+        lumora::qml::VideoSourcesAdapter sources(lumora::configuration::VideoSourceCatalog{},
+            [&](const auto& entries) {
+                std::vector<lumora::camera::media::NetworkVideoSource> network;
+                for (const auto& entry : entries) network.push_back({entry.id, entry.name, entry.url});
+                return media.setNetworkSources(std::move(network));
+            }, [&] { return !workstation.closing() && workstation.camera()->refreshEnabled(); },
+            [&] { (void)workstation.camera()->refreshDevices(); });
+        workstation.camera()->setVideoSources(&sources);
+        QMediaDevices deviceMonitor;
+        QObject::connect(&deviceMonitor, &QMediaDevices::videoInputsChanged, &workstation, [&] {
+            if (!workstation.closing() && workstation.camera()->refreshEnabled())
+                (void)workstation.camera()->refreshDevices();
+        });
         RetirementGate gate(workstation);
         application.installEventFilter(&gate);
         QQmlApplicationEngine engine;

@@ -12,6 +12,8 @@
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
 
+**Related extension (2026-09-16):** [flexible live video sources](2026-09-16-video-sources.md) add Qt OS-camera and manual RTSP/RTSPS inputs through the same single-source boundary. That work is separate from this Basler milestone. Its [SDK/synthetic-stream evidence](../../architecture/milestones/video-sources.md) does not establish a Basler adapter, an approved camera/NIC profile, Windows physical-device compatibility or hardware acceptance. All entry and acceptance gates below remain in force.
+
 ## Global Constraints
 
 - This milestone contributes only to the open-source evaluation release, which must display `EVALUATION — NOT FOR CLINICAL USE` and must not acquire or store real patient data.

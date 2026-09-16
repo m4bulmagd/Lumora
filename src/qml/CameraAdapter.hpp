@@ -1,8 +1,10 @@
 #pragma once
 
 #include "CameraSettingsAdapter.hpp"
+#include "VideoSourcesAdapter.hpp"
 #include <lumora/presentation/CameraActionPolicy.hpp>
 #include <QObject>
+#include <QPointer>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QtQml/qqmlregistration.h>
@@ -14,12 +16,14 @@ class CameraAdapter final : public QObject {
     QML_ELEMENT
     QML_UNCREATABLE("The workstation owns camera controls")
     Q_PROPERTY(lumora::qml::CameraSettingsAdapter* settings READ settings CONSTANT FINAL)
+    Q_PROPERTY(lumora::qml::VideoSourcesAdapter* videoSources READ videoSources NOTIFY videoSourcesChanged FINAL)
     Q_PROPERTY(bool installationVisible READ installationVisible NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool installationEnabled READ installationEnabled NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool settingsVisible READ settingsVisible NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool settingsEnabled READ settingsEnabled NOTIFY stateChanged FINAL)
     Q_PROPERTY(QVariantList devices READ devices NOTIFY devicesChanged FINAL)
     Q_PROPERTY(QString selectedCameraId READ selectedCameraId NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QString sourceName READ sourceName NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool selectionEnabled READ selectionEnabled NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool pending READ pending NOTIFY stateChanged FINAL)
     Q_PROPERTY(QString status READ status NOTIFY stateChanged FINAL)
@@ -52,6 +56,8 @@ class CameraAdapter final : public QObject {
     Q_PROPERTY(bool resumeLiveEnabled READ resumeLiveEnabled NOTIFY stateChanged FINAL)
 public:
     explicit CameraAdapter(presentation::WorkstationCoordinator&, QObject* parent = nullptr);
+    [[nodiscard]] VideoSourcesAdapter* videoSources() const { return videoSources_; }
+    void setVideoSources(VideoSourcesAdapter* sources);
     [[nodiscard]] CameraSettingsAdapter* settings() { return &settings_; }
     [[nodiscard]] const CameraSettingsAdapter* settings() const { return &settings_; }
     [[nodiscard]] bool settingsVisible() const { return policy_.settings.visible; }
@@ -72,6 +78,7 @@ public:
     Q_INVOKABLE bool resumeLive();
     [[nodiscard]] QVariantList devices() const;
     [[nodiscard]] QString selectedCameraId() const;
+    [[nodiscard]] QString sourceName() const;
     [[nodiscard]] bool selectionEnabled() const;
     [[nodiscard]] bool pending() const;
     [[nodiscard]] QString status() const;
@@ -103,9 +110,11 @@ public:
     [[nodiscard]] bool resumeLiveVisible() const;
     [[nodiscard]] bool resumeLiveEnabled() const;
 signals:
+    void videoSourcesChanged();
     void stateChanged();
     void devicesChanged();
 private:
+    QPointer<VideoSourcesAdapter> videoSources_;
     bool dispatch(presentation::CameraStartupIntent);
     presentation::WorkstationCoordinator& coordinator_;
     CameraSettingsAdapter settings_;

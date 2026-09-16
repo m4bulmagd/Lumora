@@ -33,7 +33,7 @@ if(LUMORA_BUILD_QML_UI)
       TIMEOUT 120
       ENVIRONMENT "${lumora_qml_test_environment}"
   )
-  foreach(adapter IN ITEMS Runtime ProcessingAdapter CameraSettingsAdapter InstallationAdapter LayoutAdapter)
+  foreach(adapter IN ITEMS Runtime ProcessingAdapter CameraSettingsAdapter InstallationAdapter LayoutAdapter VideoSourcesAdapter)
     string(TOLOWER "${adapter}" adapter_lower)
     set(adapter_target "lumora_qml_${adapter_lower}_tests")
     qt_add_executable(${adapter_target} MANUAL_FINALIZATION
@@ -51,6 +51,15 @@ if(LUMORA_BUILD_QML_UI)
   endforeach()
 
 endif()
+
+add_executable(lumora_camera_media_tests unit/camera/MediaCameraTests.cpp)
+target_include_directories(lumora_camera_media_tests PRIVATE "${PROJECT_SOURCE_DIR}/src/camera/media/src")
+target_link_libraries(lumora_camera_media_tests PRIVATE lumora::camera_media
+  Qt6::Core Qt6::Gui Qt6::Multimedia GTest::gtest_main)
+lumora_enable_warnings(lumora_camera_media_tests)
+add_test(NAME CameraMedia COMMAND lumora_camera_media_tests --gtest_filter=MediaCamera.*)
+set_tests_properties(CameraMedia PROPERTIES TIMEOUT 30 LABELS "camera"
+  ENVIRONMENT "QT_MEDIA_BACKEND=ffmpeg;QT_LOGGING_RULES=qt.multimedia.ffmpeg.mediadataholder.info=false")
 
 add_executable(lumora_application_tests
   unit/application/CameraSessionStateMachineTests.cpp
@@ -402,6 +411,7 @@ add_test(
 add_executable(
   lumora_camera_api_tests
   unit/camera/CameraConfigurationValidatorTests.cpp
+  unit/camera/CompositeCameraProviderTests.cpp
   unit/camera/CameraContractTests.cpp
 )
 
@@ -414,6 +424,7 @@ target_link_libraries(
 lumora_enable_warnings(lumora_camera_api_tests)
 add_test(NAME CameraConfiguration COMMAND lumora_camera_api_tests --gtest_filter=CameraConfigurationValidator.*)
 add_test(NAME CameraContract COMMAND lumora_camera_api_tests --gtest_filter=CameraContract.*)
+add_test(NAME CameraComposite COMMAND lumora_camera_api_tests --gtest_filter=CompositeCameraProvider.*)
 
 add_executable(
   lumora_camera_simulator_tests
@@ -460,6 +471,7 @@ add_test(NAME Logging COMMAND lumora_diagnostics_tests)
 add_executable(
   lumora_configuration_tests
   unit/configuration/ConfigurationStoreTests.cpp
+  unit/configuration/VideoSourceCatalogTests.cpp
   unit/configuration/PresetCodecTests.cpp
   unit/configuration/StartupPreferencesTests.cpp
   unit/configuration/UiPreferencesTests.cpp
@@ -473,6 +485,8 @@ target_link_libraries(
     GTest::gtest_main
 )
 lumora_enable_warnings(lumora_configuration_tests)
+add_test(NAME Configuration.VideoSourceCatalog
+  COMMAND lumora_configuration_tests --gtest_filter=VideoSourceCatalog.*)
 add_test(NAME ConfigurationStore
   COMMAND lumora_configuration_tests --gtest_filter=ConfigurationStore.*:*/InvalidConfigurationTest.*)
 add_test(NAME Configuration.StartupPreferences

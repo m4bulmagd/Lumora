@@ -76,6 +76,7 @@ struct AcquisitionWorker::Impl final {
     std::optional<camera::CameraConfiguration> fixedMode;
     std::optional<std::uint64_t> lastFrameId;
     std::optional<std::chrono::steady_clock::time_point> acquisitionProgressAt;
+    bool awaitingFirstFrame{false};
     std::stop_source cancellation;
     std::jthread thread;
     bool started{false};
@@ -110,6 +111,7 @@ struct AcquisitionWorker::Impl final {
     }
     std::optional<core::Error> cleanup() noexcept {
         acquisitionProgressAt.reset();
+        awaitingFirstFrame = false;
         std::optional<core::Error> error;
         if (device) {
             auto stopped = device->stopStream();
@@ -226,12 +228,9 @@ struct AcquisitionWorker::Impl final {
         if (!capabilities.hasValue()) { return failAndCleanup(capabilities.error(), E::CapabilitiesFailed); }
         if (stopping()) { return cancelled(); }
         if (std::none_of(capabilities.value().pixelFormats.begin(), capabilities.value().pixelFormats.end(),
-            [&](const auto& format) {
-                return core::validateSourcePixelFormat(format).hasValue()
-                    && (!fixedMode || sameFormat(format, fixedMode->pixelFormat));
-            })) {
+            [](const auto& format) { return core::validateSourcePixelFormat(format).hasValue(); })) {
             return failAndCleanup(failure(ErrorCategory::CameraConfiguration, "camera_format_not_available",
-                "The camera does not support the prepared native source format."), E::CapabilitiesFailed);
+                "The camera does not support a valid native source format."), E::CapabilitiesFailed);
         }
         auto validCapabilities = camera::validateCameraCapabilities(capabilities.value());
         if (!validCapabilities.hasValue()) return failAndCleanup(validCapabilities.error(), E::CapabilitiesFailed);
@@ -386,6 +385,7 @@ struct AcquisitionWorker::Impl final {
         if (!startedStream.hasValue()) { return failAndCleanup(startedStream.error(), E::StartFailed); }
         if (stopping()) { return cancelled(); }
         acquisitionProgressAt = clock.steadyNow();
+        awaitingFirstFrame = true;
         return event(E::StartSucceeded);
     }
     Result stopStream() {
@@ -396,6 +396,7 @@ struct AcquisitionWorker::Impl final {
         auto stopped = device->stopStream();
         if (!stopped.hasValue()) { return failAndCleanup(stopped.error(), E::StopFailed); }
         acquisitionProgressAt.reset();
+        awaitingFirstFrame = false;
         return event(E::StopSucceeded);
     }
     Result disconnect() {
@@ -511,6 +512,11 @@ struct AcquisitionWorker::Impl final {
         // cannot overflow, and nearby epochs retain precision on MSVC as well.
         const auto elapsedTicks = static_cast<UnsignedTicks>(now.time_since_epoch().count())
             - static_cast<UnsignedTicks>(acquisitionProgressAt->time_since_epoch().count());
+        // Opening a decoder/capture stream can outlast one steady-state frame
+        // interval. Each real Start has bounded startup grace; only an accepted
+        // valid frame switches to the existing rate-based stall policy below.
+        constexpr auto startupGrace = std::chrono::duration_cast<Duration>(std::chrono::seconds{5});
+        if (awaitingFirstFrame) return elapsedTicks >= static_cast<UnsignedTicks>(startupGrace.count());
         constexpr auto minimumGrace = std::chrono::duration_cast<Duration>(std::chrono::milliseconds{750});
         if (elapsedTicks < static_cast<UnsignedTicks>(minimumGrace.count())) { return false; }
         const auto elapsed = std::chrono::duration<UnsignedTicks, Duration::period>{elapsedTicks};
@@ -562,6 +568,7 @@ struct AcquisitionWorker::Impl final {
                 status.consecutiveTimeouts = 0U;
                 status.lastAcquiredAt = clock.steadyNow();
                 acquisitionProgressAt = status.lastAcquiredAt;
+                awaitingFirstFrame = false;
                 increment(status.acquisitionCounters.acquired);
                 if (rawSlot->publish(std::move(result.value())).replacedUnconsumed) {
                     increment(status.acquisitionCounters.droppedBeforeProcessing);

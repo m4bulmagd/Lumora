@@ -56,7 +56,7 @@ Basler presets are reserved for the later camera-adapter milestone. Machine-spec
 
 ## QML dependencies and compatibility names
 
-Every normal preset enables `qml-ui`, the default manifest feature, using `out/vcpkg_qml_installed`. Qt Core, Gui, Qml, Quick, QuickControls2 and test modules must all match 6.11.1 and remain dynamically linked. `LUMORA_BUILD_QML_UI=OFF` is rejected; there is no Widgets application fallback.
+Every normal preset enables `qml-ui`, the default manifest feature, using `out/vcpkg_qml_installed`. Qt Core, Gui, Qml, Quick, QuickControls2, Multimedia and test modules must all match 6.11.1 and remain dynamically linked. `LUMORA_BUILD_QML_UI=OFF` is rejected; there is no Widgets application fallback.
 
 The old `windows-msvc-{debug,release}-sim-qml` presets and build-only `lumora_qml_app` target remain compatibility names. They produce the same `lumora_app`, not a second executable. Run QML lint with:
 
@@ -70,6 +70,12 @@ The application uses the production `Lumora` organization/application identity a
 Camera and installation controls are QML. Installation editing requires `--installation` and actual OS administrator authority; the flag alone grants none. Saved-preset creation/rename/deletion remains later work. The shared QML source adds fullscreen (F11/Escape), collapsible panels, optional frame Details and saved window layout; native Windows validation of these controls remains pending.
 
 Native Windows graphics and 100%/125%/150%/200% display scaling require separate recorded results. Linux SDK/Xvfb/llvmpipe evidence does not establish them. The Linux `QmlPilot` staging component retains its compatibility name; it is not a Windows installer or M13 acceptance.
+
+## Multimedia sources and runtime deployment
+
+The existing `sim` preset names still disable pylon; the normal application now also includes the [Qt local-camera/manual RTSP adapter](video-sources.md). The manifest pins `qtmultimedia[ffmpeg]` to Qt 6.11.1, with default features disabled. Configure checks the exact module version and requires `Qt6::QFFmpegMediaPlugin`. The pinned FFmpeg port selects native Schannel for Windows TLS when OpenSSL is not requested.
+
+A Windows deployment needs the matching Qt Multimedia DLL, FFmpeg media plugin and its dependent FFmpeg DLLs in addition to the existing Qt Quick/platform runtime. The Linux `QmlPilot` staging component is not a Windows deployment procedure. Windows compilation, camera-driver access/privacy permissions, RTSP/RTSPS playback and installer/runtime deployment for this extension remain unverified. The Linux SDK probe used bundled FFmpeg 7.1.3; the pinned vcpkg baseline selects 9.0.1 and has not been freshly built for this extension. Keep those provenance claims separate; see [dependency notices](../../THIRD-PARTY-LICENSES/FFmpeg.txt).
 
 ## Optional legacy regression tests
 
@@ -94,7 +100,7 @@ cmake -E env QT_QPA_PLATFORM=windows `
 
 For Debug, use `windows-msvc-debug-sim`, `src/qml/Debug/`, and `x64-windows/debug/Qt6/plugins/platforms`. Use the matching installed plugin directory if the dependency prefix differs. These are developer-build commands; native Windows execution and appearance remain subject to the deferred validation below.
 
-The application starts in **Waiting for image**. Select **SIM-LIVE**, click **Connect**, click **Apply** and review the settings, then **Confirm** and **Start**. After M7 integration this streams synthetic Mono12 data in U16 storage through the production acquisition, processing and presentation pipeline, with Gray8 conversion only at the display boundary. The evaluation banner remains visible. No physical camera is connected by this composition.
+The application starts in **Waiting for image**. Select **SIM-LIVE**, click **Connect**, click **Apply** and review the settings, then **Confirm** and **Start** for the existing Mono12 simulator. The [video-source guide](video-sources.md) covers OS cameras and manual RTSP/RTSPS registration, Mono8 conversion, supported fixed modes up to 1920×1080, session-only credentials and real-source installation profiles. An administrator installation launch needs both `--installation` and an elevated administrator token. Qt RTSP metadata probing can issue PLAY during Connect; the application delivers no viewer frames before Start. These source paths still require native Windows verification. The evaluation banner remains visible.
 
 Viewer **Pause / Live** freezes/resumes presentation while acquisition continues. Camera **Stop** stops acquisition while retaining the connected device; **Disconnect** closes it. If saved identity and requested settings match, the application may offer **Resume Live** on a later launch; it still requires an explicit click. Check these controls and the paused/stale indications in the normal application when collecting M4/M5 Windows acceptance evidence. See the [Linux launch guide](build-linux.md#launch-the-desktop-application) for the shared startup, saved-preference and source-reset behavior.
 

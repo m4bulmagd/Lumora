@@ -481,7 +481,7 @@ TEST(AcquisitionWorker, WatchdogValidFrameResetsGraceButInvalidAndExhaustedResul
     EXPECT_FALSE(fixture.latest->lastAcquiredAt);
     ASSERT_TRUE(fixture.deliver(Grab::Timeout, 749ms));
     EXPECT_EQ(fixture.latest->state, S::Streaming);
-    // A ready frame at the old deadline must be accepted before any terminal check.
+    // A valid frame starts steady-state grace without waiting for startup grace.
     ASSERT_TRUE(fixture.deliver(Grab::Frame, 1ms));
     EXPECT_EQ(fixture.latest->lastAcquiredAt, std::chrono::steady_clock::time_point{750ms});
     EXPECT_EQ(fixture.latest->consecutiveTimeouts, 0U);
@@ -511,8 +511,25 @@ TEST(AcquisitionWorker, WatchdogValidFrameResetsGraceButInvalidAndExhaustedResul
     EXPECT_EQ(fixture.script.count("create"), 1U);
 }
 
-// The first-frame deadline is elapsed time, independent of the number of timeout results.
-TEST(AcquisitionWorker, WatchdogFirstFrameStallUsesExactAppliedRateBoundaries) {
+TEST(AcquisitionWorker, WatchdogAllowsDelayedFirstValidFrameThenUsesSteadyStateDeadline) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.ready());
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 750ms));
+    ASSERT_EQ(fixture.latest->state, S::Streaming);
+    ASSERT_TRUE(fixture.deliver(Grab::Invalid, 500ms));
+    ASSERT_TRUE(fixture.deliver(Grab::Exhausted, 350ms));
+    EXPECT_FALSE(fixture.latest->lastAcquiredAt);
+    ASSERT_TRUE(fixture.deliver(Grab::Frame));
+    ASSERT_EQ(fixture.latest->state, S::Streaming);
+    EXPECT_EQ(fixture.latest->lastAcquiredAt, std::chrono::steady_clock::time_point{1600ms});
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 749ms));
+    ASSERT_EQ(fixture.latest->state, S::Streaming);
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 1ms));
+    EXPECT_EQ(fixture.latest->state, S::Reconnecting);
+}
+
+// Startup grace is bounded independently of nominal rate and timeout count.
+TEST(AcquisitionWorker, WatchdogFirstFrameStallUsesBoundedStartupGrace) {
     for (const auto actualFps : {30.0, 1.0}) {
         SCOPED_TRACE(actualFps);
         Fixture fixture;
@@ -520,8 +537,7 @@ TEST(AcquisitionWorker, WatchdogFirstFrameStallUsesExactAppliedRateBoundaries) {
         actual.requestedFps = actualFps;
         fixture.script.readback = actual;
         ASSERT_TRUE(fixture.ready());
-        const auto beforeDeadline = actualFps == 30.0 ? 749ms : 2999ms;
-        ASSERT_TRUE(fixture.deliver(Grab::Timeout, beforeDeadline));
+        ASSERT_TRUE(fixture.deliver(Grab::Timeout, 4999ms));
         ASSERT_EQ(fixture.latest->state, S::Streaming);
         EXPECT_FALSE(fixture.latest->lastAcquiredAt);
         ASSERT_TRUE(fixture.deliver(Grab::Timeout, 1ms));
@@ -539,6 +555,18 @@ TEST(AcquisitionWorker, WatchdogFirstFrameStallUsesExactAppliedRateBoundaries) {
         EXPECT_EQ(fixture.script.count("close"), 1U);
         EXPECT_EQ(fixture.script.count("destroy"), 1U);
     }
+}
+
+TEST(AcquisitionWorker, WatchdogInvalidAndExhaustedFramesCannotRenewStartupGrace) {
+    Fixture fixture;
+    ASSERT_TRUE(fixture.ready());
+    ASSERT_TRUE(fixture.deliver(Grab::Invalid, 3s));
+    ASSERT_TRUE(fixture.deliver(Grab::Exhausted, 1999ms));
+    EXPECT_FALSE(fixture.latest->lastAcquiredAt);
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout));
+    ASSERT_EQ(fixture.latest->state, S::Streaming);
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 1ms));
+    EXPECT_EQ(fixture.latest->state, S::Reconnecting);
 }
 
 TEST(AcquisitionWorker, WatchdogUsesActualOneFpsDespiteRequestedThirtyFps) {
@@ -583,7 +611,7 @@ TEST(AcquisitionWorker, WatchdogFrozenClockKeepsStreamingAndPadsQuickTimeouts) {
             EXPECT_GE(fixture.script.retrieveTimes[index] - fixture.script.retrieveTimes[index - 1U], 245ms);
         }
     }
-    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 750ms));
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 5s));
     EXPECT_EQ(fixture.latest->state, S::Reconnecting);
 }
 
@@ -610,7 +638,7 @@ TEST(AcquisitionWorker, WatchdogRestartAfterIdleRearmsWithoutForgingAcquisitionT
     fixture.clock.advance(1h);
     ASSERT_TRUE(fixture.command(StartStream{0U, 1U}));
     EXPECT_EQ(fixture.latest->lastAcquiredAt, std::chrono::steady_clock::time_point{10ms});
-    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 749ms));
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 4999ms));
     ASSERT_EQ(fixture.latest->state, S::Streaming);
     ASSERT_TRUE(fixture.deliver(Grab::Timeout, 1ms));
     EXPECT_EQ(fixture.latest->state, S::Reconnecting);
@@ -620,7 +648,7 @@ TEST(AcquisitionWorker, WatchdogRestartAfterIdleRearmsWithoutForgingAcquisitionT
 TEST(AcquisitionWorker, WatchdogIdempotentStartCannotRenewGrace) {
     Fixture fixture;
     ASSERT_TRUE(fixture.ready());
-    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 749ms));
+    ASSERT_TRUE(fixture.deliver(Grab::Timeout, 4999ms));
     ASSERT_TRUE(fixture.command(StartStream{0U, 1U}));
     ASSERT_TRUE(fixture.deliver(Grab::Timeout, 1ms));
     EXPECT_EQ(fixture.latest->state, S::Reconnecting);
@@ -641,6 +669,7 @@ TEST(AcquisitionWorker, WatchdogUsesLatestActualRateAfterStoppedApply) {
         ASSERT_TRUE(fixture.command(ApplyConfiguration{0U, configuration(), 2U}));
         ASSERT_TRUE(fixture.command(ConfirmConfiguration{0U, 2U}));
         ASSERT_TRUE(fixture.command(StartStream{0U, 2U}));
+        ASSERT_TRUE(fixture.deliver(Grab::Frame));
         const auto beforeDeadline = updatedActualFps == 1.0 ? 2999ms : 749ms;
         ASSERT_TRUE(fixture.deliver(Grab::Timeout, beforeDeadline));
         ASSERT_EQ(fixture.latest->state, S::Streaming);
@@ -662,6 +691,7 @@ TEST(AcquisitionWorker, WatchdogHandlesExtremeClockEpochsAndTinyPositiveActualRa
         actual.requestedFps = actualFps;
         fixture.script.readback = actual;
         ASSERT_TRUE(fixture.ready());
+        ASSERT_TRUE(fixture.deliver(Grab::Frame));
         ASSERT_TRUE(fixture.deliver(Grab::Invalid, std::chrono::nanoseconds::max()));
         ASSERT_EQ(fixture.latest->state, S::Streaming);
         ASSERT_TRUE(fixture.deliver(Grab::Timeout, std::chrono::nanoseconds::max()));
@@ -1212,14 +1242,18 @@ TEST(AcquisitionWorker, PreparedModeRejectsChangedReadbackAndCleansUp) {
         EXPECT_EQ(fixture.script.count("start"), 0U);
     }
 }
-TEST(AcquisitionWorker, PreparedCapabilitiesRequireExactDescriptorBeforeApply) {
+TEST(AcquisitionWorker, NegotiatedConnectionStillRequiresMatchingPreparedResourcesAtApply) {
     auto prepared = highDepthConfiguration();
     Fixture fixture({}, 24, prepared);
     ASSERT_TRUE(fixture.worker.start().hasValue());
-    ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}, false));
-    EXPECT_EQ(fixture.latest->latestError->code, "camera_format_not_available");
-    EXPECT_EQ(fixture.script.count("close"), 1U);
+    ASSERT_TRUE(fixture.command(Connect{{"camera-1"}}));
+    ASSERT_TRUE(fixture.latest->currentConfiguration);
+    EXPECT_EQ(fixture.latest->currentConfiguration->pixelFormat.canonicalName, "Mono8");
+    ASSERT_TRUE(fixture.command(ApplyConfiguration{0, configuration(), 1}, false));
+    EXPECT_EQ(fixture.latest->latestError->code, "camera_mode_change_requires_rebinding");
+    EXPECT_EQ(fixture.script.count("close"), 0U);
     EXPECT_EQ(fixture.script.count("apply"), 0U);
+    EXPECT_EQ(fixture.script.count("start"), 0U);
 }
 TEST(AcquisitionWorker, UnpreparedStandaloneWorkerBindsFirstSuccessfulActualMode) {
     Fixture fixture({}, 48, std::nullopt);

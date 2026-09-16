@@ -1,4 +1,5 @@
 #include <lumora/application/LivePipeline.hpp>
+#include <lumora/camera/CompositeCameraProvider.hpp>
 #include <lumora/camera/sim/SimulatedCameraProvider.hpp>
 #include <lumora/processing/FrameProcessingEngine.hpp>
 #include <gtest/gtest.h>
@@ -23,6 +24,8 @@ camera::sim::SimulatedCameraOptions simulatorOptions() {
 // readback/mutation cases are injected here; frames and processing stay real.
 struct DeviceObservations {
     std::atomic<unsigned> opens{0}, applies{0};
+    std::atomic<unsigned> terminalMediaRetrieves{0};
+    std::atomic<bool> terminalMediaFailure{false};
     std::atomic<bool> mismatch{false}, rejectAfterMutation{false}, failRestore{false}, driftRestore{false};
     std::atomic<bool> blockApply{false}, applyEntered{false}, releaseApply{false};
 };
@@ -52,7 +55,14 @@ public:
         return result;
     }
     core::Result<void> startStream() override { return inner->startStream(); }
-    core::Result<std::shared_ptr<const core::RawFrame>> retrieve(std::chrono::milliseconds timeout,core::BufferPool& pool,std::stop_token stop) override { return inner->retrieve(timeout,pool,stop); }
+    core::Result<std::shared_ptr<const core::RawFrame>> retrieve(std::chrono::milliseconds timeout,core::BufferPool& pool,std::stop_token stop) override {
+        if(observations.terminalMediaFailure) {
+            ++observations.terminalMediaRetrieves;
+            return core::Result<std::shared_ptr<const core::RawFrame>>::failure(
+                {core::ErrorCategory::CameraConnection,"media_stream_invalid","Reconnect the changed video source.","",true});
+        }
+        return inner->retrieve(timeout,pool,stop);
+    }
     core::Result<void> stopStream() noexcept override { return inner->stopStream(); }
     core::Result<void> close() noexcept override { return inner->close(); }
 };
@@ -73,7 +83,7 @@ struct ReconfigurationFixture {
     ObservedProvider provider;
     application::LivePipeline pipeline;
     std::uint64_t nextId{0};
-    explicit ReconfigurationFixture(processing::ProcessingPreparationOptions options={},application::LivePipeline::ProcessorFactory factory={},camera::sim::SimulatedCameraOptions cameraOptions=simulatorOptions()):provider(clock,std::move(cameraOptions)),pipeline(provider,clock,initialRequest(),std::move(factory),options) {}
+    explicit ReconfigurationFixture(processing::ProcessingPreparationOptions options={},application::LivePipeline::ProcessorFactory factory={},camera::sim::SimulatedCameraOptions cameraOptions=simulatorOptions(),camera::CameraConfiguration prepared=initialRequest(),camera::ICameraProvider* alternate=nullptr):provider(clock,std::move(cameraOptions)),pipeline(alternate?*alternate:provider,clock,std::move(prepared),std::move(factory),options) {}
     ~ReconfigurationFixture() { pipeline.shutdown(); }
     bool wait(const std::function<bool()>& predicate) {
         const auto deadline=std::chrono::steady_clock::now()+3s;
@@ -104,6 +114,104 @@ struct ReconfigurationFixture {
         auto result=context->bundleSlot.consumeAfter(0);return result ? result->value : nullptr;
     }
 };
+TEST(CameraReconfiguration, ConnectNegotiatesMono8BeforeApplyingResourcesPreparedForMono12) {
+    auto options=simulatorOptions();options.capabilities.pixelFormats={mono8()};
+    auto prepared=initialRequest();prepared.pixelFormat=mono12();
+    ReconfigurationFixture f({}, {}, std::move(options), prepared);
+    ASSERT_TRUE(f.pipeline.start().hasValue());
+    ASSERT_TRUE(f.wait([&]{return f.pipeline.snapshot().context!=nullptr;}));
+    ASSERT_TRUE(f.pipeline.acknowledgeContext(f.generation()).hasValue());
+    const auto previous=f.pipeline.snapshot().context;
+    ASSERT_TRUE(f.command({++f.nextId,application::Connect{{"ROI-SIM"}}}));
+    const auto connected=f.pipeline.snapshot();
+    ASSERT_TRUE(connected.camera->currentConfiguration);
+    EXPECT_EQ(connected.camera->currentConfiguration->pixelFormat.canonicalName,"Mono8");
+    EXPECT_FALSE(connected.camera->appliedConfiguration);
+    EXPECT_EQ(connected.context,previous);
+    EXPECT_FALSE(f.frame());
+    const auto actual=*connected.camera->currentConfiguration;
+    ASSERT_TRUE(f.command({++f.nextId,application::ApplyConfiguration{f.generation(),actual,1}}));
+    EXPECT_NE(f.pipeline.snapshot().context,previous);
+    ASSERT_TRUE(f.pipeline.acknowledgeContext(f.generation()).hasValue());
+    ASSERT_TRUE(f.start(1));
+    ASSERT_TRUE(f.wait([&]{return f.frame()!=nullptr;}));
+    EXPECT_EQ(f.frame()->raw->layout.storage(),core::StorageType::UInt8);
+    EXPECT_EQ(f.frame()->raw->metadata.acquisitionSettings.sourceFormat.canonicalName,"Mono8");
+}
+TEST(CameraReconfiguration, CompositeSwitchesMono8SourceBackToMono12SimulatorWithRetiredResources) {
+    core::SystemClock clock;
+    auto simulation=simulatorOptions();simulation.id={"SIM-LIVE"};simulation.capabilities.pixelFormats={mono12()};
+    auto media=simulatorOptions();media.id={"media:local:test"};media.capabilities.pixelFormats={mono8()};
+    media.capabilities.roi.maximum={0,0,32,24};
+    camera::sim::SimulatedCameraProvider simulator(simulation,clock), video(media,clock);
+    camera::CompositeCameraProvider composite({&simulator,&video});
+    auto prepared=initialRequest();prepared.pixelFormat=mono12();
+    ReconfigurationFixture f({}, {}, simulatorOptions(), prepared, &composite);
+    ASSERT_TRUE(f.pipeline.start().hasValue());
+    ASSERT_TRUE(f.wait([&]{return f.pipeline.snapshot().context!=nullptr;}));
+    ASSERT_TRUE(f.pipeline.acknowledgeContext(f.generation()).hasValue());
+    ASSERT_TRUE(f.command({++f.nextId,application::Discover{}}));
+    ASSERT_EQ(f.pipeline.snapshot().camera->discoveredDescriptors.size(),2U);
+    ASSERT_TRUE(f.command({++f.nextId,application::Connect{{"media:local:test"}}}));
+    auto actual=*f.pipeline.snapshot().camera->currentConfiguration;
+    ASSERT_TRUE(f.command({++f.nextId,application::ApplyConfiguration{f.generation(),actual,1}}));
+    ASSERT_TRUE(f.pipeline.acknowledgeContext(f.generation()).hasValue());
+    ASSERT_TRUE(f.start(1));
+    ASSERT_TRUE(f.wait([&]{return f.frame()!=nullptr;}));
+    const auto mediaFrame=f.frame();
+    const auto mediaContext=f.pipeline.snapshot().context;
+    const auto mediaBytes=std::vector<std::byte>(mediaFrame->raw->pixels.bytes().begin(),mediaFrame->raw->pixels.bytes().end());
+    EXPECT_EQ(mediaFrame->raw->layout.storage(),core::StorageType::UInt8);
+    EXPECT_EQ(mediaFrame->raw->layout.width(),32U);
+    ASSERT_TRUE(f.command({++f.nextId,application::StopStream{}}));
+    ASSERT_TRUE(f.command({++f.nextId,application::Disconnect{}}));
+    ASSERT_TRUE(f.command({++f.nextId,application::Connect{{"SIM-LIVE"}}}));
+    auto connected=f.pipeline.snapshot();
+    ASSERT_TRUE(connected.camera->currentConfiguration);
+    EXPECT_EQ(connected.camera->currentConfiguration->pixelFormat.canonicalName,"Mono12");
+    EXPECT_FALSE(connected.camera->appliedConfiguration);
+    EXPECT_FALSE(connected.camera->confirmedRevision);
+    EXPECT_FALSE(f.frame());
+    ASSERT_TRUE(f.pipeline.acknowledgeContext(f.generation()).hasValue());
+    actual=*connected.camera->currentConfiguration;
+    ASSERT_TRUE(f.command({++f.nextId,application::ApplyConfiguration{f.generation(),actual,1}}));
+    EXPECT_NE(f.pipeline.snapshot().context,mediaContext);
+    EXPECT_GT(f.generation(),mediaContext->generation);
+    ASSERT_TRUE(f.pipeline.acknowledgeContext(f.generation()).hasValue());
+    ASSERT_TRUE(f.start(1));
+    ASSERT_TRUE(f.wait([&]{return f.frame()!=nullptr;}));
+    EXPECT_EQ(f.frame()->raw->layout.storage(),core::StorageType::UInt16);
+    EXPECT_EQ(f.frame()->raw->metadata.acquisitionSettings.sourceFormat.validBits,12U);
+    EXPECT_EQ(std::vector<std::byte>(mediaFrame->raw->pixels.bytes().begin(),mediaFrame->raw->pixels.bytes().end()),mediaBytes);
+}
+TEST(CameraReconfiguration, LatchedMediaFailureRetiresAcquisitionAndRequiresManualRetry) {
+    ReconfigurationFixture f;
+    ASSERT_TRUE(f.initialize());
+    ASSERT_TRUE(f.start(1));
+    ASSERT_TRUE(f.wait([&]{return f.frame()!=nullptr;}));
+    const auto oldGeneration=f.generation();
+    f.provider.observations.terminalMediaFailure=true;
+    ASSERT_TRUE(f.wait([&]{auto state=f.pipeline.snapshot();return state.camera->sourceReplacementRequired&&!state.processingAvailable;}));
+    const auto failed=f.pipeline.snapshot();
+    EXPECT_EQ(failed.camera->state,application::CameraSessionState::Reconnecting);
+    EXPECT_FALSE(failed.camera->actualIdentity);
+    EXPECT_FALSE(failed.camera->appliedConfiguration);
+    EXPECT_FALSE(failed.camera->confirmedRevision);
+    ASSERT_TRUE(failed.camera->latestError);
+    EXPECT_EQ(failed.camera->latestError->code,"media_stream_invalid");
+    EXPECT_EQ(failed.camera->acquisitionCounters.terminalFailures,1U);
+    EXPECT_EQ(failed.camera->acquisitionCounters.droppedInvalidFrame,0U);
+    EXPECT_EQ(f.provider.observations.terminalMediaRetrieves,1U);
+    EXPECT_EQ(f.provider.observations.opens,1U);
+    ASSERT_TRUE(f.command({++f.nextId,application::StartStream{oldGeneration,1}},false));
+    EXPECT_EQ(f.provider.observations.opens,1U);
+    f.provider.observations.terminalMediaFailure=false;
+    ASSERT_TRUE(f.command({++f.nextId,application::Retry{}}));
+    EXPECT_GT(f.generation(),oldGeneration);
+    EXPECT_EQ(f.pipeline.snapshot().camera->state,application::CameraSessionState::ConnectedIdle);
+    EXPECT_FALSE(f.pipeline.snapshot().camera->confirmedRevision);
+    EXPECT_EQ(f.provider.observations.opens,2U);
+}
 TEST(CameraReconfiguration, ChangesFullRoiAndStorageOnSameDeviceWithIncreasingFramesAndFreshConfirmation) {
     ReconfigurationFixture f;ASSERT_TRUE(f.initialize());ASSERT_TRUE(f.start(1));ASSERT_TRUE(f.wait([&]{return f.frame()!=nullptr;}));
     auto old=f.frame();auto oldContext=f.pipeline.snapshot().context;auto oldBytes=std::vector<std::byte>(old->raw->pixels.bytes().begin(),old->raw->pixels.bytes().end());

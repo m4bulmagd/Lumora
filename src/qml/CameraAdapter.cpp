@@ -57,10 +57,16 @@ QVariantList descriptors(const presentation::WorkstationState& state) {
 CameraAdapter::CameraAdapter(presentation::WorkstationCoordinator& coordinator, QObject* parent)
     : QObject(parent), coordinator_(coordinator), settings_(coordinator, this) { refresh(); }
 
+void CameraAdapter::setVideoSources(VideoSourcesAdapter* sources) {
+    videoSources_ = sources;
+    emit videoSourcesChanged();
+}
+
 void CameraAdapter::refresh() {
     state_ = coordinator_.state();
     policy_ = presentation::CameraActionPolicy::evaluate(state_);
     settings_.refresh();
+    if (videoSources_) videoSources_->refresh();
     auto nextDevices = descriptors(state_);
     if (nextDevices != devices_) {
         devices_ = std::move(nextDevices);
@@ -109,6 +115,16 @@ bool CameraAdapter::resumeLive() { return dispatch(presentation::CameraStartupIn
 QVariantList CameraAdapter::devices() const { return devices_; }
 QString CameraAdapter::selectedCameraId() const {
     return state_.selectedCameraId ? QString::fromStdString(state_.selectedCameraId->value) : QString{};
+}
+QString CameraAdapter::sourceName() const {
+    if (!state_.cameraStatus) return tr("Select a source");
+    const auto id = state_.cameraStatus->actualIdentity
+        ? state_.cameraStatus->actualIdentity : state_.selectedCameraId;
+    for (const auto& descriptor : state_.cameraStatus->discoveredDescriptors) {
+        if (descriptor.id == id) return QString::fromStdString(descriptor.identity.transport == "Simulator"
+            ? descriptor.id.value : descriptor.identity.model);
+    }
+    return tr("Select a source");
 }
 bool CameraAdapter::selectionEnabled() const { return policy_.selectionEnabled; }
 bool CameraAdapter::pending() const { return state_.ordinaryOperationPending; }
