@@ -43,6 +43,14 @@
 
 ## 1. Plan set and dependency order
 
+### C-arm planning extension (2026-09-17)
+
+The owner requested plans for a Live/Reference workstation, durable stills, saved-image processing, cine and polished UI/UX. The [C-arm delivery plan](2026-09-17-carm-workstation-roadmap.md) defines CR-1–CR-8 alongside this roadmap. The [shared design](../specs/2026-09-17-carm-workstation-design.md) describes the interaction and ownership contracts; [capture/review](2026-09-17-carm-capture-review.md) and [UI/UX](2026-09-17-carm-workstation-ui.md) supply focused tasks.
+
+M10 retains exact-frame capture ownership, with its planned UI integration updated for QML. The session catalog follows M10 as CR-1 work; independent reference, saved-image editing and dual-monitor layout follow as CR-2–CR-4. CR-5 recording and CR-6 event integration have separate specification/resource/hardware gates; CR-7 optional tools and CR-8 clinical interoperability remain separately scoped. CR identifiers do not renumber M1–M14. Preparing these documents does not authorize bypassing the prerequisite/acceptance rules below; an implementation kickoff must record its applicable entry conditions.
+
+### Numbered milestone sequence
+
 Execute the milestone plans in numeric order. Normally a later milestone begins only after the preceding milestone acceptance gate is recorded as passing. Recorded exceptions are [M4-to-M5 development with deferred native Windows 11 validation](../../architecture/milestones/m04-deferred-windows-validation.md) and the subsequent [simulator-only M7 development continuation](../../architecture/milestones/m07-preflight.md), both dated 2026-09-07. The subsequent [M8 implementation continuation](../../architecture/milestones/m08-continuation.md) permits its bounded simulator work. The owner approved the [M9 Task 1 preset continuation](../../architecture/milestones/m09-presets.md) on 2026-09-09 and the [bounded live-video extension](2026-09-16-video-sources.md) on 2026-09-16. These exceptions do not record milestone acceptance, waive release validation, or permit skipping other milestone gates.
 
 Documentation-only preflight preparation may precede that gate; implementation requires acceptance or an explicit scoped exception above. The [M5 preflight](../../architecture/milestones/m05-preflight.md) refines the existing plan against M2–M4 without recording acceptance. M5 supplies minimal startup controls/persistence and failure classification; M9 expands the UI/preferences, and M12 adds timed automatic recovery to the same application contracts. M4 Windows stress passed at `6c054a7`; the native Windows 11 checks remain pending and mandatory before Windows release acceptance.

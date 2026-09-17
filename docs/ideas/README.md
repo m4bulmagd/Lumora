@@ -13,6 +13,8 @@ For current commitments, use the [PRD](../../prd.md), [implementation authority]
 
 ## Revisit the UI enhancements
 
+**Selected for planning, 2026-09-17:** The owner's C-arm workflow request is now developed in the [C-arm design](../superpowers/specs/2026-09-17-carm-workstation-design.md), [delivery plan](../superpowers/plans/2026-09-17-carm-workstation-roadmap.md), [capture/review tasks](../superpowers/plans/2026-09-17-carm-capture-review.md) and [UI/UX tasks](../superpowers/plans/2026-09-17-carm-workstation-ui.md). Use those documents for selected capture/review/live-reference work. The notes below retain their earlier context; no implementation or milestone acceptance follows from this planning update.
+
 Keep the current roadmap. The [UI proposal](2026-09-12-workstation-ui-enhancements.md) separates refinements to M9 controls/layout, M10 capture and M11 status presentation from future gallery, mask and recording interfaces. Reuse existing features and the related M2 definitions when selecting work.
 
 ## Revisit the M2 ideas

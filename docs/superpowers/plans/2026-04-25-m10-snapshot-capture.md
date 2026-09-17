@@ -6,11 +6,13 @@
 
 **Architecture:** The UI submits an immutable displayed `FrameBundle` to a four-job capture FIFO. A dedicated worker encodes into a same-volume temporary directory and publishes the final directory only when the artifact set is complete.
 
-**Tech Stack:** C++20, OpenCV imgcodecs, Qt Core JSON/path support, standard filesystem, GoogleTest/CTest.
+**Tech Stack:** C++20, OpenCV imgcodecs, Qt Core JSON/path support, Qt Quick/QML frontend, standard filesystem, GoogleTest/Qt Test/CTest.
 
 **Spec:** `docs/superpowers/specs/2026-04-25-xray-imaging-workstation-design.md`
 
 **Clarification baseline:** 2026-09-04; see docs/superpowers/README.md for document authority and hard gates.
+
+**Qt Quick planning update (2026-09-17):** The current frontend is Qt Quick/QML. [CR-1–CR-3 capture/review planning](2026-09-17-carm-capture-review.md) supplies the frame-bound recipe provenance prerequisite and the current adapter/composition path for this milestone. Execute this backend once; the subsequent evaluation-session catalog, independent Reference and saved-image edits are extension work, not added M10 acceptance gates. This documentation update authorizes no implementation and accepts no milestone.
 
 ## Global Constraints
 
@@ -20,11 +22,14 @@
 - Lumora-owned code uses Apache-2.0; dependencies stay pinned and target-scoped, pylon remains optional/external, and only dynamically linked LGPL-compatible Qt modules may enter distributed builds.
 
 - Capture never blocks acquisition, processing, or Qt rendering.
-- Queue capacity is exactly four; the fifth pending request returns `CaptureBusy`.
-- The captured bundle is the exact currently displayed or paused bundle.
+- At most four accepted jobs retain capture bundles, including the active encoder. Reserve one of four bounded terminal-result slots at admission as well; return `CaptureBusy` if either capacity is unavailable. Never overwrite an unconsumed result.
+- The captured bundle is the exact currently displayed or paused Live bundle. The explicit **Capture Live** action never follows focus into Reference; saved-image edits use the separate **Save copy** action in CR-3.
+- The complete recipe must belong to that bundle, including an older paused revision; never substitute current controls or the latest active recipe.
 - Original samples round-trip exactly; metadata identifies source/stored formats.
 - Mono8 Original uses 8-bit PNG; Mono10/Mono12/Mono16 numeric samples use 16-bit PNG with valid-bit/packing/alignment metadata.
 - No incomplete transaction appears under a final capture directory name.
+- Initial Saved/committed acceptance covers application-process crash recovery after closed artifacts and atomic publication, not an untested power-loss guarantee. Document and test the supported platform/filesystem synchronization and metadata publication barriers, propagate sync failures, and require separate evidence for a stronger power-loss claim.
+- A failure known to precede final publication is distinct from an uncertain outcome after rename may have succeeded. Preserve the latter under its existing capture identity for reconciliation; never delete a possibly published capture or silently retry it with a new ID.
 - Cleanup operations remain inside the configured capture root.
 
 ---
@@ -71,6 +76,10 @@ public:
 ```
 
 Serialize frame IDs and capture IDs as decimal strings in JSON to avoid loss through floating-point JSON implementations.
+
+Every accepted ticket yields exactly one terminal result: `Saved`, `FailedBeforePublication`, `CancelledBeforePublication`, or `CommitIndeterminate`. Results retain the capture ID and intended final path; CR-1 also supplies the session key. Completion releases pixel/retention owners independently of UI delivery, but its result slot stays reserved until consumed. Later reconciliation publishes a separately keyed state update, not a second terminal result for the ticket.
+
+Reconciliation also uses bounded admission: one active request and one replaceable pending Check save request, with no busy-loop retries or unbounded in-memory unresolved-key list. Unprocessed keys remain discoverable through validated final paths/catalog pages; bounded keyed updates may coalesce state, but terminal ticket results may not be overwritten. Reconciliation does not retain pixel bundles.
 
 - [ ] **Step 4: Test mode artifact expectations and safe names**
 
@@ -179,6 +188,10 @@ Build `lumora_capture_tests`; expect failure.
 
 Resolve/canonicalize the configured root and candidate paths, reject traversal/reserved names, create temporary directory `<final>.partial-<capture-id>` inside the same root, and use a same-volume directory rename for commit. Default the root through `QStandardPaths` to `%USERPROFILE%\Pictures\Lumora\Captures` on Windows and the corresponding XDG Pictures path on Linux; keep it injectable/configurable through the storage adapter.
 
+Define the storage adapter's commit sequence for each supported filesystem: complete/close artifacts and manifest, perform the documented OS file synchronization operations, use a no-replace same-volume publication, then perform the supported containing-directory/metadata publication barrier or explicitly record its platform limitation. Rename is the publication boundary. Before publication, a known failure can abort the owned partial directory. If rename may have succeeded, or a subsequent barrier fails, report `CommitIndeterminate` with the original key/path, retain all final artifacts and never ordinary-abort or reuse that key. After publication, finish the barriers where possible rather than treating cancellation as rollback. Atomic visibility alone is not evidence of power-loss persistence.
+
+Reconcile an indeterminate save off-thread at that same contained final path: verify matching manifest/key and all required artifacts, and complete the declared barriers where supported before reporting verified completion. Missing, inaccessible or corrupt output remains an explicit unresolved/error state; it is not silently retried under a new identity. On reopen, complete recovered entries are identified as verified on reopen without claiming whether a pre-crash success notification was delivered. Apply equivalent admission guards to ID reservations and session manifests: an uncertain reservation/session is not usable until verified. Reconcile counters against committed captures, never overwrite an existing final capture, and test termination before/after each boundary. Hardware/power-loss acceptance is a separate platform-specific campaign.
+
 - [ ] **Step 4: Implement safe abort/startup cleanup**
 
 Abort closes handles and removes only the exact validated temporary directory. Startup cleanup enumerates only immediate children matching Lumora's `.partial-<id>` pattern and removes entries older than 24 hours after containment revalidation.
@@ -201,12 +214,24 @@ git commit -m "feat(capture): add transactional snapshot storage"
 - Create: `src/capture/src/CaptureService.cpp`
 - Create: `tests/unit/capture/CaptureServiceTests.cpp`
 - Create: `tests/integration/SnapshotCaptureTests.cpp`
-- Modify: `src/application/include/lumora/application/LivePipeline.hpp`
-- Modify: `src/ui/src/ProcessingPanel.cpp`
-- Modify: `src/ui/src/WorkstationController.cpp`
+- Create: `src/presentation/include/lumora/presentation/CaptureController.hpp`
+- Create: `src/presentation/src/CaptureController.cpp`
+- Create: `src/qml/CaptureAdapter.hpp`
+- Create: `src/qml/CaptureAdapter.cpp`
+- Create: `src/qml/qml/WorkstationHeader.qml`
+- Create: `tests/integration/QmlCaptureAdapterTests.cpp`
+- Modify: `src/presentation/include/lumora/presentation/FramePresenter.hpp`
+- Modify: `src/presentation/src/FramePresenter.cpp`
+- Modify: `src/qml/QmlWorkstation.hpp`
+- Modify: `src/qml/QmlWorkstation.cpp`
+- Modify: `src/qml/main.cpp`
+- Modify: `src/qml/qml/Main.qml`
+- Modify: `src/qml/CMakeLists.txt`
+- Modify: `src/CMakeLists.txt`
+- Modify: `tests/CMakeLists.txt`
 
 **Interfaces:**
-- Consumes: four-entry `BoundedQueue<CaptureJob>`, encoder, transaction, manifest, current displayed bundle, and result callback/latest status.
+- Consumes: four-entry `BoundedQueue<CaptureJob>`, accepted-job and terminal-result admission credits, encoder, transaction, manifest, current displayed bundle, and per-ticket result delivery.
 - Produces: capture worker start/stop/join, nonblocking submission, per-ticket result, destination feedback, and shutdown cancellation.
 
 - [ ] **Step 1: Write failing capacity/failure-isolation test**
@@ -219,24 +244,30 @@ Build `lumora_capture_tests lumora_integration_tests`; expect failure.
 
 - [ ] **Step 3: Implement worker and transaction order**
 
-For each job: begin; encode required original/enhanced/preview; build manifest using successful artifact records; write manifest last; flush/close; commit; publish success. Any failure aborts and publishes one failure result. Catch exceptions at the worker boundary.
+For each job: begin; encode required original/enhanced/preview; build manifest using successful artifact records; write manifest last; flush/close; commit; publish success. Failures known to occur before publication abort and publish one failure result. Exceptions or errors after publication may have occurred produce `CommitIndeterminate`, preserve the key/path and trigger bounded reconciliation; never claim the capture does not exist. Catch exceptions at the worker boundary and preserve the transaction's last known phase.
 
 - [ ] **Step 4: Integrate exact displayed bundle**
 
-`WorkstationController` obtains the `FramePresenter`'s retained displayed bundle when Capture is clicked. It does not query the latest processing slot again. Paused captures therefore match the visible image exactly.
+`QmlWorkstation` composes `CaptureController` and exposes `CaptureAdapter` as `workstation.capture`. When **Capture Live** is clicked, the controller snapshots the live `FramePresenter`'s acknowledged `presentedBundle()` together with its receipt identity, visible display mode, pause/stale state and frame-bound recipe. The refined plan adds `captureSnapshot()` to take these values atomically on the frontend thread. It does not query the latest processing slot or current controls again. Paused captures therefore match the visible image and historical processing recipe exactly.
+
+Wire `CaptureAdapter::captureLive(QString mode)` for `original`, `processed`, and `both`; show pending count and typed failure or final destination feedback. Disable submission before the first acknowledged frame, during source-context retirement or when storage admission is unavailable. Gallery publication follows only durable success. Widgets controllers are legacy regression surfaces and receive no new product wiring.
+
+Show `Save outcome uncertain — checking` for `CommitIndeterminate`, then its verified or unresolved keyed status. It is not a success thumbnail or an ordinary failed/nonexistent capture. A retry checks that same transaction first; no automatic duplicate capture is submitted. The extension catalog may list the uncertain entry with its truthful state, and promotes it only after verification.
 
 - [ ] **Step 5: Implement deterministic shutdown behavior**
 
-Stop accepting jobs, allow the active transaction to finish or observe cancellation at artifact boundaries, cancel queued tickets with `Cancelled`, join worker, then allow logging/configuration shutdown.
+Stop accepting jobs, allow the active transaction to finish or observe cancellation at artifact boundaries, cancel queued tickets with `CancelledBeforePublication`, join worker, then allow logging/configuration shutdown. Keep capture-held context/pool owners alive until those jobs release them; coordinate `QmlWorkstation`'s existing renderer retirement receipts before final context destruction. Drain shutdown asynchronously rather than blocking the GUI event loop on a renderer receipt. The four accepted-job limit includes the active encoder, so a blocked worker cannot retain five bundles.
+
+Use the capture/review plan's explicit generation-scoped capture-retention registry independently of renderer acknowledgement. Binding and starting a new Live context may complete while one old context is retained for saving; a further resource replacement remains unavailable until the old capture leases release. Cancellation after publication cannot delete that transaction or turn its result into `CancelledBeforePublication`.
 
 - [ ] **Step 6: Run end-to-end capture matrix**
 
-For Live and Paused, test Original/Processed/Both, matching IDs, Mono8/U16 Original file type and exact round-trip, native-orientation enhanced U16, oriented screen-equivalent preview U8, release/pause/orientation/source-format manifest content, queue full, disk full, permission, destination removal, and shutdown during each artifact.
+For Live and Paused, test Original/Processed/Both, matching IDs, paused-frame historical recipe after a newer activation, focus remaining on Reference during Capture Live, pending versus completed renderer tickets, Mono8/U16 Original file type and exact round-trip, native-orientation enhanced U16, oriented screen-equivalent preview U8, release/pause/orientation/source-format manifest content, queue/result capacity, disk full, permission, destination removal, and shutdown during each artifact. Inject rename-success followed by barrier failure; verify retained identity, no destructive abort, bounded reconciliation and restart/retry without duplicate capture IDs.
 
 - [ ] **Step 7: Commit complete snapshot feature**
 
 ```powershell
-git add src/capture src/application src/ui tests/unit/capture tests/integration/SnapshotCaptureTests.cpp
+git add src/capture src/presentation src/qml src/CMakeLists.txt tests/CMakeLists.txt tests/unit/capture tests/integration/SnapshotCaptureTests.cpp tests/integration/QmlCaptureAdapterTests.cpp
 git commit -m "feat(capture): save transactional traceable snapshots"
 ```
 
@@ -249,3 +280,4 @@ git commit -m "feat(capture): save transactional traceable snapshots"
 - [ ] Manifest records evaluation status, paused/live state, format/valid-bit/packing/alignment, fixed order version, and active installation orientation.
 - [ ] Fifth pending job returns Capture Busy without blocking or allocating an unbounded item.
 - [ ] Injected failures create no final-looking partial capture and do not interrupt live viewing.
+- [ ] Post-publication uncertainty preserves the complete possible capture, reports its identity truthfully and reconciles without silent duplication; only verified outcomes appear as Saved.

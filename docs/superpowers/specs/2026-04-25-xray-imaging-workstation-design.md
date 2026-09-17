@@ -70,16 +70,16 @@ Evaluation builds display `EVALUATION — NOT FOR CLINICAL USE` in normal and fu
 
 ## 3. Architectural approach
 
-Lumora is a modular native application with a framework-independent C++ core and a thin Qt Widgets shell. The executable composition root creates concrete adapters and connects them to application services. Camera, processing, display, and storage paths communicate using explicit immutable data and bounded exchanges.
+Lumora is a modular native application with a framework-independent C++ core and a thin Qt Quick/QML frontend. The executable composition root creates concrete adapters and connects them to application services. Camera, processing, display, and storage paths communicate using explicit immutable data and bounded exchanges.
 
-**Presentation amendment (2026-09-13):** The owner selected Qt Quick/QML for the next frontend, as recorded in [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md). Widgets remains the implemented baseline and behavioral reference. The [migration design](2026-09-13-qt-quick-qml-migration-design.md) proposes a separate optional frontend using shared C++ presentation policy; its target layout, renderer protocol and staged implementation remain unimplemented. This decision preserves the camera, processing, frame ownership, startup, persistence and release contracts below and supplies no new verification or milestone acceptance.
+**Presentation implementation update (2026-09-17):** The owner's 2026-09-13 decision in [ADR 0001](../../adr/0001-qt-quick-qml-frontend.md) is implemented. The original [migration design](2026-09-13-qt-quick-qml-migration-design.md) remains a dated proposal; the [ticketed Quick renderer](../../architecture/milestones/qml-renderer-experiment.md), [QML-only workstation](../../architecture/milestones/qml-only-workstation.md) and [saved layout](../../architecture/milestones/qml-layout.md) have separate source-bound evidence. The normal `lumora_app` is QML, using shared C++ presentation policy. Widgets remains an opt-in legacy regression surface. This status correction preserves the camera, processing, frame ownership, startup, persistence and release contracts; it does not claim new runtime verification or milestone acceptance.
 
 The selected approach is preferred over a Qt-centric frame pipeline because queued signal delivery can obscure backpressure and can accumulate stale frame events. It is preferred over an initial lock-free/GPU graph because that design adds complexity before profiling shows it is needed. Qt signals remain appropriate for low-frequency state notifications and commands; live frames use bounded latest-value slots.
 
 Architectural invariants are:
 
 1. Only the Basler adapter includes pylon headers or exposes pylon concepts.
-2. Only the UI module owns or manipulates widgets.
+2. Only frontend modules own or manipulate QML items, windows or legacy widgets; shared presentation policy remains independent of those surfaces.
 3. No camera SDK call, image algorithm, encoder, or file operation executes on the UI thread.
 4. A `RawFrame` is immutable after publication.
 5. A processed representation never aliases mutable original pixels.
@@ -93,6 +93,8 @@ Architectural invariants are:
 13. The fixed processing order and installation orientation are versioned data; operators can adjust allowed values but cannot reorder stages or change orientation while streaming.
 
 ## 4. Repository and build structure
+
+The tree includes both existing modules and planned milestone destinations, such as capture and Basler; it is not an implementation checklist.
 
 ```text
 Lumora/
@@ -117,12 +119,16 @@ Lumora/
 |   |-- camera/
 |   |   |-- api/
 |   |   |-- simulator/
+|   |   |-- media/
 |   |   `-- basler/
 |   |-- processing/
 |   |-- capture/
 |   |-- configuration/
 |   |-- diagnostics/
 |   |-- application/
+|   |-- presentation/
+|   |-- qml/
+|   |-- app/
 |   `-- ui/
 |-- tests/
 |   |-- unit/
@@ -150,16 +156,20 @@ The source directories correspond to focused CMake library targets:
 - `lumora_core`: frame/value types, result/error types, memory pools, latest-value exchange, clocks, and bounded queues. It has no Qt, OpenCV, or pylon dependency.
 - `lumora_camera_api`: vendor-neutral descriptors, capabilities, configurations, device/provider contracts, and camera state.
 - `lumora_camera_simulator`: synthetic and sequence-backed cameras plus fault injection.
+- `lumora_camera_media`: Qt Multimedia OS-camera and explicit RTSP/RTSPS ingestion behind the vendor-neutral camera API.
 - `lumora_camera_basler`: pylon runtime, discovery, device lifecycle, format conversion, and parameter mapping.
 - `lumora_processing`: stage contracts, pipeline validation, CPU stages, workspaces, and display mapping.
 - `lumora_capture`: capture jobs, encoders, manifests, storage transaction handling, and storage results.
 - `lumora_configuration`: JSON parsing, validation, migrations, defaults, and atomic persistence.
 - `lumora_diagnostics`: structured log events, sinks, counters, rolling timing windows, and metric snapshots.
 - `lumora_application`: use cases, state machines, workers, reconnection policy, and subsystem coordination.
-- `lumora_ui`: Qt Widgets, presentation controllers, viewport, dialogs, and resource integration.
+- `lumora_presentation`: shared C++ presentation, command, draft and persistence policy plus the renderer protocol.
+- `lumora_quick_renderer`: Qt Quick image sink and render ownership/receipts.
+- `lumora_qml_ui`: QML adapters, controls, layout and workstation composition.
+- `lumora_ui`: legacy Qt Widgets surfaces built only for opt-in regression tests.
 - `lumora_app`: the executable and composition root.
 
-These UI target names describe the Widgets baseline. The proposed QML frontend and shared presentation target require a bounded implementation plan; no new target or build option is available yet. Core, application and processing must remain independent of QML, Quick and Widgets.
+The current source implements the presentation and QML targets. `LUMORA_BUILD_QML_UI` is required for the normal application; `LUMORA_BUILD_LEGACY_WIDGETS_TESTS` defaults off. Core, application and processing remain independent of QML, Quick and Widgets. Capture and Basler target entries remain planned until their own implementation gates are met.
 
 `LUMORA_ENABLE_BASLER` defaults on for Windows production presets and off for simulator-only developer and CI presets. The Basler target is not configured or linked when the option is off. Tests link only the smallest target needed by the behavior under test.
 
@@ -308,7 +318,7 @@ Resuming consumes the freshest available bundle. While `Live`, if no new frame i
 
 For the existing Widgets frontend, successful presentation is the completion of a new source frame's Qt paint path. Receiving a bundle, wrapping its pixels, scheduling an update, or repainting the same source frame does not advance the presentation timestamp. A newly painted bundle whose monotonic host-receipt age already exceeds the deadline remains stale; Resume must not make an old retained slot value appear fresh. Before the first frame, show an explicit waiting/no-image state. A stalled presentation path with a responsive event loop must still update its health indication; a completely blocked UI event loop can only repaint and reevaluate freshness when it resumes. This is an application paint-completion measurement, not a guarantee about physical monitor scan-out.
 
-The QML implementation plan must define the equivalent render-completion boundary and bounded receipts carrying the actual completion timestamp. Delayed GUI receipt delivery must not renew freshness. Pause ordering must keep the visibly frozen bundle and reported bundle identical; retired-session receipts cannot replace it. These renderer checks remain future work.
+The implemented QML sink uses ticketed, bounded receipts carrying the renderer's actual completion timestamp. Delayed GUI receipt delivery does not renew freshness. Pause ordering keeps the visibly frozen bundle and reported bundle identical; retired-session receipts cannot replace it. The [renderer record](../../architecture/milestones/qml-renderer-experiment.md) and [integrated QML record](../../architecture/milestones/qml-live.md) retain their exact-source checks and platform limits; physical scan-out and native Windows acceptance remain separate.
 
 This separation allows instant fresh resume without coupling viewport or presentation actions to camera ownership.
 
@@ -454,7 +464,7 @@ The Widgets baseline specifies the following workstation layout; the selected QM
 - A compact footer with Fit, 100%, zoom, fullscreen, and optional health information.
 - Separate camera configuration and diagnostics dialogs/panels for less frequent operations.
 
-In the Widgets design, `MainWindow` owns layout. `WorkstationController` translates UI intent to application commands and exposes immutable presentation state. `ImageViewport` owns painting and viewport transforms. `ProcessingPanel` edits complete pipeline definitions. `CameraPanel` consumes only camera descriptors, capabilities, and application configurations. The QML migration proposes extracting shared C++ policy before replacing these widget adapters; QML must not duplicate command admission, confirmation or persistence rules.
+In the historical Widgets design, `MainWindow` owns layout, `WorkstationController` translates intent, `ImageViewport` paints, and `ProcessingPanel` edits complete pipeline definitions. The current QML frontend uses `QmlWorkstation`, its typed adapters and `QuickImageItem` over the extracted shared presentation policy. QML does not duplicate command admission, confirmation or persistence rules. Legacy widget adapters remain regression consumers of that policy.
 
 ### 11.2 Viewer behavior
 
@@ -469,7 +479,7 @@ In the Widgets design, `MainWindow` owns layout. `WorkstationController` transla
 - Live presentation applies the mandatory stale-frame deadline and `STALE IMAGE / NOT LIVE` overlay.
 - Fullscreen hides nonessential controls but retains evaluation, paused/stale, orientation, and live/error state; Escape exits.
 
-The existing Widgets `ImageViewport` uses `QPainter` with `QImage::Format_Grayscale8`. Each `QImage` external-memory view retains the owning display-buffer lease for the full paint lifetime. The proposed Quick adapter must retain the same immutable Gray8 source contract and verify its upload, ownership and completion behavior before replacement. It must not apply a second tonal or orientation transform. The format-aware rendering boundary keeps application and processing code independent of the adapter. The evaluation renderer is not represented as diagnostic-grade; a future clinical release must validate the monitor, renderer, calibration, ambient light, and viewing conditions.
+The legacy Widgets `ImageViewport` uses `QPainter` with `QImage::Format_Grayscale8`; each external-memory view retains its display-buffer lease for the paint lifetime. The implemented `QuickImageItem` retains the same immutable Gray8 source contract, with ticketed upload/completion and retirement ownership documented in the [renderer record](../../architecture/milestones/qml-renderer-experiment.md). Neither adapter applies a second tonal or orientation transform. The format-aware rendering boundary keeps application and processing code independent of the adapter. The evaluation renderer is not represented as diagnostic-grade; a future clinical release must validate the monitor, renderer, calibration, ambient light, and viewing conditions.
 
 ### 11.3 Controls and presets
 
@@ -490,7 +500,7 @@ The capture request retains the exact currently displayed `FrameBundle`. The cap
 The initial layout is:
 
 ```text
-20260425_143052_381_<serial>_<frame-id>/
+20260425_143052_381_<serial>_<capture-id>/
 |-- original.png         # Original or Both; stored depth is declared in metadata
 |-- enhanced_u16.png     # Processed or Both
 |-- preview_u8.png       # Screen-equivalent preview for Processed or Both
@@ -513,11 +523,13 @@ The Original PNG stores immutable native-orientation sensor samples without norm
 
 Disk full, destination loss, permission denial, encoder failure, and rename failure produce distinct typed results. Temporary artifacts are retained with a clearly incomplete suffix only when retaining them aids recovery; otherwise they are removed on the next safe cleanup pass. No cleanup targets paths outside the configured capture root.
 
+The [2026-09-17 capture plan](../plans/2026-09-17-carm-capture-review.md) adds reserved capture IDs and, for session catalogs, session identity to final names/manifests. [M10](../plans/2026-04-25-m10-snapshot-capture.md) defines verified publication separately from `CommitIndeterminate`: if rename may have succeeded before an error, preserve and reconcile that same key/path instead of deleting it or silently duplicating the save. Known pre-publication failures may abort their partial directory. Saved denotes the documented process-crash recovery contract, not untested power-loss persistence.
+
 ### 12.2 Recording boundary
 
 A future `ISequenceRecorder` consumes a separate bounded branch from acquisition or processing. It owns its own memory pool, queue, writer thread, manifest, and backpressure policy. A requirement for lossless recording must be validated against sustained camera payload and disk bandwidth; it cannot be achieved by allowing an unbounded queue. When recording cannot sustain input, policy must explicitly stop with an error, reduce the configured acquisition rate, or record counted gaps. It must never delay the live path.
 
-Container, codec, original-versus-processed content, loss policy, and audio are not selected in this design.
+The [2026-09-17 C-arm extension](2026-09-17-carm-workstation-design.md#7-scene-and-event-boundaries) supersedes the original open content decision: the owner selected original incoming frames plus processing settings. CR-5 proposes bounded lossless per-frame PNG and a manifest, subject to measured profile acceptance, with counted recording gaps or incomplete termination on failure. It cannot automatically reduce acquisition FPS or change the Live recipe to catch up. General video containers/codecs, enhanced-display recording and audio are not selected.
 
 ## 13. Configuration and presets
 
@@ -754,6 +766,8 @@ Acceptance: the feasible free-running camera mode meets the agreed acquisition/d
 | Display scaling differences | 100% view is misunderstood | Define logical-pixel behavior and document Windows scaling. |
 
 ## 19. Deferred decisions
+
+**Planning update, 2026-09-17:** The [C-arm workstation extension](2026-09-17-carm-workstation-design.md) now develops future live/reference, session review, dual-monitor, cine and event workflows. The [phased plan](../plans/2026-09-17-carm-workstation-roadmap.md) identifies their dependencies and unresolved device/resource decisions. They remain planned, not implemented or accepted. The list below records the original architecture's deferred decisions; the extension narrows them without changing the current evaluation release boundaries or accepting hardware gates.
 
 The architecture reserves boundaries but does not select:
 

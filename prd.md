@@ -12,6 +12,8 @@ The evaluation release is the scope of the numbered implementation milestones. C
 
 The documentation authority, approved decision summary, and unresolved hard gates are indexed in `docs/superpowers/README.md`.
 
+**C-arm workflow planning update (2026-09-17):** The owner requested a plan for capture, independent Live/Reference review, saved-image processing, cine and a familiar modern workstation UI. The [C-arm design](docs/superpowers/specs/2026-09-17-carm-workstation-design.md) and [phased delivery plan](docs/superpowers/plans/2026-09-17-carm-workstation-roadmap.md) now track these requirements. This is a planning extension, not an implementation or release-acceptance record; existing M1–M14 gates and v1 clinical-data/equipment-control exclusions remain. The new CR phase IDs do not renumber the milestones.
+
 ## 1. Product overview
 
 Lumora is a native Windows desktop application that acquires a live monochrome image stream from a modern GigE/GenICam camera attached to an existing X-ray imaging system.
@@ -21,6 +23,8 @@ The system is intended to replace or modernize an older analog video chain in wh
 The new system uses a digital industrial camera connected directly to the Windows workstation through Ethernet.
 
 The application receives the camera frames, performs configurable real-time image enhancement and displays the resulting image with minimal latency.
+
+The primary future workstation workflow is C-arm imaging: a continuing Live view beside an independently selected Reference image or recorded scene. Either two panes on one monitor or two assigned monitors may provide these roles. Existing Original/Enhanced Compare remains a comparison of representations of the same frame. The implemented flexible-input extension also accepts supported OS cameras and explicit RTSP/RTSPS streams; it does not establish compatibility with a particular C-arm or replace the pending direct-camera hardware gate.
 
 
 ---
@@ -303,6 +307,8 @@ Metadata should include:
 ---
 
 # 12. Recording
+
+The [CR-5 recording phase](docs/superpowers/plans/2026-09-17-carm-workstation-roadmap.md#4-cr-5--bounded-scene-capture-and-playback) now defines the planning work for bounded scene capture, timestamp-aware playback and selected-frame extraction. Production Record controls remain absent until the focused recording specification, measured resource profile and implementation are verified. Retrospective last-scene recall is separate CR-6 work.
 
 The architecture shall allow future recording of live sequences.
 
@@ -747,6 +753,19 @@ The main design principle is:
 The UI should resemble a dedicated imaging workstation rather than a general-purpose desktop application or developer camera utility.
 ---
 
+## 19.15 C-arm workstation extension requirements (planned)
+
+The [C-arm design](docs/superpowers/specs/2026-09-17-carm-workstation-design.md) defines CARM-01–CARM-12 and owns the detailed interaction contract. These are planned extensions, not claims about current functionality:
+
+- **Capture and library:** Capture Live saves the exact completed Live/paused frame with its historical recipe. Only durable successes appear as saved captures. Non-patient test sessions can be reopened without a connected source.
+- **Independent reference:** Live continues beside a selected saved still/scene. Lock reference blocks automatic following while allowing explicit browsing. Selecting reference content does not stop, restart or reconfigure the source.
+- **Saved-image editing:** Reference adjustments have independent settings, preserve Original pixels and save a derived copy. Unsaved edits cannot be overwritten by automatic capture following. Capture Live never changes target based on focus.
+- **UI/UX and displays:** Use the existing QML frontend with labelled Live/Reference roles, capture strip, target-specific inspector, clear states and optional assigned monitor roles. Preserve critical overlays and usable fallback under DPI/layout/screen changes.
+- **Scene and hold:** Specify bounded recording/replay and event-aware hold separately. Live video activity, camera integration time and X-ray radiation state are different concepts; unknown radiation state remains unknown.
+- **Later scope:** Display masks, measurements/annotations, temporal processing/calibration and clinical/DICOM workflows have separate entry criteria. Planning them does not remove current exclusions or validate clinical use.
+
+See the [capture/review plan](docs/superpowers/plans/2026-09-17-carm-capture-review.md) and [UI implementation plan](docs/superpowers/plans/2026-09-17-carm-workstation-ui.md) for the first delivery tasks.
+
 # 20. Error handling
 
 The application must gracefully handle:
@@ -922,16 +941,16 @@ The evaluation release UI and operator documentation are English only. User-visi
 
 # 26. Security
 
-The evaluation release is local-only and must not acquire or store real patient data. Only phantoms, test objects, synthetic frames, and properly anonymized sequences are permitted.
+The evaluation release runs and stores its workstation data locally and must not acquire or store real patient data. Only phantoms, test objects, synthetic frames, and properly anonymized sequences are permitted. The approved live-video extension permits camera/source ingestion over RTSP/RTSPS; it does not add remote workstation access or a cloud service.
 
 It requires:
 
 - no cloud account
-- no remote server
-- no remote camera access
+- no hosted workstation or cloud server
+- no remote access to or control of the Lumora workstation
 - no internet dependency during normal operation
 
-Networking should initially be restricted to camera communication.
+Networking is restricted to camera/source communication, including explicitly configured RTSP/RTSPS endpoints. A source may require authentication; those credentials remain session-only and are separate from the saved non-secret source address. This does not introduce application accounts or patient services.
 
 Lumora-owned source code is licensed under Apache-2.0. Distributed evaluation builds dynamically link only Qt modules available under LGPL-compatible terms and include the required license texts, notices, source/relink information, dependency inventory, and software bill of materials. A qualified license review is required before external distribution.
 
@@ -946,8 +965,8 @@ The following are intentionally excluded:
 - patient management
 - modality worklists
 - cloud storage
-- remote access
-- accounts/authentication
+- remote access to or control of the workstation
+- application accounts/authentication (camera/source session credentials are permitted by the approved video-input extension)
 - automatic/self-update
 - web application
 - mobile application

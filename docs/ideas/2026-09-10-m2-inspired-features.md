@@ -4,6 +4,8 @@ Feature proposal · 10 September 2026
 
 **Status:** Saved for future inspiration; not scheduled or approved for implementation.
 
+**2026-09-17 follow-up:** F01/F02/F06/F07 and related UI needs are now mapped into the [C-arm design](../superpowers/specs/2026-09-17-carm-workstation-design.md) and [delivery plan](../superpowers/plans/2026-09-17-carm-workstation-roadmap.md). F03/F04/F05/F08 remain individually scoped later tracks there. This is promotion into planning, not implementation or release acceptance; preserve these original observations as provenance.
+
 **Source:** User-supplied “M2-inspired features for Lumora” proposal, dated 10 September 2026. Feature IDs F01–F08 are local to this proposal.
 
 **Collection:** [Future product ideas](README.md).

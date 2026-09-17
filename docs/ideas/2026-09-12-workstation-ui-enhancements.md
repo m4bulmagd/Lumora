@@ -4,6 +4,8 @@ Future-planning proposal · 12 September 2026
 
 **Status:** Saved at the user's request for future planning; not scheduled for implementation.
 
+**2026-09-17 follow-up:** Selected capture/review ideas are developed in the [C-arm workstation design](../superpowers/specs/2026-09-17-carm-workstation-design.md) and [UI/UX plan](../superpowers/plans/2026-09-17-carm-workstation-ui.md). The newer plan adds independent Live/Reference contexts and supersedes this proposal's single-viewer review direction for that work. This document remains historical inspiration, not a second implementation backlog.
+
 **Direction:** Keep the current roadmap. Refine the interface around a large image, accessible everyday controls, and clear viewing/capture actions. Add review and recording interfaces when their underlying capabilities are available.
 
 **Source:** The September 2026 discussion comparing Lumora with [Microvision Professional](https://microvision-software.com/en/microvision-professional/). Microvision's published feature descriptions informed the comparison; the layout below is a proposal for Lumora, not a reproduction or verified description of Microvision's screens.
